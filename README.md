@@ -9,6 +9,14 @@
 ![Workflow](https://img.shields.io/badge/下游衔接-Praat%20%7C%20PhonTracer-4F46E5?style=flat-square)
 ![Privacy](https://img.shields.io/badge/运行架构-纯本地离线存储-374151?style=flat-square)
 
+[**在线体验交互式工作台导览（GitHub Pages）→**](https://kasumikitsune.github.io/PhonAcq/) · [**下载最新安装包（Releases）→**](https://github.com/KasumiKitsune/PhonAcq/releases/latest)
+
+<br/>
+
+<a href="https://kasumikitsune.github.io/PhonAcq/">
+  <img src="./docs/images/hero-studio-preview.svg" alt="PhonAcq 主工作台矢量界面预览" width="100%" />
+</a>
+
 </div>
 
 ---

@@ -1,6 +1,7 @@
 pluginManagement {
+  val useAliyunMirror = System.getenv("CI") == null && !System.getProperty("os.name").orEmpty().lowercase().contains("linux")
   repositories {
-    if (System.getenv("CI") == null) {
+    if (useAliyunMirror) {
       maven { url = uri("https://maven.aliyun.com/repository/google") }
       maven { url = uri("https://maven.aliyun.com/repository/public") }
       maven { url = uri("https://maven.aliyun.com/repository/gradle-plugin") }
@@ -20,9 +21,10 @@ pluginManagement {
 plugins { id("org.gradle.toolchains.foojay-resolver-convention") version "1.0.0" }
 
 dependencyResolutionManagement {
+  val useAliyunMirror = System.getenv("CI") == null && !System.getProperty("os.name").orEmpty().lowercase().contains("linux")
   repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
   repositories {
-    if (System.getenv("CI") == null) {
+    if (useAliyunMirror) {
       maven { url = uri("https://maven.aliyun.com/repository/google") }
       maven { url = uri("https://maven.aliyun.com/repository/public") }
     }

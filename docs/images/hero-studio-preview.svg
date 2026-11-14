@@ -1,0 +1,346 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 700" width="1200" height="700" role="img" aria-label="PhonAcq 田野语音与方言字表采录系统 界面总览">
+  <defs>
+    <style>
+      .f-sans { font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "HarmonyOS Sans SC", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif; }
+      .f-mono { font-family: "JetBrains Mono", "SF Mono", Consolas, Menlo, monospace; }
+    </style>
+    <clipPath id="windowClip">
+      <rect x="16" y="14" width="1168" height="672" rx="18" />
+    </clipPath>
+    <clipPath id="specClip">
+      <rect x="866" y="182" width="292" height="176" rx="10" />
+    </clipPath>
+  </defs>
+
+  <!-- Outer Ambient Canvas -->
+  <rect width="1200" height="700" rx="22" fill="#E2E8F0" />
+
+  <!-- Main Desktop Studio Window -->
+  <g clip-path="url(#windowClip)">
+    <rect x="16" y="14" width="1168" height="672" rx="18" fill="#F1F5F9" />
+
+    <!-- Desktop Window Header + Studio Shortcut Bar -->
+    <rect x="16" y="14" width="1168" height="52" fill="#FFFFFF" />
+    <line x1="16" y1="66" x2="1184" y2="66" stroke="#CBD5E1" stroke-width="1" />
+
+    <!-- Official PhonAcq Pebble Emblem -->
+    <g transform="translate(32, 24)">
+      <rect x="0" y="0" width="32" height="32" rx="11" fill="#FFFFFF" stroke="#DCE4EC" stroke-width="1.2" />
+      <circle cx="16" cy="16" r="10.2" fill="none" stroke="#00ACC1" stroke-width="3.2" stroke-dasharray="25 7" />
+      <line x1="11.2" y1="13" x2="11.2" y2="19" stroke="#F59E0B" stroke-width="2.1" stroke-linecap="round" />
+      <line x1="14.4" y1="10.5" x2="14.4" y2="21.5" stroke="#F59E0B" stroke-width="2.1" stroke-linecap="round" />
+      <line x1="17.6" y1="11.8" x2="17.6" y2="20.2" stroke="#F59E0B" stroke-width="2.1" stroke-linecap="round" />
+      <line x1="20.8" y1="13.8" x2="20.8" y2="18.2" stroke="#F59E0B" stroke-width="2.1" stroke-linecap="round" />
+    </g>
+    <text x="72" y="45" class="f-sans" font-size="15" font-weight="800" fill="#0F172A">PhonAcq</text>
+    <rect x="142" y="31" width="44" height="19" rx="6" fill="#DBEAFE" />
+    <text x="164" y="44" text-anchor="middle" class="f-mono" font-size="10.5" font-weight="700" fill="#1E3A8A">v2.0.1</text>
+
+    <!-- Soundcard Selector Pill -->
+    <rect x="202" y="26" width="214" height="28" rx="9" fill="#F8FAFC" stroke="#CBD5E1" />
+    <circle cx="218" cy="40" r="4.5" fill="#0F766E" />
+    <text x="230" y="44" class="f-sans" font-size="11.5" font-weight="600" fill="#0F172A">Zoom H1n USB · 48 kHz 16-bit</text>
+    <path d="M398 38 L403 43 L408 38" fill="none" stroke="#475569" stroke-width="1.6" stroke-linecap="round" />
+
+    <!-- Center Keycap Shortcut Strip -->
+    <rect x="434" y="26" width="456" height="28" rx="9" fill="#F8FAFC" stroke="#CBD5E1" />
+    <g transform="translate(446, 31)">
+      <rect x="0" y="0" width="44" height="18" rx="4" fill="#FFFFFF" stroke="#CBD5E1" />
+      <text x="22" y="13" text-anchor="middle" class="f-mono" font-size="10" font-weight="700" fill="#1D4ED8">Space</text>
+      <text x="50" y="13" class="f-sans" font-size="11" fill="#475569">录音/停止</text>
+
+      <rect x="110" y="0" width="42" height="18" rx="4" fill="#FFFFFF" stroke="#CBD5E1" />
+      <text x="131" y="13" text-anchor="middle" class="f-mono" font-size="10" font-weight="700" fill="#1D4ED8">← / →</text>
+      <text x="158" y="13" class="f-sans" font-size="11" fill="#475569">上一词/下一词</text>
+
+      <rect x="240" y="0" width="40" height="18" rx="4" fill="#FFFFFF" stroke="#CBD5E1" />
+      <text x="260" y="13" text-anchor="middle" class="f-mono" font-size="10" font-weight="700" fill="#1D4ED8">Enter</text>
+      <text x="286" y="13" class="f-sans" font-size="11" fill="#475569">试听</text>
+
+      <rect x="322" y="0" width="22" height="18" rx="4" fill="#FFFFFF" stroke="#CBD5E1" />
+      <text x="333" y="13" text-anchor="middle" class="f-mono" font-size="10" font-weight="700" fill="#1D4ED8">M</text>
+      <text x="350" y="13" class="f-sans" font-size="11" fill="#475569">全屏看读</text>
+    </g>
+
+    <!-- Right Header Action Pills -->
+    <rect x="906" y="26" width="96" height="28" rx="9" fill="#CCFBF1" stroke="#99F6E4" />
+    <text x="954" y="44" text-anchor="middle" class="f-sans" font-size="11.5" font-weight="700" fill="#134E4A">双机无线互联</text>
+
+    <rect x="1010" y="26" width="76" height="28" rx="9" fill="#DBEAFE" />
+    <text x="1048" y="44" text-anchor="middle" class="f-sans" font-size="11.5" font-weight="700" fill="#1E3A8A">进阶模式</text>
+
+    <rect x="1094" y="26" width="76" height="28" rx="9" fill="#F1F5F9" stroke="#CBD5E1" />
+    <text x="1132" y="44" text-anchor="middle" class="f-sans" font-size="11.5" font-weight="700" fill="#0F172A">归档导出</text>
+
+    <!-- ================= LEFT PANE: PROJECT & WORDLIST SIDEBAR ================= -->
+    <rect x="28" y="78" width="276" height="594" rx="16" fill="#FFFFFF" stroke="#CBD5E1" />
+
+    <!-- Project & Active Speaker Card -->
+    <rect x="40" y="90" width="252" height="86" rx="12" fill="#F8FAFC" stroke="#E2E8F0" />
+    <text x="52" y="111" class="f-sans" font-size="13.5" font-weight="800" fill="#0F172A">苏州方言声韵调与日常词调查</text>
+    <rect x="52" y="121" width="142" height="22" rx="7" fill="#DBEAFE" />
+    <text x="62" y="136" class="f-sans" font-size="11" font-weight="700" fill="#1E3A8A">发音人：沈阿婆 (71岁·女)</text>
+    <rect x="200" y="121" width="80" height="22" rx="7" fill="#CCFBF1" />
+    <text x="240" y="136" text-anchor="middle" class="f-sans" font-size="10.5" font-weight="700" fill="#134E4A">切换 · 2人</text>
+
+    <!-- Progress Bar -->
+    <rect x="52" y="153" width="178" height="6" rx="3" fill="#E2E8F0" />
+    <rect x="52" y="153" width="152" height="6" rx="3" fill="#1D4ED8" />
+    <text x="280" y="159" text-anchor="end" class="f-mono" font-size="10.5" font-weight="700" fill="#1D4ED8">12/14</text>
+
+    <!-- Filter Chips -->
+    <rect x="40" y="186" width="58" height="24" rx="12" fill="#1D4ED8" />
+    <text x="69" y="202" text-anchor="middle" class="f-sans" font-size="11" font-weight="700" fill="#FFFFFF">全部 14</text>
+    <rect x="104" y="186" width="56" height="24" rx="12" fill="#F1F5F9" stroke="#CBD5E1" />
+    <text x="132" y="202" text-anchor="middle" class="f-sans" font-size="11" font-weight="600" fill="#475569">待录 2</text>
+    <rect x="166" y="186" width="64" height="24" rx="12" fill="#F1F5F9" stroke="#CBD5E1" />
+    <text x="198" y="202" text-anchor="middle" class="f-sans" font-size="11" font-weight="600" fill="#475569">图片词卡</text>
+    <rect x="236" y="186" width="56" height="24" rx="12" fill="#F1F5F9" stroke="#CBD5E1" />
+    <text x="264" y="202" text-anchor="middle" class="f-sans" font-size="11" font-weight="600" fill="#0F766E">全表总览</text>
+
+    <!-- Word List Items -->
+    <!-- Item 1 (Selected) -->
+    <rect x="40" y="220" width="252" height="56" rx="12" fill="#EFF6FF" stroke="#1D4ED8" stroke-width="1.6" />
+    <circle cx="58" cy="248" r="9" fill="#1D4ED8" />
+    <path d="M54 248 L57 251 L63 245" fill="none" stroke="#FFFFFF" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" />
+    <text x="75" y="244" class="f-sans" font-size="16" font-weight="800" fill="#0F172A">01 · 衣</text>
+    <text x="75" y="262" class="f-sans" font-size="11" fill="#1E3A8A">[i⁴⁴] 阴平 44 · 衣服</text>
+    <rect x="234" y="236" width="46" height="22" rx="7" fill="#DBEAFE" />
+    <text x="257" y="251" text-anchor="middle" class="f-sans" font-size="10.5" font-weight="700" fill="#1E3A8A">3 遍</text>
+
+    <!-- Item 2 -->
+    <rect x="40" y="284" width="252" height="52" rx="11" fill="#FFFFFF" stroke="#E2E8F0" />
+    <circle cx="58" cy="310" r="8" fill="#CCFBF1" />
+    <path d="M54.5 310 L57 312.5 L62 307.5" fill="none" stroke="#0F766E" stroke-width="1.7" stroke-linecap="round" />
+    <text x="75" y="306" class="f-sans" font-size="15" font-weight="700" fill="#0F172A">05 · 时</text>
+    <text x="75" y="324" class="f-sans" font-size="11" fill="#475569">[zɿ²⁴] 阳平 24 · 清音浊流</text>
+    <text x="276" y="314" text-anchor="end" class="f-mono" font-size="10.5" fill="#0F766E">0.90s</text>
+
+    <!-- Item 3 -->
+    <rect x="40" y="344" width="252" height="52" rx="11" fill="#FFFFFF" stroke="#E2E8F0" />
+    <circle cx="58" cy="370" r="8" fill="#CCFBF1" />
+    <path d="M54.5 370 L57 372.5 L62 367.5" fill="none" stroke="#0F766E" stroke-width="1.7" stroke-linecap="round" />
+    <text x="75" y="366" class="f-sans" font-size="15" font-weight="700" fill="#0F172A">07 · 果</text>
+    <text x="75" y="384" class="f-sans" font-size="11" fill="#475569">[ku⁵¹] 上声 51 · 水果</text>
+    <text x="276" y="374" text-anchor="end" class="f-mono" font-size="10.5" fill="#0F766E">0.86s</text>
+
+    <!-- Item 4 -->
+    <rect x="40" y="404" width="252" height="52" rx="11" fill="#FFFFFF" stroke="#E2E8F0" />
+    <circle cx="58" cy="430" r="8" fill="#CCFBF1" />
+    <path d="M54.5 430 L57 432.5 L62 427.5" fill="none" stroke="#0F766E" stroke-width="1.7" stroke-linecap="round" />
+    <text x="75" y="426" class="f-sans" font-size="15" font-weight="700" fill="#0F172A">09 · 菜</text>
+    <text x="75" y="444" class="f-sans" font-size="11" fill="#475569">[tsʰE⁴¹²] 阴去 412 · 曲折调</text>
+    <rect x="240" y="419" width="40" height="20" rx="6" fill="#F1F5F9" />
+    <text x="260" y="433" text-anchor="middle" class="f-sans" font-size="10" font-weight="700" fill="#475569">2 遍</text>
+
+    <!-- Item 5 (Picture Prompt Card) -->
+    <rect x="40" y="464" width="252" height="54" rx="11" fill="#FFFBEB" stroke="#FDE68A" />
+    <circle cx="58" cy="491" r="8" fill="#FEF3C7" stroke="#D97706" stroke-width="1.2" />
+    <circle cx="58" cy="491" r="3.5" fill="#D97706" />
+    <text x="75" y="487" class="f-sans" font-size="15" font-weight="700" fill="#0F172A">12 · 日头</text>
+    <rect x="148" y="474" width="46" height="17" rx="5" fill="#FEF3C7" />
+    <text x="171" y="486" text-anchor="middle" class="f-sans" font-size="9.5" font-weight="700" fill="#B45309">看图词卡</text>
+    <text x="75" y="506" class="f-sans" font-size="11" fill="#78350F">[niəʔ⁵ dɤ²⁴] 口语词 · 太阳</text>
+
+    <!-- Item 6 (Unrecorded) -->
+    <rect x="40" y="526" width="252" height="50" rx="11" fill="#FFFFFF" stroke="#E2E8F0" stroke-dasharray="4 3" />
+    <circle cx="58" cy="551" r="7.5" fill="none" stroke="#94A3B8" stroke-width="1.6" />
+    <text x="75" y="547" class="f-sans" font-size="15" font-weight="700" fill="#475569">13 · 月亮</text>
+    <text x="75" y="565" class="f-sans" font-size="11" fill="#94A3B8">待采录 · 看图识词</text>
+
+    <!-- Bottom Quick Action Strip in Sidebar -->
+    <rect x="40" y="590" width="252" height="68" rx="12" fill="#F8FAFC" stroke="#E2E8F0" />
+    <text x="54" y="612" class="f-sans" font-size="11.5" font-weight="700" fill="#0F172A">环境底噪与声卡质检</text>
+    <rect x="198" y="598" width="82" height="20" rx="6" fill="#DCFCE7" />
+    <text x="239" y="612" text-anchor="middle" class="f-sans" font-size="10.5" font-weight="700" fill="#166534">底噪 -51 dB 优</text>
+    <text x="54" y="634" class="f-sans" font-size="11" fill="#475569">防吞字预录缓冲 180 ms · 自动留存多遍</text>
+    <text x="54" y="650" class="f-sans" font-size="10.5" fill="#0F766E">支持导入 .xlsx / .docx / .csv 与剪贴板建表</text>
+
+    <!-- ================= CENTER PANE: RECORDING STUDIO CONSOLE ================= -->
+    <rect x="316" y="78" width="526" height="594" rx="16" fill="#FFFFFF" stroke="#CBD5E1" />
+
+    <!-- Studio Sub-header -->
+    <rect x="334" y="94" width="136" height="26" rx="8" fill="#F1F5F9" />
+    <text x="402" y="111" text-anchor="middle" class="f-sans" font-size="11.5" font-weight="700" fill="#475569">阴平 · 闭前元音 (1/14)</text>
+
+    <rect x="478" y="94" width="114" height="26" rx="8" fill="#CCFBF1" />
+    <text x="535" y="111" text-anchor="middle" class="f-sans" font-size="11.5" font-weight="700" fill="#134E4A">已留存 3 遍 · 择优</text>
+
+    <rect x="748" y="94" width="76" height="26" rx="8" fill="#F8FAFC" stroke="#CBD5E1" />
+    <text x="786" y="111" text-anchor="middle" class="f-sans" font-size="11.5" font-weight="700" fill="#0F172A">看读模式</text>
+
+    <!-- Main Target Prompt Card -->
+    <rect x="334" y="132" width="490" height="222" rx="18" fill="#F8FAFC" stroke="#CBD5E1" />
+    <text x="579" y="246" text-anchor="middle" class="f-sans" font-size="92" font-weight="800" fill="#0F172A">衣</text>
+    <text x="579" y="290" text-anchor="middle" class="f-sans" font-size="16" font-weight="600" fill="#475569">阴平 44 · 例词：衣服、衣裳</text>
+
+    <!-- Carrier Sentence Hint Pill -->
+    <rect x="444" y="308" width="270" height="28" rx="9" fill="#FFFFFF" stroke="#E2E8F0" />
+    <text x="579" y="326" text-anchor="middle" class="f-sans" font-size="12" fill="#475569">框架句引导：请读「这个 <tspan font-weight="800" fill="#1D4ED8">衣</tspan> 字」</text>
+
+    <!-- 4-Column IPA Fieldwork Shorthand Drawer -->
+    <rect x="334" y="368" width="490" height="132" rx="14" fill="#F8FAFC" stroke="#E2E8F0" />
+    <text x="350" y="391" class="f-sans" font-size="12" font-weight="800" fill="#0F172A">分发音人国际音标随手记（沈阿婆）</text>
+    <rect x="716" y="376" width="94" height="22" rx="6" fill="#DBEAFE" />
+    <text x="763" y="391" text-anchor="middle" class="f-sans" font-size="10.5" font-weight="700" fill="#1E3A8A">+ 派生文白异读</text>
+
+    <!-- Note Input Box -->
+    <rect x="350" y="402" width="458" height="36" rx="8" fill="#FFFFFF" stroke="#93C5FD" stroke-width="1.4" />
+    <text x="364" y="425" class="f-sans" font-size="13.5" font-weight="600" fill="#0F172A">[i⁴⁴] 擦音轻微，元音平稳饱满</text>
+
+    <!-- Quick IPA Chips -->
+    <g transform="translate(350, 448)">
+      <rect x="0" y="0" width="44" height="24" rx="6" fill="#1D4ED8" />
+      <text x="22" y="16" text-anchor="middle" class="f-sans" font-size="10.5" font-weight="700" fill="#FFFFFF">调值</text>
+
+      <rect x="50" y="0" width="44" height="24" rx="6" fill="#FFFFFF" stroke="#CBD5E1" />
+      <text x="72" y="16" text-anchor="middle" class="f-sans" font-size="10.5" font-weight="600" fill="#475569">声母</text>
+
+      <rect x="100" y="0" width="44" height="24" rx="6" fill="#FFFFFF" stroke="#CBD5E1" />
+      <text x="122" y="16" text-anchor="middle" class="f-sans" font-size="10.5" font-weight="600" fill="#475569">韵母</text>
+
+      <rect x="156" y="0" width="36" height="24" rx="6" fill="#EFF6FF" stroke="#BFDBFE" />
+      <text x="174" y="16" text-anchor="middle" class="f-mono" font-size="11.5" font-weight="700" fill="#1E3A8A">⁴⁴</text>
+
+      <rect x="198" y="0" width="36" height="24" rx="6" fill="#EFF6FF" stroke="#BFDBFE" />
+      <text x="216" y="16" text-anchor="middle" class="f-mono" font-size="11.5" font-weight="700" fill="#1E3A8A">²⁴</text>
+
+      <rect x="240" y="0" width="36" height="24" rx="6" fill="#EFF6FF" stroke="#BFDBFE" />
+      <text x="258" y="16" text-anchor="middle" class="f-mono" font-size="11.5" font-weight="700" fill="#1E3A8A">⁵¹</text>
+
+      <rect x="282" y="0" width="42" height="24" rx="6" fill="#EFF6FF" stroke="#BFDBFE" />
+      <text x="303" y="16" text-anchor="middle" class="f-mono" font-size="11.5" font-weight="700" fill="#1E3A8A">⁴¹²</text>
+
+      <rect x="330" y="0" width="36" height="24" rx="6" fill="#EFF6FF" stroke="#BFDBFE" />
+      <text x="348" y="16" text-anchor="middle" class="f-mono" font-size="11.5" font-weight="700" fill="#1E3A8A">ʔ⁵</text>
+
+      <rect x="372" y="0" width="44" height="24" rx="6" fill="#CCFBF1" />
+      <text x="394" y="16" text-anchor="middle" class="f-sans" font-size="10.5" font-weight="700" fill="#134E4A">白读</text>
+
+      <rect x="422" y="0" width="36" height="24" rx="6" fill="#CCFBF1" />
+      <text x="440" y="16" text-anchor="middle" class="f-sans" font-size="10.5" font-weight="700" fill="#134E4A">文读</text>
+    </g>
+
+    <!-- Input Level Meter + Quality Pill -->
+    <rect x="334" y="514" width="490" height="36" rx="10" fill="#F8FAFC" stroke="#E2E8F0" />
+    <text x="350" y="536" class="f-sans" font-size="11.5" font-weight="700" fill="#475569">电平监测</text>
+    <rect x="408" y="527" width="246" height="10" rx="5" fill="#E2E8F0" />
+    <rect x="408" y="527" width="174" height="10" rx="5" fill="#0F766E" />
+    <text x="664" y="536" class="f-mono" font-size="11" font-weight="700" fill="#0F766E">-11.4 dBFS</text>
+    <rect x="738" y="521" width="74" height="22" rx="6" fill="#DCFCE7" />
+    <text x="775" y="536" text-anchor="middle" class="f-sans" font-size="10.5" font-weight="700" fill="#166534">信噪比良好</text>
+
+    <!-- Bottom Studio Transport Controls -->
+    <rect x="334" y="566" width="112" height="54" rx="14" fill="#F1F5F9" stroke="#CBD5E1" />
+    <text x="390" y="598" text-anchor="middle" class="f-sans" font-size="13.5" font-weight="700" fill="#0F172A">◀ 上一词</text>
+
+    <rect x="458" y="566" width="96" height="54" rx="14" fill="#CCFBF1" stroke="#5EEAD4" />
+    <text x="506" y="598" text-anchor="middle" class="f-sans" font-size="13.5" font-weight="700" fill="#134E4A">▶ 试听</text>
+
+    <!-- Primary Tactile Record Button -->
+    <rect x="566" y="562" width="136" height="62" rx="31" fill="#DC2626" />
+    <circle cx="604" cy="593" r="8" fill="#FFFFFF" />
+    <text x="650" y="598" text-anchor="middle" class="f-sans" font-size="15" font-weight="800" fill="#FFFFFF">开始重录</text>
+
+    <rect x="714" y="566" width="110" height="54" rx="14" fill="#1D4ED8" />
+    <text x="769" y="598" text-anchor="middle" class="f-sans" font-size="13.5" font-weight="700" fill="#FFFFFF">下一词 ▶</text>
+
+    <!-- Recording Mode Strip -->
+    <text x="579" y="650" text-anchor="middle" class="f-sans" font-size="11" fill="#475569">当前操控：点按录音 · 亦可切换「读完停顿自动翻页」或「按住录、松手存」</text>
+
+    <!-- ================= RIGHT PANE: ACOUSTIC INSPECTOR ================= -->
+    <rect x="854" y="78" width="318" height="594" rx="16" fill="#FFFFFF" stroke="#CBD5E1" />
+
+    <text x="870" y="106" class="f-sans" font-size="14" font-weight="800" fill="#0F172A">单字声学参考分析</text>
+    <rect x="1074" y="90" width="84" height="24" rx="7" fill="#DBEAFE" />
+    <text x="1116" y="106" text-anchor="middle" class="f-sans" font-size="11" font-weight="800" fill="#1E3A8A">五度参考 [44]</text>
+
+    <!-- Summary Metric Pills -->
+    <rect x="866" y="124" width="92" height="46" rx="10" fill="#F8FAFC" stroke="#E2E8F0" />
+    <text x="878" y="141" class="f-sans" font-size="10" fill="#475569">基频均值 F0</text>
+    <text x="878" y="160" class="f-mono" font-size="13.5" font-weight="800" fill="#1D4ED8">235 Hz</text>
+
+    <rect x="966" y="124" width="92" height="46" rx="10" fill="#F8FAFC" stroke="#E2E8F0" />
+    <text x="978" y="141" class="f-sans" font-size="10" fill="#475569">第一共振峰 F1</text>
+    <text x="978" y="160" class="f-mono" font-size="13.5" font-weight="800" fill="#0F766E">295 Hz</text>
+
+    <rect x="1066" y="124" width="92" height="46" rx="10" fill="#F8FAFC" stroke="#E2E8F0" />
+    <text x="1078" y="141" class="f-sans" font-size="10" fill="#475569">第二共振峰 F2</text>
+    <text x="1078" y="160" class="f-mono" font-size="13.5" font-weight="800" fill="#D97706">2290 Hz</text>
+
+    <!-- Broadband Spectrogram + Formant Tracks + Pitch Contour -->
+    <g clip-path="url(#specClip)">
+      <rect x="866" y="182" width="292" height="176" fill="#0F172A" />
+      <!-- Subtle Acoustic Grid -->
+      <line x1="866" y1="226" x2="1158" y2="226" stroke="#1E293B" stroke-width="1" />
+      <line x1="866" y1="270" x2="1158" y2="270" stroke="#1E293B" stroke-width="1" />
+      <line x1="866" y1="314" x2="1158" y2="314" stroke="#1E293B" stroke-width="1" />
+
+      <!-- Broadband Formant Energy Bands -->
+      <path d="M892 336 Q960 334 1015 335 T1132 337" fill="none" stroke="#334155" stroke-width="16" stroke-linecap="round" opacity="0.85" />
+      <path d="M892 238 Q965 235 1020 236 T1130 239" fill="none" stroke="#334155" stroke-width="20" stroke-linecap="round" opacity="0.8" />
+      <path d="M894 205 Q965 204 1020 205 T1128 207" fill="none" stroke="#1E293B" stroke-width="14" stroke-linecap="round" opacity="0.9" />
+
+      <!-- F3 Track (Teal Dots) -->
+      <path d="M896 205 C945 203, 1060 204, 1126 207" fill="none" stroke="#2DD4BF" stroke-width="2" stroke-dasharray="4 4" />
+      <!-- F2 Track (Amber) -->
+      <path d="M896 238 C950 235, 1060 236, 1128 239" fill="none" stroke="#F59E0B" stroke-width="2.5" stroke-dasharray="5 3" />
+      <!-- F1 Track (Emerald) -->
+      <path d="M894 335 C950 334, 1065 334, 1130 336" fill="none" stroke="#34D399" stroke-width="2.5" stroke-dasharray="5 3" />
+
+      <!-- F0 Pitch Contour (Crisp Sky-Blue Solid Curve) -->
+      <path d="M896 276 C955 275, 1055 277, 1126 280" fill="none" stroke="#60A5FA" stroke-width="3.6" stroke-linecap="round" />
+
+      <!-- Auto Segmentation Boundaries -->
+      <line x1="892" y1="182" x2="892" y2="358" stroke="#38BDF8" stroke-width="1.2" stroke-dasharray="3 3" />
+      <line x1="1132" y1="182" x2="1132" y2="358" stroke="#38BDF8" stroke-width="1.2" stroke-dasharray="3 3" />
+    </g>
+    <text x="874" y="198" class="f-mono" font-size="9.5" fill="#94A3B8">宽带语图 0–5 kHz · 蓝线 F0 · 橙/绿共振峰</text>
+    <text x="874" y="350" class="f-mono" font-size="9.5" fill="#38BDF8">起音 0.08s</text>
+    <text x="1090" y="350" class="f-mono" font-size="9.5" fill="#38BDF8">收音 0.84s</text>
+
+    <!-- Mini Vowel Space Position Card (F1-F2 Bark) -->
+    <rect x="866" y="372" width="292" height="196" rx="12" fill="#F8FAFC" stroke="#E2E8F0" />
+    <text x="880" y="394" class="f-sans" font-size="12" font-weight="800" fill="#0F172A">全表元音分布格局定位 (F1–F2 Bark)</text>
+
+    <!-- Vowel Quadrilateral Grid -->
+    <polygon points="902,414 1118,414 1086,544 966,544" fill="#FFFFFF" stroke="#CBD5E1" stroke-width="1.2" />
+    <line x1="1010" y1="414" x2="1026" y2="544" stroke="#E2E8F0" stroke-width="1" stroke-dasharray="3 3" />
+    <line x1="924" y1="478" x2="1102" y2="478" stroke="#E2E8F0" stroke-width="1" stroke-dasharray="3 3" />
+
+    <!-- Vowel Ellipses -->
+    <!-- /i/ Highlighted -->
+    <ellipse cx="922" cy="432" rx="20" ry="12" fill="#DBEAFE" stroke="#1D4ED8" stroke-width="2" />
+    <circle cx="922" cy="432" r="4" fill="#1D4ED8" />
+    <text x="948" y="436" class="f-sans" font-size="12" font-weight="800" fill="#1E3A8A">衣 [i]</text>
+
+    <!-- /ɿ/ -->
+    <ellipse cx="1004" cy="442" rx="18" ry="11" fill="#CCFBF1" stroke="#0F766E" stroke-width="1.3" opacity="0.85" />
+    <text x="1004" y="446" text-anchor="middle" class="f-sans" font-size="11" font-weight="700" fill="#134E4A">ɿ</text>
+
+    <!-- /u/ -->
+    <ellipse cx="1094" cy="436" rx="18" ry="12" fill="#CCFBF1" stroke="#0F766E" stroke-width="1.3" opacity="0.85" />
+    <text x="1094" y="440" text-anchor="middle" class="f-sans" font-size="11" font-weight="700" fill="#134E4A">u</text>
+
+    <!-- /E/ -->
+    <ellipse cx="954" cy="488" rx="19" ry="12" fill="#FEF3C7" stroke="#D97706" stroke-width="1.3" opacity="0.9" />
+    <text x="954" y="492" text-anchor="middle" class="f-sans" font-size="11" font-weight="700" fill="#92400E">E</text>
+
+    <!-- /ɑ/ -->
+    <ellipse cx="1046" cy="526" rx="22" ry="12" fill="#F1F5F9" stroke="#64748B" stroke-width="1.3" />
+    <text x="1046" y="530" text-anchor="middle" class="f-sans" font-size="11" font-weight="700" fill="#334155">ɑ</text>
+
+    <!-- Downstream Export Compatibility Strip -->
+    <rect x="866" y="580" width="292" height="78" rx="12" fill="#EFF6FF" stroke="#BFDBFE" />
+    <text x="880" y="602" class="f-sans" font-size="12" font-weight="800" fill="#1E3A8A">一键规范导出下游格式</text>
+    <rect x="880" y="614" width="82" height="28" rx="7" fill="#FFFFFF" stroke="#93C5FD" />
+    <text x="921" y="632" text-anchor="middle" class="f-mono" font-size="10.5" font-weight="700" fill="#1D4ED8">.xlsx 汇总</text>
+    <rect x="970" y="614" width="84" height="28" rx="7" fill="#FFFFFF" stroke="#93C5FD" />
+    <text x="1012" y="632" text-anchor="middle" class="f-mono" font-size="10.5" font-weight="700" fill="#1D4ED8">.TextGrid</text>
+    <rect x="1062" y="614" width="82" height="28" rx="7" fill="#1D4ED8" />
+    <text x="1103" y="632" text-anchor="middle" class="f-mono" font-size="10.5" font-weight="700" fill="#FFFFFF">.teproj</text>
+  </g>
+
+  <!-- Crisp Window Frame Border -->
+  <rect x="16" y="14" width="1168" height="672" rx="18" fill="none" stroke="#94A3B8" stroke-width="1.5" />
+</svg>

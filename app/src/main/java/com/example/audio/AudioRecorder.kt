@@ -9,13 +9,254 @@ import com.example.i18n.S
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import java.io.File
 import java.io.RandomAccessFile
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
+import java.util.concurrent.atomic.AtomicLong
 import kotlin.math.abs
 import kotlin.math.log10
 import kotlin.math.sqrt
+
+/**
+ * Isolates standby pre-roll audio between consecutive word recordings so the tail or second half
+ * of a previous word can never bleed into the start of the next recording.
+ */
+internal class PreRollIsolationGate(
+    private val postStopCooldownMs: Long = 240L,
+    private val quietFramesRequiredAfterStop: Int = 2,
+    private val maxPreRollDurationMs: Int = 110,
+    private val noisyEnvFallbackArmMs: Long = 950L
+) {
+    private val ring = ArrayDeque<ShortArray>(8)
+    private var bufferedSamples: Int = 0
+    private var lastStopCompletedAtMs: Long = 0L
+    private var silenceConfirmedSinceStop: Boolean = true
+    private var consecutiveQuietChunks: Int = 0
+
+    @Synchronized
+    fun clear() {
+        ring.clear()
+        bufferedSamples = 0
+    }
+
+    @Synchronized
+    fun onRecordingStopped(nowMs: Long) {
+        ring.clear()
+        bufferedSamples = 0
+        lastStopCompletedAtMs = nowMs
+        silenceConfirmedSinceStop = false
+        consecutiveQuietChunks = 0
+    }
+
+    @Synchronized
+    fun resetForFreshStandby(nowMs: Long) {
+        ring.clear()
+        bufferedSamples = 0
+        if (lastStopCompletedAtMs > 0L && (nowMs - lastStopCompletedAtMs) < noisyEnvFallbackArmMs) {
+            silenceConfirmedSinceStop = false
+            consecutiveQuietChunks = 0
+        } else {
+            silenceConfirmedSinceStop = true
+            consecutiveQuietChunks = quietFramesRequiredAfterStop
+        }
+    }
+
+    @Synchronized
+    fun offerStandbyChunk(
+        samples: ShortArray,
+        count: Int,
+        sampleRate: Int,
+        nowMs: Long,
+        quietRmsCeiling: Float
+    ) {
+        if (count <= 0) return
+
+        if (lastStopCompletedAtMs > 0L) {
+            val sinceStopMs = (nowMs - lastStopCompletedAtMs).coerceAtLeast(0L)
+            if (sinceStopMs < postStopCooldownMs) {
+                ring.clear()
+                bufferedSamples = 0
+                consecutiveQuietChunks = 0
+                return
+            }
+
+            if (!silenceConfirmedSinceStop) {
+                val rms = computeRms(samples, count)
+                if (rms <= quietRmsCeiling) {
+                    consecutiveQuietChunks++
+                    if (consecutiveQuietChunks >= quietFramesRequiredAfterStop) {
+                        silenceConfirmedSinceStop = true
+                    }
+                } else if (sinceStopMs >= noisyEnvFallbackArmMs) {
+                    // Nearly a full second has elapsed since the previous word ended; safe to arm in noisy outdoor sites
+                    silenceConfirmedSinceStop = true
+                } else {
+                    // Speaker is still finishing the tail of the previous word: keep draining and discarding!
+                    consecutiveQuietChunks = 0
+                    ring.clear()
+                    bufferedSamples = 0
+                    return
+                }
+
+                if (!silenceConfirmedSinceStop) {
+                    return
+                }
+            }
+        }
+
+        val copy = samples.copyOf(count)
+        ring.addLast(copy)
+        bufferedSamples += count
+        trimToMaxDuration(sampleRate)
+    }
+
+    @Synchronized
+    fun consumeForRecordingStart(sampleRate: Int): List<ShortArray> {
+        if (!silenceConfirmedSinceStop || ring.isEmpty()) {
+            ring.clear()
+            bufferedSamples = 0
+            return emptyList()
+        }
+        trimToMaxDuration(sampleRate)
+        val out = ring.toList()
+        ring.clear()
+        bufferedSamples = 0
+        return out
+    }
+
+    private fun trimToMaxDuration(sampleRate: Int) {
+        val maxSamples = ((sampleRate.coerceAtLeast(8000) * maxPreRollDurationMs) / 1000).coerceAtLeast(256)
+        while (bufferedSamples > maxSamples && ring.isNotEmpty()) {
+            val first = ring.first()
+            val excess = bufferedSamples - maxSamples
+            if (excess >= first.size) {
+                ring.removeFirst()
+                bufferedSamples -= first.size
+            } else {
+                val sliced = first.copyOfRange(excess, first.size)
+                ring.removeFirst()
+                ring.addFirst(sliced)
+                bufferedSamples -= excess
+                break
+            }
+        }
+    }
+
+    companion object {
+        fun computeRms(samples: ShortArray, count: Int): Float {
+            if (count <= 0) return 0f
+            var sumSq = 0.0
+            val n = minOf(count, samples.size)
+            for (i in 0 until n) {
+                val v = samples[i].toDouble()
+                sumSq += v * v
+            }
+            return sqrt(sumSq / n).toFloat()
+        }
+    }
+}
+
+/**
+ * Dual-threshold Voice Activity Detector with startup click guard and sustained-onset verification
+ * so dipping tones (214 / 412) and disyllabic words are never split prematurely across two items.
+ */
+internal class SpeechTurnVadTracker(
+    private val vadThreshold: Float,
+    private val lowVolumeThreshold: Float,
+    private val silenceDurationMs: Long,
+    private val startupClickGuardMs: Long = 85L,
+    private val minSustainedSpeechMs: Long = 110L
+) {
+    var hasDetectedSpeech: Boolean = false
+        private set
+
+    var silenceProgress: Float = 0f
+        private set
+
+    private var captureStartMs: Long = -1L
+    private var accumulatedSpeechMs: Long = 0L
+    private var briefOnsetGapMs: Long = 0L
+    private var silenceStartMs: Long = 0L
+    private var ambientFloorRms: Float = 120f
+    private var ambientSamplesCount: Int = 0
+
+    fun step(rms: Float, frameDurationMs: Long, nowMs: Long): Boolean {
+        val frameMs = frameDurationMs.coerceIn(5L, 120L)
+        if (captureStartMs < 0L) {
+            captureStartMs = nowMs
+        }
+        val elapsedFromStart = (nowMs - captureStartMs).coerceAtLeast(0L)
+
+        if (!hasDetectedSpeech) {
+            // Update ambient noise floor estimate on non-speech frames
+            if (rms < vadThreshold * 0.65f) {
+                ambientFloorRms = if (ambientSamplesCount == 0) {
+                    rms.coerceIn(30f, 600f)
+                } else {
+                    (ambientFloorRms * 0.85f + rms * 0.15f).coerceIn(30f, 600f)
+                }
+                ambientSamplesCount++
+            }
+
+            // Guard against initial button/mouse click transient during first 85ms
+            if (elapsedFromStart < startupClickGuardMs && accumulatedSpeechMs == 0L && rms > vadThreshold) {
+                return false
+            }
+
+            if (rms > vadThreshold) {
+                accumulatedSpeechMs += frameMs
+                briefOnsetGapMs = 0L
+                if (accumulatedSpeechMs >= minSustainedSpeechMs) {
+                    hasDetectedSpeech = true
+                    silenceStartMs = 0L
+                    silenceProgress = 0f
+                }
+            } else if (accumulatedSpeechMs > 0L) {
+                // Allow brief <=65ms aspiration/closure dip during syllable onset without losing speech accumulation
+                val onsetContinueFloor = (vadThreshold * 0.45f).coerceAtLeast(lowVolumeThreshold)
+                if (rms > onsetContinueFloor) {
+                    accumulatedSpeechMs += frameMs
+                    if (accumulatedSpeechMs >= minSustainedSpeechMs) {
+                        hasDetectedSpeech = true
+                        silenceStartMs = 0L
+                        silenceProgress = 0f
+                    }
+                } else {
+                    briefOnsetGapMs += frameMs
+                    if (briefOnsetGapMs > 65L) {
+                        accumulatedSpeechMs = 0L
+                        briefOnsetGapMs = 0L
+                    }
+                }
+            }
+            return false
+        }
+
+        // Hysteresis sustain threshold: prevents dipping tones (214/412) or softer 2nd syllables from counting as silence
+        val sustainThreshold = maxOf(
+            lowVolumeThreshold * 1.15f,
+            ambientFloorRms * 2.2f,
+            vadThreshold * 0.36f
+        ).coerceAtMost((vadThreshold * 0.75f).coerceAtLeast(lowVolumeThreshold))
+
+        if (rms > sustainThreshold) {
+            silenceStartMs = 0L
+            silenceProgress = 0f
+            return false
+        }
+
+        if (silenceStartMs == 0L) {
+            silenceStartMs = nowMs
+        }
+        val silenceElapsed = (nowMs - silenceStartMs).coerceAtLeast(0L)
+        val targetSilenceMs = silenceDurationMs.coerceAtLeast(250L)
+        silenceProgress = (silenceElapsed.toFloat() / targetSilenceMs.toFloat()).coerceIn(0f, 1f)
+        return silenceElapsed >= targetSilenceMs
+    }
+}
 
 class AudioRecorder {
     private val tag = "AudioRecorder"
@@ -31,8 +272,16 @@ class AudioRecorder {
     private val audioFormat = AudioFormat.ENCODING_PCM_16BIT
     private var bufferSize = 0
 
+    // Serializes hardware start/stop/standby transitions so overlapping rapid taps never corrupt AudioRecord
+    private val lifecycleMutex = Mutex()
+    private val captureTokenGenerator = AtomicLong(0L)
+    @Volatile
+    private var activeCaptureToken = 0L
+    @Volatile
+    private var activeHardwareToken = 0L
+
     private var audioRecord: AudioRecord? = null
-    private var recordingJob: Job? = null
+    private var activeWriterJob: Job? = null
     private val coroutineScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
     // State Flows for UI monitoring
@@ -68,16 +317,21 @@ class AudioRecorder {
     private val _silenceProgress = MutableStateFlow(0f)
     val silenceProgress = _silenceProgress.asStateFlow()
 
+    @Volatile
     private var lowVolumeThreshold = 250f
+    @Volatile
     private var totalRecordedBytes = 0L
+    @Volatile
     private var sessionMaxPeak = 0
     @Volatile
-    private var lastOutputFile: File? = null
+    private var activeOutputFile: File? = null
 
-    // Genuine Standby Pre-Roll Ring Buffer (~150ms live ambient audio while on Recording Studio)
-    private val standbyRingBuffer = ArrayDeque<ShortArray>(8)
+    // Isolated Standby Pre-Roll Buffer (~110ms max, gated on post-stop cooldown & ambient silence)
+    private val preRollGate = PreRollIsolationGate()
     @Volatile
     private var standbyDesired = false
+    @Volatile
+    private var standbyHandoffRequested = false
     private var standbyJob: Job? = null
     private var standbyAudioRecord: AudioRecord? = null
     @Volatile
@@ -91,42 +345,75 @@ class AudioRecorder {
         lowVolumeThreshold = thresh
     }
 
+    /**
+     * Immediately flips UI recording state off and invalidates the specified capture token
+     * when the user explicitly switches words while recording, preventing any cross-word hangover.
+     */
+    fun markStoppingImmediate(expectedToken: Long = 0L) {
+        val cur = activeCaptureToken
+        if (expectedToken == 0L || cur == expectedToken) {
+            activeCaptureToken = 0L
+            _isRecording.value = false
+            _silenceProgress.value = 0f
+        }
+    }
+
     fun configureHardware(
         targetSampleRate: Int,
         sourceStrategy: String,
         enablePreRoll: Boolean
     ) {
-        val changed = sampleRate != targetSampleRate ||
+        val normalizedRate = if (targetSampleRate in listOf(22050, 44100, 48000)) targetSampleRate else 44100
+        val changed = sampleRate != normalizedRate ||
             audioSourceStrategy != sourceStrategy ||
             preRollEnabled != enablePreRoll
-        sampleRate = if (targetSampleRate in listOf(22050, 44100, 48000)) targetSampleRate else 44100
+        sampleRate = normalizedRate
         audioSourceStrategy = sourceStrategy
         preRollEnabled = enablePreRoll
         if (!enablePreRoll) {
-            stopStandbyLoopInternal()
+            coroutineScope.launch {
+                lifecycleMutex.withLock {
+                    stopStandbyLoopLocked()
+                }
+            }
         } else if (changed && standbyDesired && !_isRecording.value) {
-            stopStandbyLoopInternal()
-            startStandbyLoopIfPossible()
+            coroutineScope.launch {
+                lifecycleMutex.withLock {
+                    if (!_isRecording.value && activeCaptureToken == 0L) {
+                        stopStandbyLoopLocked()
+                        startStandbyLoopLocked()
+                    }
+                }
+            }
         }
     }
 
     /**
-     * Enables or disables lightweight live standby pre-roll buffering (~150ms) when the user is
+     * Enables or disables lightweight live standby pre-roll buffering (~110ms) when the user is
      * actively on a recording screen and [preRollEnabled] is true, eliminating hardware cold-start
      * plosive/sibilant loss without ever bleeding previous-word audio into the next word.
      */
     fun setStandbyPreRollActive(active: Boolean) {
         standbyDesired = active
-        if (!active || !preRollEnabled) {
-            stopStandbyLoopInternal()
-        } else if (!_isRecording.value) {
-            startStandbyLoopIfPossible()
+        coroutineScope.launch {
+            lifecycleMutex.withLock {
+                if (!active || !preRollEnabled) {
+                    stopStandbyLoopLocked()
+                } else if (!_isRecording.value && activeCaptureToken == 0L) {
+                    startStandbyLoopLocked()
+                }
+            }
         }
     }
 
-    private fun startStandbyLoopIfPossible() {
-        if (!standbyDesired || !preRollEnabled || _isRecording.value) return
+    private fun quietCeilingForStandby(): Float = maxOf(lowVolumeThreshold * 1.35f, 420f)
+
+    private fun startStandbyLoopLocked() {
+        if (!standbyDesired || !preRollEnabled || _isRecording.value || activeCaptureToken != 0L) return
         if (standbyJob?.isActive == true) return
+        standbyHandoffRequested = false
+        preRollGate.resetForFreshStandby(System.currentTimeMillis())
+
         standbyJob = coroutineScope.launch {
             var rec: AudioRecord? = null
             try {
@@ -141,25 +428,22 @@ class AudioRecorder {
                 val negotiated = created.sampleRate
                 if (negotiated in 8000..192000) sampleRate = negotiated
 
-                val buf = ShortArray(1024)
-                val maxChunks = ((sampleRate * 160) / (1000 * 1024)).coerceIn(4, 8)
-                synchronized(standbyRingBuffer) { standbyRingBuffer.clear() }
-
-                while (isActive && standbyDesired && preRollEnabled && !_isRecording.value) {
+                val buf = ShortArray(512) // ~11.6ms at 44.1kHz for fine-grained pre-roll & fast handoff
+                while (isActive && standbyDesired && preRollEnabled && !standbyHandoffRequested) {
                     val activeStandby = standbyAudioRecord ?: break
                     val n = activeStandby.read(buf, 0, buf.size)
                     if (n > 0) {
-                        val copy = buf.copyOf(n)
-                        synchronized(standbyRingBuffer) {
-                            while (standbyRingBuffer.size >= maxChunks) {
-                                standbyRingBuffer.removeFirst()
-                            }
-                            standbyRingBuffer.addLast(copy)
-                        }
+                        preRollGate.offerStandbyChunk(
+                            samples = buf,
+                            count = n,
+                            sampleRate = sampleRate,
+                            nowMs = System.currentTimeMillis(),
+                            quietRmsCeiling = quietCeilingForStandby()
+                        )
                     } else if (n < 0) {
                         break
                     } else {
-                        delay(5)
+                        delay(4)
                     }
                 }
             } catch (_: CancellationException) {
@@ -167,7 +451,6 @@ class AudioRecorder {
             } catch (e: Exception) {
                 Log.w(tag, "Standby pre-roll stopped: ${e.message}")
             } finally {
-                // Only release if it was NOT handed off to active audioRecord
                 val currentStandby = rec
                 if (currentStandby != null && currentStandby !== audioRecord) {
                     try {
@@ -182,20 +465,55 @@ class AudioRecorder {
         }
     }
 
-    private fun stopStandbyLoopInternal() {
+    private suspend fun stopStandbyLoopLocked() {
+        standbyHandoffRequested = true
         val job = standbyJob
         standbyJob = null
         val rec = standbyAudioRecord
         standbyAudioRecord = null
-        synchronized(standbyRingBuffer) {
-            standbyRingBuffer.clear()
-        }
+        preRollGate.clear()
         job?.cancel()
         if (rec != null && rec !== audioRecord) {
             try {
                 rec.stop()
+            } catch (_: Exception) {}
+        }
+        try {
+            withTimeoutOrNull(300L) {
+                job?.join()
+            }
+        } catch (_: Exception) {}
+        if (rec != null && rec !== audioRecord) {
+            try {
                 rec.release()
             } catch (_: Exception) {}
+        }
+    }
+
+    /**
+     * Drains any unread PCM samples sitting in the OS/JavaSound kernel buffer at the moment of handoff
+     * so no stale backlog can accumulate beyond the isolated 110ms pre-roll window.
+     */
+    private fun drainHardwareBacklogIntoGate(rec: AudioRecord, currentRate: Int) {
+        val drainBuf = ShortArray(512)
+        var safetyLoops = 0
+        val nowMs = System.currentTimeMillis()
+        val ceiling = quietCeilingForStandby()
+        while (safetyLoops < 32) {
+            safetyLoops++
+            val readCount = try {
+                rec.read(drainBuf, 0, drainBuf.size, AudioRecord.READ_NON_BLOCKING)
+            } catch (_: Exception) {
+                0
+            }
+            if (readCount <= 0) break
+            preRollGate.offerStandbyChunk(
+                samples = drainBuf,
+                count = readCount,
+                sampleRate = currentRate,
+                nowMs = nowMs,
+                quietRmsCeiling = ceiling
+            )
         }
     }
 
@@ -268,9 +586,12 @@ class AudioRecorder {
         vadThreshold: Float,
         silenceDurationMs: Long,
         onAutoNextTriggered: () -> Unit
-    ): Boolean {
-        if (_isRecording.value) return true
+    ): Long {
+        val existingToken = activeCaptureToken
+        if (_isRecording.value && existingToken != 0L) return existingToken
 
+        val myToken = captureTokenGenerator.incrementAndGet()
+        activeCaptureToken = myToken
         _isRecording.value = true
         _silenceProgress.value = 0f
         _elapsedMs.value = 0L
@@ -278,92 +599,127 @@ class AudioRecorder {
         _isClipping.value = false
         _isTooQuiet.value = false
         _waveformPoints.value = emptyList()
-        totalRecordedBytes = 0L
-        sessionMaxPeak = 0
-        lastOutputFile = outputFile
 
-        val prevJob = recordingJob
-        val prevStandbyJob = standbyJob
-        standbyJob = null
-
-        recordingJob = coroutineScope.launch {
-            try {
-                prevJob?.cancelAndJoin()
-            } catch (ignored: Exception) {}
-
-            // Attempt zero-latency handoff from live standby AudioRecord if healthy
-            val handedOffStandby = standbyAudioRecord
-            standbyAudioRecord = null
-            try {
-                prevStandbyJob?.cancelAndJoin()
-            } catch (ignored: Exception) {}
-
-            val livePreRollChunks: List<ShortArray>
-            if (!_isRecording.value) {
-                try {
-                    handedOffStandby?.stop()
-                    handedOffStandby?.release()
-                } catch (_: Exception) {}
-                synchronized(standbyRingBuffer) { standbyRingBuffer.clear() }
-                return@launch
-            }
-
-            if (preRollEnabled &&
-                handedOffStandby != null &&
-                handedOffStandby.state == AudioRecord.STATE_INITIALIZED &&
-                handedOffStandby.recordingState == AudioRecord.RECORDSTATE_RECORDING
-            ) {
-                audioRecord = handedOffStandby
-                _activeSourceLabel.value = standbyLabel
-                livePreRollChunks = synchronized(standbyRingBuffer) {
-                    val list = standbyRingBuffer.toList()
-                    standbyRingBuffer.clear()
-                    list
+        coroutineScope.launch {
+            lifecycleMutex.withLock {
+                // Ensure any leftover writer from a just-ended previous session is completely flushed first
+                val staleWriter = activeWriterJob
+                if (staleWriter != null) {
+                    activeWriterJob = null
+                    activeHardwareToken = 0L
+                    try { audioRecord?.stop() } catch (_: Exception) {}
+                    try { withTimeoutOrNull(1200L) { staleWriter.join() } } catch (_: Exception) {}
+                    try { audioRecord?.release() } catch (_: Exception) {}
+                    audioRecord = null
+                    preRollGate.onRecordingStopped(System.currentTimeMillis())
                 }
-            } else {
+
+                // If user already tapped Stop or switched words while waiting on previous teardown, abort cleanly
+                if (activeCaptureToken != myToken || !_isRecording.value) {
+                    stopStandbyLoopLocked()
+                    if (standbyDesired && preRollEnabled) {
+                        startStandbyLoopLocked()
+                    }
+                    return@withLock
+                }
+
+                totalRecordedBytes = 0L
+                sessionMaxPeak = 0
+                activeOutputFile = outputFile
+
+                // Coordinate zero-bleed handoff from live standby AudioRecord
+                standbyHandoffRequested = true
+                val handedOffStandby = standbyAudioRecord
+                standbyAudioRecord = null
+                val prevStandbyJob = standbyJob
+                standbyJob = null
+
+                if (handedOffStandby != null) {
+                    // Promote reference BEFORE joining standbyJob so its finally-block won't stop/release it
+                    if (preRollEnabled &&
+                        handedOffStandby.state == AudioRecord.STATE_INITIALIZED &&
+                        handedOffStandby.recordingState == AudioRecord.RECORDSTATE_RECORDING
+                    ) {
+                        audioRecord = handedOffStandby
+                    }
+                }
+
                 try {
-                    handedOffStandby?.stop()
-                    handedOffStandby?.release()
+                    withTimeoutOrNull(300L) {
+                        prevStandbyJob?.cancelAndJoin()
+                    }
                 } catch (_: Exception) {}
-                synchronized(standbyRingBuffer) { standbyRingBuffer.clear() }
 
-                try {
-                    audioRecord?.stop()
-                    audioRecord?.release()
-                } catch (ignored: Exception) {}
-                audioRecord = null
+                val livePreRollChunks: List<ShortArray>
+                val preparedRec = audioRecord
+                if (preRollEnabled &&
+                    preparedRec != null &&
+                    preparedRec === handedOffStandby &&
+                    preparedRec.state == AudioRecord.STATE_INITIALIZED &&
+                    preparedRec.recordingState == AudioRecord.RECORDSTATE_RECORDING
+                ) {
+                    _activeSourceLabel.value = standbyLabel
+                    val negotiated = preparedRec.sampleRate
+                    if (negotiated in 8000..192000) sampleRate = negotiated
+                    // Drain any kernel-buffered frames through the post-stop silence gate & cap at 110ms
+                    drainHardwareBacklogIntoGate(preparedRec, sampleRate)
+                    livePreRollChunks = preRollGate.consumeForRecordingStart(sampleRate)
+                } else {
+                    try {
+                        handedOffStandby?.stop()
+                        handedOffStandby?.release()
+                    } catch (_: Exception) {}
+                    preRollGate.clear()
+                    audioRecord = null
 
-                val (rec, label) = createAndStartAudioRecord()
-                audioRecord = rec
-                _activeSourceLabel.value = label
-                livePreRollChunks = emptyList()
+                    val (freshRec, label) = createAndStartAudioRecord()
+                    audioRecord = freshRec
+                    _activeSourceLabel.value = label
+                    livePreRollChunks = emptyList()
+                }
+
+                val activeRec = audioRecord
+                if (activeRec == null ||
+                    activeRec.state != AudioRecord.STATE_INITIALIZED ||
+                    activeRec.recordingState != AudioRecord.RECORDSTATE_RECORDING
+                ) {
+                    Log.e(tag, "AudioRecord initialization or startRecording failed.")
+                    try { activeRec?.release() } catch (_: Exception) {}
+                    audioRecord = null
+                    activeHardwareToken = 0L
+                    if (activeCaptureToken == myToken) {
+                        activeCaptureToken = 0L
+                        _isRecording.value = false
+                    }
+                    return@withLock
+                }
+
+                val negotiatedRate = activeRec.sampleRate
+                if (negotiatedRate in 8000..192000) {
+                    sampleRate = negotiatedRate
+                }
+
+                activeHardwareToken = myToken
+                activeWriterJob = coroutineScope.launch {
+                    writePcmAndMonitor(
+                        sessionToken = myToken,
+                        rec = activeRec,
+                        outputFile = outputFile,
+                        livePreRollChunks = livePreRollChunks,
+                        autoNextEnabled = autoNextEnabled,
+                        vadThreshold = vadThreshold,
+                        silenceDurationMs = silenceDurationMs,
+                        onAutoNextTriggered = onAutoNextTriggered
+                    )
+                }
             }
-
-            val rec = audioRecord
-            if (rec == null || rec.state != AudioRecord.STATE_INITIALIZED || rec.recordingState != AudioRecord.RECORDSTATE_RECORDING) {
-                Log.e(tag, "AudioRecord initialization or startRecording failed.")
-                _isRecording.value = false
-                return@launch
-            }
-
-            val negotiatedRate = rec.sampleRate
-            if (negotiatedRate in 8000..192000) {
-                sampleRate = negotiatedRate
-            }
-
-            writePcmAndMonitor(
-                outputFile = outputFile,
-                livePreRollChunks = livePreRollChunks,
-                autoNextEnabled = autoNextEnabled,
-                vadThreshold = vadThreshold,
-                silenceDurationMs = silenceDurationMs,
-                onAutoNextTriggered = onAutoNextTriggered
-            )
         }
-        return true
+        return myToken
     }
 
     private suspend fun writePcmAndMonitor(
+        sessionToken: Long,
+        rec: AudioRecord,
         outputFile: File,
         livePreRollChunks: List<ShortArray>,
         autoNextEnabled: Boolean,
@@ -387,8 +743,6 @@ class AudioRecorder {
             val byteBufferArray = byteBuffer.array()
             var totalBytesWritten = 0L
 
-            // Write genuine continuous live standby pre-roll frames (~150ms) if available.
-            // Never inject fake digital silence dither or previous-word audio!
             var isFirstWrittenChunk = true
             if (livePreRollChunks.isNotEmpty()) {
                 for (chunk in livePreRollChunks) {
@@ -426,19 +780,21 @@ class AudioRecorder {
                 totalRecordedBytes = totalBytesWritten
             }
 
-            var hasDetectedSpeech = false
-            var silenceStartMs = 0L
+            val vadTracker = SpeechTurnVadTracker(
+                vadThreshold = vadThreshold,
+                lowVolumeThreshold = lowVolumeThreshold,
+                silenceDurationMs = silenceDurationMs
+            )
             val visualPoints = ArrayDeque<Float>(56)
             var consecutiveErrors = 0
             var lastUiEmitMs = 0L
 
-            while (isActive && _isRecording.value) {
-                val activeRec = audioRecord ?: break
-                if (activeRec.recordingState != AudioRecord.RECORDSTATE_RECORDING) {
+            while (isActive && activeCaptureToken == sessionToken && _isRecording.value) {
+                if (rec.recordingState != AudioRecord.RECORDSTATE_RECORDING) {
                     break
                 }
 
-                val readResult = activeRec.read(shortBuffer, 0, shortBuffer.size)
+                val readResult = rec.read(shortBuffer, 0, shortBuffer.size)
                 if (readResult < 0) {
                     consecutiveErrors++
                     Log.w(tag, "AudioRecord.read returned error code: $readResult")
@@ -480,7 +836,6 @@ class AudioRecorder {
                     sessionMaxPeak = currentBlockMax
                 }
 
-                // Append waveform visualization point
                 val peakNorm = (currentBlockMax / 26000f).coerceIn(0.03f, 1f)
                 val rmsNorm = (rms / 10000f).coerceIn(0.03f, 1f)
                 val normalizedPoint = maxOf(peakNorm * 0.7f, rmsNorm)
@@ -489,7 +844,6 @@ class AudioRecorder {
                     visualPoints.removeFirst()
                 }
 
-                // Write shortBuffer to output random access file as bytes (Little-Endian)
                 byteBuffer.clear()
                 for (i in 0 until readResult) {
                     byteBuffer.putShort(shortBuffer[i])
@@ -498,7 +852,6 @@ class AudioRecorder {
                 totalBytesWritten += readResult * 2L
                 totalRecordedBytes = totalBytesWritten
 
-                // Throttle UI StateFlow emissions to ~25Hz (every 38ms) to prevent main-thread recomposition storms
                 val normRms = (rms / 32768f).coerceAtLeast(1e-5f)
                 val frameDbfs = (20.0 * log10(normRms.toDouble())).toFloat().coerceIn(-60f, 0f)
                 val frameClip = currentBlockMax > 30500
@@ -518,29 +871,20 @@ class AudioRecorder {
                     } catch (_: Exception) {}
                 }
 
-                // Voice Activity Detection & Auto-Next
+                // Voice Activity Detection & Auto-Next with dual-threshold hysteresis
                 if (autoNextEnabled) {
-                    if (rms > vadThreshold) {
-                        hasDetectedSpeech = true
-                        silenceStartMs = 0L
-                        _silenceProgress.value = 0f
-                    } else if (hasDetectedSpeech) {
-                        if (silenceStartMs == 0L) {
-                            silenceStartMs = nowMs
+                    val frameMs = ((readResult * 1000L) / sampleRate.coerceAtLeast(8000)).coerceAtLeast(10L)
+                    val reachedEndSilence = vadTracker.step(rms = rms, frameDurationMs = frameMs, nowMs = nowMs)
+                    val progress = vadTracker.silenceProgress
+                    if (shouldEmitUi || progress >= 1f || progress == 0f) {
+                        _silenceProgress.value = progress
+                    }
+                    if (reachedEndSilence) {
+                        Log.d(tag, "Silence threshold reached. Triggering automatic advance.")
+                        withContext(Dispatchers.Main) {
+                            onAutoNextTriggered()
                         }
-                        val silenceElapsed = nowMs - silenceStartMs
-                        val progress = (silenceElapsed.toFloat() / silenceDurationMs).coerceIn(0f, 1f)
-                        if (shouldEmitUi || progress >= 1f) {
-                            _silenceProgress.value = progress
-                        }
-
-                        if (silenceElapsed >= silenceDurationMs) {
-                            Log.d(tag, "Silence threshold reached. Triggering automatic advance.")
-                            withContext(Dispatchers.Main) {
-                                onAutoNextTriggered()
-                            }
-                            break
-                        }
+                        break
                     }
                 } else if (_silenceProgress.value != 0f) {
                     _silenceProgress.value = 0f
@@ -564,61 +908,98 @@ class AudioRecorder {
      *
      * @param tailHangoverMs Optional post-release capture cushion (default `115ms` for manual/hold stops)
      *        so releasing the button right as the speaker finishes a nasal coda or falling tone never clips the tail.
-     *        Pass `0L` when stopping via VAD silence timeout or lifecycle teardown.
+     *        Pass `0L` when stopping via VAD silence timeout, word switch, or lifecycle teardown.
      */
-    suspend fun stopRecording(tailHangoverMs: Long = 115L): RecordingQualityInfo {
-        if (!_isRecording.value && recordingJob == null) {
+    suspend fun stopRecording(
+        tailHangoverMs: Long = 115L,
+        expectedToken: Long = 0L,
+        expectedOutputFile: File? = null
+    ): RecordingQualityInfo {
+        val targetToken = if (expectedToken != 0L) expectedToken else activeCaptureToken
+        if (!_isRecording.value && targetToken == 0L && activeWriterJob == null && expectedOutputFile == null) {
             return RecordingQualityInfo("未录制", 0, 0f, 0)
         }
 
-        if (_isRecording.value && tailHangoverMs > 0L) {
+        if (_isRecording.value && targetToken != 0L && activeCaptureToken == targetToken && tailHangoverMs > 0L) {
             delay(tailHangoverMs.coerceIn(0L, 260L))
         }
 
-        _isRecording.value = false
-        _silenceProgress.value = 0f
-
-        try {
-            audioRecord?.stop()
-        } catch (ignored: Exception) {}
-
-        // Wait for the background writer to finish flushing PCM data and writing the WAV header
-        try {
-            withTimeoutOrNull(1500L) {
-                recordingJob?.join()
-            }
-        } catch (ignored: Exception) {}
-        recordingJob = null
-
-        try {
-            audioRecord?.release()
-        } catch (ignored: Exception) {}
-        audioRecord = null
-
-        // Resume standby pre-roll buffer in background for the next word if still on recording screen
-        if (standbyDesired && preRollEnabled) {
-            startStandbyLoopIfPossible()
+        // Clear global recording state only if it still belongs to the session we are stopping
+        if (targetToken != 0L && activeCaptureToken == targetToken) {
+            activeCaptureToken = 0L
+            _isRecording.value = false
+            _silenceProgress.value = 0f
+        } else if (expectedToken == 0L && activeCaptureToken == 0L) {
+            _isRecording.value = false
+            _silenceProgress.value = 0f
         }
 
-        val outFile = lastOutputFile
-        if (outFile != null && outFile.exists() && outFile.length() > 44L) {
+        var capturedOutFile: File? = expectedOutputFile
+        var capturedPeak = 0
+        var capturedBytes = 0L
+        var capturedRate = sampleRate
+
+        lifecycleMutex.withLock {
+            val shouldStopCurrentHardware = when {
+                targetToken != 0L -> activeHardwareToken == targetToken
+                else -> activeCaptureToken == 0L && activeWriterJob != null
+            }
+
+            if (shouldStopCurrentHardware) {
+                val writer = activeWriterJob
+                activeWriterJob = null
+                activeHardwareToken = 0L
+                val rec = audioRecord
+                audioRecord = null
+
+                try {
+                    rec?.stop()
+                } catch (ignored: Exception) {}
+
+                try {
+                    withTimeoutOrNull(1500L) {
+                        writer?.join()
+                    }
+                } catch (ignored: Exception) {}
+
+                try {
+                    rec?.release()
+                } catch (ignored: Exception) {}
+
+                if (capturedOutFile == null) {
+                    capturedOutFile = activeOutputFile
+                }
+                capturedPeak = sessionMaxPeak.coerceAtLeast(_peakAmplitude.value)
+                capturedBytes = totalRecordedBytes
+                capturedRate = sampleRate
+
+                // Mark stop timestamp & require post-stop cooldown + ambient silence before pre-roll buffers again
+                preRollGate.onRecordingStopped(System.currentTimeMillis())
+
+                if (standbyDesired && preRollEnabled && !_isRecording.value && activeCaptureToken == 0L) {
+                    startStandbyLoopLocked()
+                }
+            }
+        }
+
+        val finalFile = capturedOutFile
+        if (finalFile != null && finalFile.exists() && finalFile.length() > 44L) {
             val report = SpeechQualityEvaluator.evaluate(
-                wavFile = outFile,
+                wavFile = finalFile,
                 lowVolumeRmsThreshold = lowVolumeThreshold
             )
             return RecordingQualityInfo(
                 status = report.primaryStatus,
-                peakAmplitude = report.peakAmplitude.coerceAtLeast(sessionMaxPeak),
+                peakAmplitude = report.peakAmplitude.coerceAtLeast(capturedPeak),
                 avgRms = report.avgSpeechRms,
                 durationMs = report.totalDurationMs
             )
         }
 
-        val peak = sessionMaxPeak.coerceAtLeast(_peakAmplitude.value)
-        val duration = ((totalRecordedBytes * 1000L) / (sampleRate * 2L)).toInt()
+        val duration = ((capturedBytes * 1000L) / (capturedRate.coerceAtLeast(8000) * 2L)).toInt()
         return RecordingQualityInfo(
             status = if (duration < 240) "极短/空音" else "音量过低",
-            peakAmplitude = peak,
+            peakAmplitude = capturedPeak,
             avgRms = 0f,
             durationMs = duration
         )

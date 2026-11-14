@@ -109,6 +109,7 @@ object DesktopAudioDeviceSelector {
                         if (mixer.isLineSupported(info)) {
                             val line = mixer.getLine(info) as TargetDataLine
                             line.open(format, bufferSizeInBytes.coerceAtLeast(4096))
+                            line.flush()
                             _isMicAvailable.value = true
                             return line
                         }
@@ -117,6 +118,7 @@ object DesktopAudioDeviceSelector {
                 if (AudioSystem.isLineSupported(info)) {
                     val line = AudioSystem.getLine(info) as TargetDataLine
                     line.open(format, bufferSizeInBytes.coerceAtLeast(4096))
+                    line.flush()
                     _isMicAvailable.value = true
                     return line
                 }
@@ -278,9 +280,11 @@ class AudioRecord(
         const val STATE_INITIALIZED = 1
         const val RECORDSTATE_STOPPED = 1
         const val RECORDSTATE_RECORDING = 3
+        const val READ_BLOCKING = 0
+        const val READ_NON_BLOCKING = 1
 
         fun getMinBufferSize(sampleRateInHz: Int, channelConfig: Int, audioFormat: Int): Int {
-            return (sampleRateInHz * 2 / 10).coerceAtLeast(4096)
+            return (sampleRateInHz * 2 / 12).coerceAtLeast(4096)
         }
     }
 
@@ -311,6 +315,7 @@ class AudioRecord(
     fun startRecording() {
         val line = targetLine ?: return
         try {
+            line.flush()
             line.start()
             recordingState = RECORDSTATE_RECORDING
         } catch (_: Exception) {
@@ -319,10 +324,23 @@ class AudioRecord(
     }
 
     fun read(audioData: ShortArray, offsetInShorts: Int, sizeInShorts: Int): Int {
+        return read(audioData, offsetInShorts, sizeInShorts, READ_BLOCKING)
+    }
+
+    fun read(audioData: ShortArray, offsetInShorts: Int, sizeInShorts: Int, readMode: Int): Int {
         val line = targetLine ?: return -1
         if (recordingState != RECORDSTATE_RECORDING) return -1
+        if (sizeInShorts <= 0) return 0
 
-        val bytesToRead = sizeInShorts * 2
+        val requestedBytes = sizeInShorts * 2
+        val bytesToRead = if (readMode == READ_NON_BLOCKING) {
+            val avail = line.available() and -2 // align to 2-byte 16-bit PCM frame
+            if (avail <= 0) return 0
+            minOf(requestedBytes, avail)
+        } else {
+            requestedBytes
+        }
+
         if (rawByteBuffer.size < bytesToRead) {
             rawByteBuffer = ByteArray(bytesToRead)
         }

@@ -1,0 +1,763 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>PhonAcq · 田野语音与方言字表采录系统 | 交互式界面与工作流导览</title>
+  <meta name="description" content="面向方言调查、语音学实验与课堂记音训练的纯本地跨平台语音采录工具。支持 Android、Windows 与 macOS，原生衔接 Praat 与 PhonTracer。" />
+  <meta property="og:title" content="PhonAcq · 田野语音与方言字表采录系统" />
+  <meta property="og:description" content="同一字表多人建档、看图发音引导、局域网双机无线联动、实时声学把关与规范化导出。" />
+  <meta property="og:image" content="./images/hero-studio-preview.svg" />
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+
+  <!-- 顶栏导航 -->
+  <header class="site-header">
+    <div class="container header-inner">
+      <a href="#" class="brand-link" aria-label="PhonAcq 首页">
+        <!-- 官方圆润超椭圆品牌图标 SVG -->
+        <svg width="34" height="34" viewBox="0 0 64 64" aria-hidden="true">
+          <rect x="2" y="2" width="60" height="60" rx="18" fill="#FFFFFF" stroke="#DCE4EC" stroke-width="2.5"/>
+          <path d="M 43 17 A 18 18 0 1 0 43 47" fill="none" stroke="#00ACC1" stroke-width="5.5" stroke-linecap="round"/>
+          <rect x="22" y="26" width="4.4" height="12" rx="2.2" fill="#F59E0B"/>
+          <rect x="29.5" y="19" width="4.4" height="26" rx="2.2" fill="#F59E0B"/>
+          <rect x="37" y="23" width="4.4" height="18" rx="2.2" fill="#F59E0B"/>
+          <rect x="44.5" y="28" width="4.4" height="8" rx="2.2" fill="#00ACC1"/>
+        </svg>
+        <span>PhonAcq</span>
+        <span class="brand-sub">田野语音与方言字表采录系统</span>
+      </a>
+
+      <nav class="nav-links" aria-label="页面章节">
+        <a href="#studio-demo">主工作台互动</a>
+        <a href="#picture-prompt">看图发音词卡</a>
+        <a href="#wireless-sync">双机无线联动</a>
+        <a href="#macro-acoustics">声调与元音格局</a>
+        <a href="#export-ecosystem">规范导出与工具链</a>
+      </nav>
+
+      <div class="header-actions">
+        <a class="btn btn-outline btn-sm" href="https://github.com/KasumiKitsune/PhonAcq" target="_blank" rel="noopener">GitHub 仓库</a>
+        <a class="btn btn-primary btn-sm" href="https://github.com/KasumiKitsune/PhonAcq/releases/latest" target="_blank" rel="noopener">下载安装包</a>
+      </div>
+    </div>
+  </header>
+
+  <main>
+    <!-- Hero 与主工作台全真 SVG 交互沙盘 -->
+    <section class="hero" id="studio-demo">
+      <div class="container">
+        <div class="hero-top">
+          <div class="eyebrow-row">
+            <span class="badge badge-blue">v2.0.1 跨平台正式版</span>
+            <span class="badge badge-teal">44.1 / 48 kHz 16-bit 无损 PCM WAV</span>
+            <span class="badge badge-neutral">纯本地离线架构 · 零云端上传</span>
+          </div>
+          <h1>把田野调查的收音把关、记音建档与格式整理合而为一</h1>
+          <p class="hero-lead">
+            面向汉语方言摸底、民族语田野记音与实验语音学课堂训练。同一份字表关联多位发音人，兼顾「看图发音」与无线双机看读，录毕即生成可直接拖入 <strong>Praat</strong> 与 <strong>PhonTracer</strong> 的规范语料包。
+          </p>
+
+          <div class="download-strip">
+            <a class="download-pill primary-dl" href="https://github.com/KasumiKitsune/PhonAcq/releases/latest" target="_blank" rel="noopener">
+              <span>Android 手机 / 平板</span>
+              <span class="dl-meta">.apk · Android 7.0+</span>
+            </a>
+            <a class="download-pill" href="https://github.com/KasumiKitsune/PhonAcq/releases/latest" target="_blank" rel="noopener">
+              <span>Windows 桌面端</span>
+              <span class="dl-meta">x64 .msi 安装包</span>
+            </a>
+            <a class="download-pill" href="https://github.com/KasumiKitsune/PhonAcq/releases/latest" target="_blank" rel="noopener">
+              <span>macOS 桌面端</span>
+              <span class="dl-meta">Apple Silicon .dmg</span>
+            </a>
+          </div>
+          <p class="hero-hint">下方为与真实客户端 1:1 同源绘制的<strong>可交互矢量工作台</strong>——可直接点击左侧词条、切换「简洁 / 进阶」模式、点按音标速记、试听调值轮廓或在语图上滑动读取基频与共振峰。</p>
+        </div>
+
+        <!-- 交互沙盘 1：主工作台 SVG -->
+        <div class="sandbox-shell">
+          <div class="sandbox-toolbar" role="toolbar" aria-label="工作台状态切换栏">
+            <div class="toolbar-group">
+              <span class="toolbar-label">界面模式：</span>
+              <div class="seg-group">
+                <button type="button" class="seg-btn active" id="btn-mode-adv">进阶模式（含声学参考）</button>
+                <button type="button" class="seg-btn" id="btn-mode-simple">简洁模式（纯净采录）</button>
+              </div>
+              <button type="button" class="chip-toggle" id="btn-clean-prompt">看读纯净大字</button>
+            </div>
+
+            <div class="toolbar-group">
+              <span class="toolbar-label">当前发音人：</span>
+              <div class="seg-group">
+                <button type="button" class="seg-btn active" id="btn-spk-01">沈阿婆 (SPK01 · 女 71岁)</button>
+                <button type="button" class="seg-btn" id="btn-spk-02">周老伯 (SPK02 · 男 74岁)</button>
+              </div>
+            </div>
+
+            <div class="kbd-hint">
+              <span>快捷键体验：</span>
+              <kbd>Space</kbd><span>录/停</span>
+              <kbd>↑</kbd><kbd>↓</kbd><span>切词</span>
+              <kbd>Enter</kbd><span>试听</span>
+            </div>
+          </div>
+
+          <div class="svg-stage">
+            <svg id="studio-svg" viewBox="0 0 1180 680" role="img" aria-label="PhonAcq 主工作台交互矢量界面">
+              <defs>
+                <linearGradient id="studioSpecBg" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stop-color="#F8FAFC"/>
+                  <stop offset="52%" stop-color="#E2E8F0"/>
+                  <stop offset="100%" stop-color="#F1F5F9"/>
+                </linearGradient>
+                <linearGradient id="formantBandGrad" x1="0" y1="0" x2="1" y2="0">
+                  <stop offset="0%" stop-color="#64748B" stop-opacity="0.06"/>
+                  <stop offset="18%" stop-color="#334155" stop-opacity="0.34"/>
+                  <stop offset="55%" stop-color="#1E293B" stop-opacity="0.42"/>
+                  <stop offset="85%" stop-color="#334155" stop-opacity="0.28"/>
+                  <stop offset="100%" stop-color="#64748B" stop-opacity="0.05"/>
+                </linearGradient>
+                <clipPath id="specClip">
+                  <rect x="814" y="160" width="328" height="190" rx="8"/>
+                </clipPath>
+                <clipPath id="miniPicClip">
+                  <rect x="-126" y="106" width="252" height="122" rx="12"/>
+                </clipPath>
+              </defs>
+
+              <!-- 应用底色 -->
+              <rect width="1180" height="680" fill="#F1F5F9"/>
+
+              <!-- 顶部客户端状态与导航栏 -->
+              <rect x="0" y="0" width="1180" height="54" fill="#FFFFFF"/>
+              <line x1="0" y1="54" x2="1180" y2="54" stroke="#CBD5E1" stroke-width="1"/>
+
+              <!-- 应用图标与项目标题 -->
+              <g transform="translate(18, 10)">
+                <rect x="0" y="0" width="34" height="34" rx="10" fill="#FFFFFF" stroke="#DCE4EC" stroke-width="1.6"/>
+                <path d="M 23 9 A 9.5 9.5 0 1 0 23 25" fill="none" stroke="#00ACC1" stroke-width="3" stroke-linecap="round"/>
+                <rect x="11.5" y="13.5" width="2.5" height="7" rx="1.2" fill="#F59E0B"/>
+                <rect x="15.5" y="10" width="2.5" height="14" rx="1.2" fill="#F59E0B"/>
+                <rect x="19.5" y="12" width="2.5" height="10" rx="1.2" fill="#F59E0B"/>
+                <rect x="23.5" y="15" width="2.5" height="4.5" rx="1.2" fill="#00ACC1"/>
+              </g>
+              <text x="62" y="25" font-size="14" font-weight="800" fill="#0F172A">苏州方言声韵调与日常词调查</text>
+              <text x="62" y="42" font-size="11" font-weight="600" fill="#64748B">吴语太湖片单字音系与看图词汇核对样本 · 48 kHz / 16-bit Mono PCM</text>
+
+              <!-- 顶栏右侧输入源与模式指示 -->
+              <g transform="translate(598, 12)">
+                <rect x="0" y="0" width="204" height="30" rx="8" fill="#F8FAFC" stroke="#CBD5E1"/>
+                <circle cx="15" cy="15" r="4.5" fill="#0F766E"/>
+                <text x="27" y="19" font-size="11.5" font-weight="700" fill="#0F172A">Zoom H1n USB · 48kHz</text>
+              </g>
+
+              <g id="svg-clean-pill" class="svg-clickable" transform="translate(812, 12)">
+                <rect id="svg-clean-pill-bg" x="0" y="0" width="92" height="30" rx="15" fill="#F8FAFC" stroke="#CBD5E1"/>
+                <text id="svg-clean-pill-txt" x="46" y="19" text-anchor="middle" font-size="11.5" font-weight="700" fill="#334155">看读大字</text>
+              </g>
+
+              <g id="svg-mode-pill" class="svg-clickable" transform="translate(914, 12)">
+                <rect id="svg-mode-pill-bg" x="0" y="0" width="122" height="30" rx="15" fill="#DBEAFE" stroke="#93C5FD"/>
+                <text id="svg-mode-pill-txt" x="61" y="19" text-anchor="middle" font-size="11.5" font-weight="800" fill="#1E3A8A">进阶模式 · 切换</text>
+              </g>
+
+              <g transform="translate(1046, 12)">
+                <rect x="0" y="0" width="118" height="30" rx="8" fill="#0F766E"/>
+                <text x="59" y="19" text-anchor="middle" font-size="11.5" font-weight="700" fill="#FFFFFF">打包导出 .zip</text>
+              </g>
+
+              <!-- ==================== 左栏：发音人与调查字表 ==================== -->
+              <g id="svg-left-pane">
+                <rect x="16" y="68" width="236" height="596" rx="14" fill="#FFFFFF" stroke="#CBD5E1"/>
+
+                <!-- 发音人切换胶囊 -->
+                <g id="svg-spk-pill" class="svg-clickable" transform="translate(28, 80)">
+                  <rect x="0" y="0" width="212" height="44" rx="10" fill="#F8FAFC" stroke="#CBD5E1"/>
+                  <circle id="svg-spk-avatar" cx="22" cy="22" r="13" fill="#DBEAFE"/>
+                  <text id="svg-spk-initial" x="22" y="26.5" text-anchor="middle" font-size="12" font-weight="800" fill="#1E3A8A">沈</text>
+                  <text id="svg-spk-name" x="43" y="19" font-size="12.5" font-weight="800" fill="#0F172A">沈阿婆 · SPK01</text>
+                  <text id="svg-spk-meta" x="43" y="34" font-size="10.5" font-weight="600" fill="#64748B">女 · 71岁 · 苏州城区老派 ⇄</text>
+                </g>
+
+                <!-- 进度条 -->
+                <text x="28" y="144" font-size="11" font-weight="700" fill="#475569">示例样本（点击任意词条切换）</text>
+                <text id="svg-progress-count" x="240" y="144" text-anchor="end" font-size="11" font-weight="800" fill="#0F766E">6 / 6 已录</text>
+                <rect x="28" y="151" width="212" height="5" rx="2.5" fill="#E2E8F0"/>
+                <rect x="28" y="151" width="212" height="5" rx="2.5" fill="#0F766E"/>
+
+                <!-- 动态词表容器 -->
+                <g id="svg-wordlist-rows" transform="translate(28, 168)"></g>
+
+                <!-- 底部导入与模板说明 -->
+                <rect x="28" y="616" width="212" height="34" rx="8" fill="#F8FAFC" stroke="#E2E8F0"/>
+                <text x="134" y="637" text-anchor="middle" font-size="11" font-weight="700" fill="#475569">+ 导入 Excel / Word / 批量配图</text>
+              </g>
+
+              <!-- ==================== 中栏：录音工作台与四栏音标速记 ==================== -->
+              <g id="svg-center-pane">
+                <rect id="svg-center-bg" x="264" y="68" width="516" height="596" rx="14" fill="#FFFFFF" stroke="#CBD5E1"/>
+
+                <!-- 以中栏中心 X 为原点的自适应内容组（进阶模式 translate(522,0)，简洁模式 translate(714,0)） -->
+                <g id="svg-center-inner" transform="translate(522, 0)">
+                  <!-- 顶部词条分组与多遍留存胶囊 -->
+                  <rect id="svg-cat-pill-bg" x="-228" y="82" width="146" height="26" rx="13" fill="#F1F5F9" stroke="#CBD5E1"/>
+                  <text id="svg-word-cat" x="-155" y="99" text-anchor="middle" font-size="11" font-weight="700" fill="#334155">01 · 阴平 · 闭前元音</text>
+
+                  <g id="svg-take-pill" class="svg-clickable">
+                    <rect x="92" y="82" width="136" height="26" rx="13" fill="#CCFBF1" stroke="#99F6E4"/>
+                    <text id="svg-take-badge" x="160" y="99" text-anchor="middle" font-size="11" font-weight="800" fill="#134E4A">★ 采用第 3 遍 (共3遍)</text>
+                  </g>
+
+                  <!-- 看图发音插画区（仅当选中带图词条如「12 日头」时显示） -->
+                  <g id="svg-pic-prompt" display="none">
+                    <rect x="-128" y="105" width="256" height="124" rx="13" fill="#FAF6EE" stroke="#CBD5E1" stroke-width="1.2"/>
+                    <g clip-path="url(#miniPicClip)">
+                      <rect x="-126" y="106" width="252" height="122" fill="#FEF9C3"/>
+                      <!-- 温暖红日与光晕 -->
+                      <circle cx="48" cy="144" r="28" fill="#FDE68A" opacity="0.7"/>
+                      <circle cx="48" cy="144" r="19" fill="#F59E0B"/>
+                      <!-- 远山与江南粉墙黛瓦屋檐 -->
+                      <path d="M -130 202 Q -60 176 12 198 T 130 192 L 130 232 L -130 232 Z" fill="#CBD5E1" opacity="0.55"/>
+                      <rect x="-112" y="182" width="128" height="48" fill="#FFFFFF" stroke="#94A3B8" stroke-width="1"/>
+                      <path d="M -120 184 Q -48 164 24 184 L 18 191 L -114 191 Z" fill="#334155"/>
+                      <rect x="-64" y="198" width="32" height="30" rx="2" fill="#E2E8F0" stroke="#64748B" stroke-width="1"/>
+                      <line x1="-48" y1="198" x2="-48" y2="228" stroke="#64748B" stroke-width="1"/>
+                    </g>
+                    <rect x="44" y="112" width="76" height="20" rx="10" fill="#0F172A" opacity="0.72"/>
+                    <text x="82" y="125.5" text-anchor="middle" font-size="10" font-weight="700" fill="#FFFFFF">上图下字词卡</text>
+                  </g>
+
+                  <!-- 目标调查字与释义提示 -->
+                  <text id="svg-target-char" x="0" y="218" text-anchor="middle" font-size="88" font-weight="800" fill="#0F172A">衣</text>
+                  <text id="svg-target-gloss" x="0" y="262" text-anchor="middle" font-size="15" font-weight="600" fill="#475569">阴平 44 · 衣服（例：一件新衣裳）</text>
+
+                  <!-- 进阶模式：四栏国际音标随手记面板 -->
+                  <g id="svg-ipa-panel" transform="translate(0, 286)">
+                    <rect x="-228" y="0" width="456" height="218" rx="12" fill="#F8FAFC" stroke="#CBD5E1"/>
+                    <text x="-212" y="23" font-size="11.5" font-weight="800" fill="#0F172A">现场记音随手记（按发音人独立保存）</text>
+                    <g id="svg-derive-btn" class="svg-clickable" transform="translate(106, 8)">
+                      <rect x="0" y="0" width="110" height="22" rx="11" fill="#DBEAFE"/>
+                      <text id="svg-derive-txt" x="55" y="14.5" text-anchor="middle" font-size="10.5" font-weight="700" fill="#1E3A8A">+ 派生文白异读</text>
+                    </g>
+
+                    <!-- 记音输入框 -->
+                    <rect x="-212" y="34" width="424" height="36" rx="8" fill="#FFFFFF" stroke="#93C5FD" stroke-width="1.3"/>
+                    <text id="svg-note-text" x="-200" y="57" font-size="13" font-weight="700" fill="#0F172A">[i⁴⁴] 擦音轻微，元音平稳</text>
+                    <g id="svg-note-clear" class="svg-clickable" transform="translate(166, 41)">
+                      <rect x="0" y="0" width="40" height="22" rx="6" fill="#F1F5F9"/>
+                      <text x="20" y="14.5" text-anchor="middle" font-size="10.5" font-weight="700" fill="#64748B">重置</text>
+                    </g>
+
+                    <!-- 四栏分类切换标签 -->
+                    <g id="svg-ipa-tabs" transform="translate(-212, 80)"></g>
+
+                    <!-- 快捷音标按钮网格（点击追加到输入框） -->
+                    <g id="svg-ipa-chips" transform="translate(-212, 114)"></g>
+                  </g>
+
+                  <!-- 简洁模式专属：三档收音控制与质量把关提示（默认隐藏，切换简洁模式显示） -->
+                  <g id="svg-simple-panel" transform="translate(0, 306)" display="none">
+                    <rect x="-260" y="0" width="520" height="178" rx="14" fill="#F8FAFC" stroke="#CBD5E1"/>
+                    <text x="0" y="32" text-anchor="middle" font-size="13" font-weight="800" fill="#0F172A">简洁采录模式 · 隐去复杂声学参数，专注现场收音与核对</text>
+                    <g transform="translate(-210, 50)">
+                      <rect x="0" y="0" width="420" height="38" rx="10" fill="#E2E8F0"/>
+                      <rect x="4" y="4" width="136" height="30" rx="8" fill="#FFFFFF"/>
+                      <text x="72" y="23" text-anchor="middle" font-size="12" font-weight="800" fill="#1D4ED8">点按开始 / 停止</text>
+                      <text x="210" y="23" text-anchor="middle" font-size="12" font-weight="700" fill="#475569">读完停顿自动翻页</text>
+                      <text x="348" y="23" text-anchor="middle" font-size="12" font-weight="700" fill="#475569">按住录 · 松手存</text>
+                    </g>
+                    <rect x="-210" y="106" width="420" height="48" rx="10" fill="#CCFBF1" stroke="#99F6E4"/>
+                    <text x="0" y="128" text-anchor="middle" font-size="12.5" font-weight="800" fill="#134E4A">✓ 环境信噪比优良（SNR 34 dB）· 防吞字预录缓冲已开启</text>
+                    <text x="0" y="145" text-anchor="middle" font-size="11" font-weight="600" fill="#0F766E">导出时将自动生成纯净中文目录与双工作表《录音汇总表.xlsx》</text>
+                  </g>
+
+                  <!-- 实时电平与防削波质检条 -->
+                  <g transform="translate(0, 522)">
+                    <text x="-228" y="14" font-size="11" font-weight="700" fill="#475569">实时电平与信噪把关</text>
+                    <text id="svg-snr-label" x="228" y="14" text-anchor="end" font-size="11" font-weight="800" fill="#0F766E">-12.4 dBFS · SNR 34 dB · 正常</text>
+                    <rect x="-228" y="22" width="456" height="10" rx="5" fill="#E2E8F0"/>
+                    <rect id="svg-meter-fill" x="-228" y="22" width="312" height="10" rx="5" fill="#0F766E"/>
+                    <!-- 削波警戒刻度线 -->
+                    <line x1="190" y1="19" x2="190" y2="35" stroke="#DC2626" stroke-width="1.5"/>
+                  </g>
+
+                  <!-- 底部传输控制栏：上一词 · 录音 · 试听 · 下一词 -->
+                  <g transform="translate(0, 574)">
+                    <g id="svg-prev-btn" class="svg-clickable" transform="translate(-228, 8)">
+                      <rect x="0" y="0" width="88" height="44" rx="12" fill="#F8FAFC" stroke="#CBD5E1"/>
+                      <text x="44" y="27" text-anchor="middle" font-size="12.5" font-weight="800" fill="#334155">◀ 上一词</text>
+                    </g>
+
+                    <!-- 主录音键 -->
+                    <g id="svg-rec-btn" class="svg-clickable" transform="translate(-124, 2)">
+                      <circle id="svg-rec-pulse" cx="62" cy="28" r="28" fill="#DC2626" opacity="0"/>
+                      <rect id="svg-rec-bg" x="0" y="0" width="124" height="56" rx="28" fill="#DC2626"/>
+                      <circle id="svg-rec-dot" cx="30" cy="28" r="7" fill="#FFFFFF"/>
+                      <text id="svg-rec-label" x="72" y="33" text-anchor="middle" font-size="14" font-weight="800" fill="#FFFFFF">开始重录</text>
+                    </g>
+
+                    <!-- 试听键 -->
+                    <g id="svg-play-btn" class="svg-clickable" transform="translate(12, 8)">
+                      <rect id="svg-play-bg" x="0" y="0" width="116" height="44" rx="12" fill="#DBEAFE" stroke="#93C5FD"/>
+                      <text id="svg-play-label" x="58" y="27" text-anchor="middle" font-size="12.5" font-weight="800" fill="#1E3A8A">▶ 试听调值</text>
+                    </g>
+
+                    <g id="svg-next-btn" class="svg-clickable" transform="translate(140, 8)">
+                      <rect x="0" y="0" width="88" height="44" rx="12" fill="#F8FAFC" stroke="#CBD5E1"/>
+                      <text x="44" y="27" text-anchor="middle" font-size="12.5" font-weight="800" fill="#334155">下一词 ▶</text>
+                    </g>
+                  </g>
+                </g>
+              </g>
+
+              <!-- ==================== 右栏：单字实时宽带语图与元音参考（进阶模式可见） ==================== -->
+              <g id="svg-right-pane">
+                <rect x="792" y="68" width="372" height="596" rx="14" fill="#FFFFFF" stroke="#CBD5E1"/>
+
+                <text x="810" y="96" font-size="13" font-weight="800" fill="#0F172A">单字声学速览（鼠标移入语图可读数）</text>
+                <text id="svg-right-sub" x="1146" y="96" text-anchor="end" font-size="11" font-weight="700" fill="#0F766E">五度参考 [44]</text>
+
+                <!-- 四枚核心测量指标胶囊 -->
+                <g transform="translate(810, 108)">
+                  <rect x="0" y="0" width="106" height="36" rx="8" fill="#F8FAFC" stroke="#E2E8F0"/>
+                  <text x="10" y="14" font-size="9.5" font-weight="700" fill="#64748B">有效韵母时长</text>
+                  <text id="svg-metric-dur" x="10" y="29" font-size="12.5" font-weight="800" fill="#0F172A">0.68 s</text>
+
+                  <rect x="114" y="0" width="106" height="36" rx="8" fill="#DBEAFE" stroke="#BFDBFE"/>
+                  <text x="124" y="14" font-size="9.5" font-weight="700" fill="#1E3A8A">基频均值 F0</text>
+                  <text id="svg-metric-f0" x="124" y="29" font-size="12.5" font-weight="800" fill="#1E3A8A">235 Hz</text>
+
+                  <rect x="228" y="0" width="108" height="36" rx="8" fill="#CCFBF1" stroke="#99F6E4"/>
+                  <text x="238" y="14" font-size="9.5" font-weight="700" fill="#134E4A">F1 / F2 稳态</text>
+                  <text id="svg-metric-formants" x="238" y="29" font-size="11.5" font-weight="800" fill="#134E4A">295 / 2290</text>
+                </g>
+
+                <!-- 宽带语图 + 基频蓝线 + 共振峰红点轨 -->
+                <rect x="814" y="160" width="328" height="190" rx="8" fill="url(#studioSpecBg)" stroke="#CBD5E1"/>
+
+                <g clip-path="url(#specClip)">
+                  <!-- 频率网格线 -->
+                  <line x1="814" y1="198" x2="1142" y2="198" stroke="#CBD5E1" stroke-dasharray="3 3"/>
+                  <line x1="814" y1="236" x2="1142" y2="236" stroke="#CBD5E1" stroke-dasharray="3 3"/>
+                  <line x1="814" y1="274" x2="1142" y2="274" stroke="#CBD5E1" stroke-dasharray="3 3"/>
+                  <line x1="814" y1="312" x2="1142" y2="312" stroke="#CBD5E1" stroke-dasharray="3 3"/>
+
+                  <!-- 模拟宽带语图横纹与三道共振峰能量带 -->
+                  <rect id="svg-spec-f3-band" x="838" y="186" width="280" height="16" rx="8" fill="url(#formantBandGrad)"/>
+                  <rect id="svg-spec-f2-band" x="838" y="232" width="280" height="20" rx="10" fill="url(#formantBandGrad)"/>
+                  <rect id="svg-spec-f1-band" x="838" y="308" width="280" height="22" rx="10" fill="url(#formantBandGrad)"/>
+
+                  <!-- 共振峰红点散点轨 -->
+                  <path id="svg-f1-track" d="M 852 318 L 978 318 L 1104 318" fill="none" stroke="#DC2626" stroke-width="3" stroke-linecap="round" stroke-dasharray="1 10"/>
+                  <path id="svg-f2-track" d="M 852 242 L 978 242 L 1104 242" fill="none" stroke="#DC2626" stroke-width="3" stroke-linecap="round" stroke-dasharray="1 10"/>
+                  <path id="svg-f3-track" d="M 852 194 L 978 194 L 1104 194" fill="none" stroke="#DC2626" stroke-width="2.5" stroke-linecap="round" stroke-dasharray="1 11" opacity="0.75"/>
+
+                  <!-- 基频 F0 实测蓝色曲线 -->
+                  <path id="svg-spec-f0-glow" d="M 854 226 Q 978 228 1102 231" fill="none" stroke="#93C5FD" stroke-width="7" stroke-linecap="round" opacity="0.55"/>
+                  <path id="svg-spec-f0-path" d="M 854 226 Q 978 228 1102 231" fill="none" stroke="#1D4ED8" stroke-width="3.2" stroke-linecap="round"/>
+
+                  <!-- 试听播放扫描指针 -->
+                  <line id="svg-playhead-line" x1="854" y1="160" x2="854" y2="350" stroke="#F59E0B" stroke-width="2.4" opacity="0"/>
+
+                  <!-- 鼠标悬停十字游标与实时读数标签 -->
+                  <g id="svg-crosshair-group" opacity="0">
+                    <line id="svg-crosshair-line" x1="978" y1="160" x2="978" y2="350" stroke="#0F172A" stroke-width="1.2" stroke-dasharray="4 3"/>
+                    <circle id="svg-crosshair-dot" cx="978" cy="228" r="5" fill="#1D4ED8" stroke="#FFFFFF" stroke-width="2"/>
+                    <rect id="svg-crosshair-box" x="868" y="166" width="218" height="24" rx="6" fill="#0F172A" opacity="0.9"/>
+                    <text id="svg-crosshair-text" x="977" y="182" text-anchor="middle" font-size="10.5" font-weight="700" fill="#FFFFFF">t=0.34s · F0=235Hz · F1=295 · F2=2290</text>
+                  </g>
+                </g>
+
+                <!-- 语图轴标与透明交互捕获层 -->
+                <text x="820" y="174" font-size="9.5" font-weight="700" fill="#64748B">4000 Hz</text>
+                <text x="820" y="344" font-size="9.5" font-weight="700" fill="#64748B">0 Hz</text>
+                <text x="1136" y="174" text-anchor="end" font-size="9.5" font-weight="700" fill="#1D4ED8">蓝线 F0 · 红点 F1–F3</text>
+                <rect id="svg-spec-hit" x="814" y="160" width="328" height="190" fill="transparent" style="cursor: crosshair;"/>
+
+                <!-- 下半部：当前字在 F1–F2 元音空间中的实时落点 -->
+                <text x="810" y="376" font-size="12.5" font-weight="800" fill="#0F172A">全表元音空间实时定位（F2 ← · F1 ↓）</text>
+                <rect x="814" y="388" width="328" height="260" rx="10" fill="#F8FAFC" stroke="#CBD5E1"/>
+
+                <!-- 元音四边形参考框 -->
+                <polygon points="862,424 1094,424 1062,612 946,612" fill="#FFFFFF" stroke="#CBD5E1" stroke-width="1.4" stroke-dasharray="4 3"/>
+                <text x="846" y="422" font-size="11" font-weight="700" fill="#94A3B8">[i]</text>
+                <text x="1104" y="422" font-size="11" font-weight="700" fill="#94A3B8">[u]</text>
+                <text x="932" y="628" font-size="11" font-weight="700" fill="#94A3B8">[a]</text>
+                <text x="1072" y="628" font-size="11" font-weight="700" fill="#94A3B8">[ɑ]</text>
+
+                <!-- 全表参考散点 -->
+                <circle cx="872" cy="432" r="4.5" fill="#94A3B8" opacity="0.5"/>
+                <circle cx="964" cy="452" r="4.5" fill="#94A3B8" opacity="0.5"/>
+                <circle cx="1078" cy="468" r="4.5" fill="#94A3B8" opacity="0.5"/>
+                <circle cx="914" cy="512" r="4.5" fill="#94A3B8" opacity="0.5"/>
+                <circle cx="978" cy="496" r="4.5" fill="#94A3B8" opacity="0.5"/>
+
+                <!-- 当前激活词条的高亮落点 -->
+                <circle id="svg-mini-vowel-ring" cx="872" cy="432" r="14" fill="#0F766E" opacity="0.18"/>
+                <circle id="svg-mini-vowel-dot" cx="872" cy="432" r="6.5" fill="#0F766E" stroke="#FFFFFF" stroke-width="2"/>
+                <text id="svg-mini-vowel-label" x="892" y="436" font-size="12" font-weight="800" fill="#134E4A">衣 [i]</text>
+
+                <text x="978" y="641" text-anchor="middle" font-size="10" font-weight="600" fill="#64748B">F2 舌位前后 (2600 → 700 Hz)</text>
+              </g>
+            </svg>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 章节 2：看图发音与防字面诱导词卡 -->
+    <section class="section" id="picture-prompt">
+      <div class="container">
+        <div class="section-header">
+          <div class="section-title-wrap">
+            <span class="section-kicker">Picture Elicitation · 看图发音词卡</span>
+            <h2>面对高龄或不识字发音人，避免书面字面诱导地道口语词</h2>
+            <p class="section-desc">
+              调查「太阳 / 日头」「衣服 / 衣裳」「水桶 / 吊桶」等日常核心词时，直接展示汉字往往会诱使发音人读出文读字音或普通话词汇。PhonAcq 支持按需配图、文件名批量建词及看读页独立显隐汉字。
+            </p>
+          </div>
+        </div>
+
+        <div class="split-grid">
+          <div class="sandbox-shell">
+            <div class="sandbox-toolbar">
+              <div class="toolbar-group">
+                <span class="toolbar-label">示例词卡：</span>
+                <div class="seg-group" id="pic-item-tabs">
+                  <button type="button" class="seg-btn active" data-pic="0">01 · 日头</button>
+                  <button type="button" class="seg-btn" data-pic="1">02 · 衣裳</button>
+                  <button type="button" class="seg-btn" data-pic="2">03 · 吊桶</button>
+                </div>
+              </div>
+              <div class="toolbar-group">
+                <button type="button" class="chip-toggle" id="btn-pic-hide-char">隐藏汉字（防诱导）</button>
+                <button type="button" class="chip-toggle" id="btn-pic-zoom">1.6x 放大看细节</button>
+              </div>
+            </div>
+
+            <div class="svg-stage">
+              <svg id="piccard-svg" viewBox="0 0 640 420" role="img" aria-label="看图发音词卡交互演示">
+                <defs>
+                  <clipPath id="picStageClip">
+                    <rect x="40" y="62" width="560" height="236" rx="14"/>
+                  </clipPath>
+                </defs>
+                <rect width="640" height="420" fill="#F1F5F9"/>
+                <rect x="20" y="16" width="600" height="388" rx="18" fill="#FFFFFF" stroke="#CBD5E1"/>
+
+                <!-- 词卡顶栏 -->
+                <text id="pic-svg-index" x="42" y="45" font-size="12.5" font-weight="800" fill="#0F766E">看图识词 · 自然天文 (01 / 03)</text>
+                <rect x="444" y="28" width="154" height="24" rx="12" fill="#F8FAFC" stroke="#CBD5E1"/>
+                <text id="pic-svg-mode-badge" x="521" y="44" text-anchor="middle" font-size="10.5" font-weight="700" fill="#475569">上图下字 · 支持双指缩放</text>
+
+                <!-- 插画视口 -->
+                <rect x="40" y="62" width="560" height="236" rx="14" fill="#FAF6EE" stroke="#CBD5E1"/>
+                <g clip-path="url(#picStageClip)">
+                  <g id="pic-svg-artwork" transform="translate(320, 180) scale(1)">
+                    <!-- 由 portal.js 动态绘制 3 张高清方言实物插画 -->
+                  </g>
+                </g>
+
+                <!-- 底部文字与调查员提示区 -->
+                <g id="pic-svg-char-group">
+                  <text id="pic-svg-title" x="320" y="344" text-anchor="middle" font-size="36" font-weight="800" fill="#0F172A">日头</text>
+                  <text id="pic-svg-cue" x="320" y="376" text-anchor="middle" font-size="13" font-weight="600" fill="#64748B">调查目标：引导自然说出本地口语词「日头 [niəʔ⁵ dɤ²⁴]」，避免直接念出「太阳」</text>
+                </g>
+                <g id="pic-svg-hidden-placeholder" display="none">
+                  <rect x="170" y="318" width="300" height="44" rx="12" fill="#FEF3C7" stroke="#FCD34D"/>
+                  <text x="320" y="345" text-anchor="middle" font-size="13.5" font-weight="800" fill="#92400E">汉字已隐藏 · 请请发音人直接看图说出当地叫法</text>
+                  <text x="320" y="380" text-anchor="middle" font-size="12" font-weight="600" fill="#64748B">（调查人遥控端与后台文件名仍保留「01_日头」词条归档）</text>
+                </g>
+              </svg>
+            </div>
+          </div>
+
+          <div class="feature-points">
+            <div class="point-card">
+              <h3>按文件名一键批量建词与配图</h3>
+              <p>准备一组形如 <code>01_日头_太阳.jpg</code>、<code>02_衣裳_衣服.png</code> 的图片，即可一次性自动生成带序号、词目与备注的调查表，未配图词条依然按常规文字展示。</p>
+            </div>
+            <div class="point-card">
+              <h3>独立显隐汉字，杜绝字面干扰</h3>
+              <p>在录音台或无线看读端点击顶栏「看读」设置，可随时隐藏目标汉字与词表释义，只向发音人呈现干净大图；调查人手持端仍完整显示记音提示与目标音标。</p>
+            </div>
+            <div class="point-card">
+              <h3>无级缩放局部细节 + 导出包随行备份</h3>
+              <p>配图区域支持双指捏合放大至 4 倍并拖动平移，方便指认农具、服饰构件或动植物局部；打包导出时可选将词卡图片随 <code>images/</code> 目录完整归档并支持无损导回。</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 章节 3：离线局域网双机无线联动 -->
+    <section class="section" id="wireless-sync">
+      <div class="container">
+        <div class="section-header">
+          <div class="section-title-wrap">
+            <span class="section-kicker">Offline LAN Dual-Device Sync · 双机无线联动</span>
+            <h2>零互联网田野现场：一台平板给长辈看字，一台手机在手边静默遥控</h2>
+            <p class="section-desc">
+              两台设备只需连入同一手机热点或路由器，输入六位配对码即可直连。支持远程切词、<strong>随机打乱顺序（防顺序效应）</strong>、护眼宣纸/墨水屏/黑板切换、中场茶歇屏以及无线实时耳返监听。
+            </p>
+          </div>
+        </div>
+
+        <div class="sandbox-shell">
+          <div class="sandbox-toolbar">
+            <div class="toolbar-group">
+              <span class="toolbar-label">点击左侧「调查人遥控端」按钮，实时驱动右侧「发音人看读平板」：</span>
+            </div>
+            <div class="toolbar-group">
+              <span class="badge badge-teal" id="lan-status-pill">配对码 842-916 · 局域网直连 1.8 ms</span>
+            </div>
+          </div>
+
+          <div class="svg-stage">
+            <svg id="lan-svg" viewBox="0 0 1140 490" role="img" aria-label="双机局域网无线联动交互沙盘">
+              <rect width="1140" height="490" fill="#F1F5F9"/>
+
+              <!-- 左侧：调查人手机遥控端 -->
+              <g transform="translate(34, 24)">
+                <rect x="0" y="0" width="356" height="442" rx="26" fill="#0F172A"/>
+                <rect x="10" y="10" width="336" height="422" rx="18" fill="#FFFFFF"/>
+
+                <!-- 遥控端顶栏 -->
+                <rect x="10" y="10" width="336" height="44" rx="18" fill="#F8FAFC"/>
+                <line x1="10" y1="54" x2="346" y2="54" stroke="#E2E8F0"/>
+                <circle cx="30" cy="32" r="5" fill="#0F766E"/>
+                <text x="44" y="36" font-size="12.5" font-weight="800" fill="#0F172A">调查人遥控端 · 实时耳返已开</text>
+                <text id="lan-order-badge" x="330" y="36" text-anchor="end" font-size="11" font-weight="700" fill="#1D4ED8">顺序模式</text>
+
+                <!-- 遥控端当前词条与内部提示 -->
+                <rect x="26" y="68" width="304" height="92" rx="12" fill="#F8FAFC" stroke="#CBD5E1"/>
+                <text id="lan-remote-idx" x="40" y="90" font-size="11" font-weight="700" fill="#64748B">当前推送词条 (1 / 6)</text>
+                <text id="lan-remote-char" x="40" y="126" font-size="28" font-weight="800" fill="#0F172A">衣</text>
+                <text id="lan-remote-note" x="92" y="118" font-size="12" font-weight="700" fill="#1E3A8A">目标音系：阴平 44 · [i⁴⁴]</text>
+                <text id="lan-remote-cue" x="92" y="138" font-size="11" font-weight="600" fill="#64748B">提示：仅调查人可见，不推送至平板</text>
+
+                <!-- 切词与随机打乱按钮行 -->
+                <g id="lan-btn-prev" class="svg-clickable" transform="translate(26, 174)">
+                  <rect x="0" y="0" width="94" height="40" rx="10" fill="#F1F5F9" stroke="#CBD5E1"/>
+                  <text x="47" y="25" text-anchor="middle" font-size="12" font-weight="800" fill="#334155">◀ 上一词</text>
+                </g>
+                <g id="lan-btn-next" class="svg-clickable" transform="translate(128, 174)">
+                  <rect x="0" y="0" width="94" height="40" rx="10" fill="#DBEAFE" stroke="#93C5FD"/>
+                  <text x="47" y="25" text-anchor="middle" font-size="12" font-weight="800" fill="#1E3A8A">下一词 ▶</text>
+                </g>
+                <g id="lan-btn-shuffle" class="svg-clickable" transform="translate(230, 174)">
+                  <rect id="lan-shuffle-bg" x="0" y="0" width="100" height="40" rx="10" fill="#F1F5F9" stroke="#CBD5E1"/>
+                  <text id="lan-shuffle-txt" x="50" y="25" text-anchor="middle" font-size="12" font-weight="800" fill="#334155">⇄ 随机排序</text>
+                </g>
+
+                <!-- 看读端视觉底色预设 -->
+                <text x="26" y="238" font-size="11" font-weight="800" fill="#475569">远程切换看读平板护眼主题：</text>
+                <g id="lan-theme-xuan" class="svg-clickable" transform="translate(26, 248)">
+                  <rect id="lan-theme-xuan-bg" x="0" y="0" width="96" height="36" rx="9" fill="#FAF6EE" stroke="#1D4ED8" stroke-width="2"/>
+                  <text x="48" y="22.5" text-anchor="middle" font-size="11.5" font-weight="800" fill="#27241D">温和宣纸</text>
+                </g>
+                <g id="lan-theme-eink" class="svg-clickable" transform="translate(130, 248)">
+                  <rect id="lan-theme-eink-bg" x="0" y="0" width="96" height="36" rx="9" fill="#F4F4F2" stroke="#CBD5E1" stroke-width="1.2"/>
+                  <text x="48" y="22.5" text-anchor="middle" font-size="11.5" font-weight="800" fill="#18181B">电子墨水</text>
+                </g>
+                <g id="lan-theme-dark" class="svg-clickable" transform="translate(234, 248)">
+                  <rect id="lan-theme-dark-bg" x="0" y="0" width="96" height="36" rx="9" fill="#14181F" stroke="#334155" stroke-width="1.2"/>
+                  <text x="48" y="22.5" text-anchor="middle" font-size="11.5" font-weight="800" fill="#FDE047">高对比黑板</text>
+                </g>
+
+                <!-- 中场茶歇与远程录音开关 -->
+                <g id="lan-btn-rest" class="svg-clickable" transform="translate(26, 302)">
+                  <rect id="lan-rest-bg" x="0" y="0" width="304" height="40" rx="10" fill="#F8FAFC" stroke="#CBD5E1"/>
+                  <text id="lan-rest-txt" x="152" y="25" text-anchor="middle" font-size="12" font-weight="800" fill="#334155">切换「中场休息」护眼提示屏</text>
+                </g>
+
+                <g id="lan-btn-rec" class="svg-clickable" transform="translate(26, 356)">
+                  <rect id="lan-rec-bg" x="0" y="0" width="304" height="54" rx="27" fill="#DC2626"/>
+                  <circle cx="96" cy="27" r="6.5" fill="#FFFFFF"/>
+                  <text id="lan-rec-txt" x="166" y="32" text-anchor="middle" font-size="14" font-weight="800" fill="#FFFFFF">远程启动看读端录音</text>
+                </g>
+              </g>
+
+              <!-- 中间：离线局域网双向同步波束 -->
+              <g transform="translate(398, 190)">
+                <line x1="8" y1="42" x2="132" y2="42" stroke="#CBD5E1" stroke-width="2"/>
+                <line id="lan-wave-line" class="lan-flow-line" x1="8" y1="42" x2="132" y2="42" stroke="#0F766E" stroke-width="3.5" stroke-dasharray="10 8"/>
+                <rect x="14" y="8" width="112" height="24" rx="12" fill="#FFFFFF" stroke="#CBD5E1"/>
+                <text x="70" y="24" text-anchor="middle" font-size="10.5" font-weight="800" fill="#0F766E">Wi-Fi / 热点直连</text>
+                <text id="lan-sync-caption" x="70" y="68" text-anchor="middle" font-size="10.5" font-weight="700" fill="#64748B">字卡推送 + PCM耳返</text>
+              </g>
+
+              <!-- 右侧：发音人看读端平板 -->
+              <g transform="translate(546, 36)">
+                <rect id="lan-tablet-bezel" x="0" y="0" width="560" height="418" rx="26" fill="#1E293B"/>
+                <rect id="lan-tablet-screen" x="14" y="14" width="532" height="390" rx="16" fill="#FAF6EE" stroke="#E2DDD2" stroke-width="2"/>
+
+                <!-- 看读端录音红框状态灯 -->
+                <rect id="lan-tablet-rec-ring" x="16" y="16" width="528" height="386" rx="15" fill="none" stroke="#DC2626" stroke-width="4" opacity="0"/>
+
+                <!-- 看读端顶栏 -->
+                <text id="lan-tablet-header" x="40" y="46" font-size="13" font-weight="700" fill="#57534E">发音人看读端 · 沈阿婆 (SPK01)</text>
+                <g id="lan-tablet-rec-pill" opacity="0" transform="translate(412, 27)">
+                  <rect x="0" y="0" width="110" height="26" rx="13" fill="#FEE2E2" stroke="#FCA5A5"/>
+                  <circle cx="18" cy="13" r="5" fill="#DC2626"/>
+                  <text x="62" y="17.5" text-anchor="middle" font-size="11" font-weight="800" fill="#991B1B">正在收音…</text>
+                </g>
+
+                <!-- 正常看读大字区 -->
+                <g id="lan-tablet-prompt-group">
+                  <text id="lan-tablet-char" x="280" y="236" text-anchor="middle" font-size="126" font-weight="800" fill="#27241D">衣</text>
+                  <text id="lan-tablet-sub" x="280" y="314" text-anchor="middle" font-size="20" font-weight="600" fill="#57534E">请自然读出上方字词</text>
+                  <text id="lan-tablet-progress" x="280" y="374" text-anchor="middle" font-size="13" font-weight="700" fill="#78716C">第 1 / 6 项 · 已锁定防误触翻页</text>
+                </g>
+
+                <!-- 中场茶歇视图 -->
+                <g id="lan-tablet-rest-group" display="none">
+                  <circle cx="280" cy="168" r="42" fill="#0F766E" opacity="0.14"/>
+                  <path d="M 260 162 L 296 162 L 292 186 Q 278 194 264 186 Z" fill="none" stroke="#0F766E" stroke-width="3.5" stroke-linejoin="round"/>
+                  <path d="M 296 166 Q 308 166 308 175 Q 308 183 294 183" fill="none" stroke="#0F766E" stroke-width="3.2"/>
+                  <path d="M 271 152 Q 274 144 271 138 M 283 152 Q 286 144 283 138" fill="none" stroke="#0F766E" stroke-width="2.5" stroke-linecap="round"/>
+                  <text id="lan-rest-title" x="280" y="252" text-anchor="middle" font-size="34" font-weight="800" fill="#27241D">中场休息片刻</text>
+                  <text id="lan-rest-sub" x="280" y="294" text-anchor="middle" font-size="17" font-weight="600" fill="#57534E">辛苦啦，请喝口温水润润嗓子，稍后继续</text>
+                </g>
+              </g>
+            </svg>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 章节 4：全表声调轮廓聚类与元音分布格局 -->
+    <section class="section" id="macro-acoustics">
+      <div class="container">
+        <div class="section-header">
+          <div class="section-title-wrap">
+            <span class="section-kicker">Corpus-Level Acoustic Overview · 全表声学格局</span>
+            <h2>录完即看全表声调五度聚类与 F1–F2 元音椭圆分布</h2>
+            <p class="section-desc">
+              无需等到回实验室跑脚本，在田野驻地即可核查各调类是否存在混同或记音归类偏差；支持 Bark 听觉标度、Hz 线性标度及跨性别发音人 <strong>Lobanov 声道归一化</strong> 叠加对比。
+            </p>
+          </div>
+        </div>
+
+        <div class="sandbox-shell">
+          <div class="sandbox-toolbar">
+            <div class="toolbar-group">
+              <span class="toolbar-label">分析视图：</span>
+              <div class="seg-group">
+                <button type="button" class="seg-btn active" id="btn-chart-tone">全表声调调域图（6调类五度归一化）</button>
+                <button type="button" class="seg-btn" id="btn-chart-vowel">全表元音椭圆图（F1–F2 格局）</button>
+              </div>
+            </div>
+
+            <div class="toolbar-group" id="tone-filter-toolbar">
+              <span class="toolbar-label">点击高亮调类：</span>
+              <button type="button" class="chip-toggle active" data-tone="all">全部显示</button>
+              <button type="button" class="chip-toggle" data-tone="yinping">阴平 44</button>
+              <button type="button" class="chip-toggle" data-tone="yangping">阳平 24</button>
+              <button type="button" class="chip-toggle" data-tone="shang">上声 51</button>
+              <button type="button" class="chip-toggle" data-tone="yinqu">阴去 412</button>
+              <button type="button" class="chip-toggle" data-tone="yinru">阴入 5 (短促)</button>
+            </div>
+
+            <div class="toolbar-group" id="vowel-filter-toolbar" style="display: none;">
+              <button type="button" class="chip-toggle active" id="btn-vowel-bark">Bark 感知标度</button>
+              <button type="button" class="chip-toggle" id="btn-vowel-lobanov">叠加周老伯 (Lobanov 归一化对比)</button>
+            </div>
+          </div>
+
+          <div class="svg-stage">
+            <svg id="acoustic-svg" viewBox="0 0 1140 470" role="img" aria-label="全表声调轮廓与元音分布格局互动图">
+              <rect width="1140" height="470" fill="#FFFFFF"/>
+              <!-- 由 portal.js 实时渲染高精度声调调域曲线或 F1-F2 元音椭圆坐标系 -->
+              <g id="acoustic-svg-content"></g>
+            </svg>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 章节 5：规范化导出结构与同作者工具链 -->
+    <section class="section" id="export-ecosystem">
+      <div class="container">
+        <div class="section-header">
+          <div class="section-title-wrap">
+            <span class="section-kicker">Standardized Archiving &amp; Toolchain · 规范导出与下游衔接</span>
+            <h2>告别手工改名与切音：一键生成 Excel 汇总表、TextGrid 与 PhonTracer 工程包</h2>
+            <p class="section-desc">
+              点击下方导出格式与目录树中的任意文件，实时预览 PhonAcq 生成的原生冻结表头工作簿、Praat 四层对齐标注与 <code>.teproj</code> 边界元数据。
+            </p>
+          </div>
+        </div>
+
+        <div class="sandbox-shell">
+          <div class="sandbox-toolbar">
+            <div class="toolbar-group">
+              <span class="toolbar-label">导出包类型：</span>
+              <div class="seg-group" id="export-pkg-tabs">
+                <button type="button" class="seg-btn active" data-pkg="adv">进阶模式标准包 (.zip)</button>
+                <button type="button" class="seg-btn" data-pkg="simple">简洁模式中文包 (.zip)</button>
+                <button type="button" class="seg-btn" data-pkg="teproj">PhonTracer 工程包 (.teproj)</button>
+                <button type="button" class="seg-btn" data-pkg="collection">Praat 集合 (.Collection)</button>
+              </div>
+            </div>
+            <span class="kbd-hint">点击左侧目录树中的文件查看内部结构预览</span>
+          </div>
+
+          <div class="svg-stage">
+            <svg id="export-svg" viewBox="0 0 1140 440" role="img" aria-label="导出包目录树与文件内容预览">
+              <rect width="1140" height="440" fill="#F8FAFC"/>
+              <g id="export-svg-tree"></g>
+              <g id="export-svg-preview"></g>
+            </svg>
+          </div>
+        </div>
+
+        <!-- 同作者完整语音学工具链 -->
+        <div class="ecosystem-grid">
+          <div class="eco-card">
+            <div>
+              <span class="eco-step">第 1 站 · 田野采录与初筛</span>
+              <h3>PhonAcq（本项目）</h3>
+              <p>完成多发音人字表与看图词卡采录、实时信噪比把关、四栏国际音标速记，并按统一规则输出无损 WAV、对齐 TextGrid、Excel 工作簿与 <code>.teproj</code> 工程包。</p>
+            </div>
+            <a class="btn btn-outline btn-sm" href="https://github.com/KasumiKitsune/PhonAcq/releases/latest" target="_blank" rel="noopener">前往 GitHub Releases 下载</a>
+          </div>
+
+          <div class="eco-card">
+            <div>
+              <span class="eco-step">第 2 站 · 边界精修与批量提取</span>
+              <h3>PhonTracer</h3>
+              <p>基于 Python 与 Parselmouth 构建的声调（基频）与共振峰批量提取工具。可直接打开 PhonAcq 导出的 <code>.teproj</code> 工程包，在声谱图上微调起止边界并批量导出标准化测量表。</p>
+            </div>
+            <a class="btn btn-outline btn-sm" href="https://github.com/KasumiKitsune/PhonTracer" target="_blank" rel="noopener">查看 PhonTracer 仓库 →</a>
+          </div>
+
+          <div class="eco-card">
+            <div>
+              <span class="eco-step">第 3 站 · 精细语图审校与制图</span>
+              <h3>Praat 简体中文汉化版</h3>
+              <p>针对语音学日常标注体验深度优化的 Praat 简体中文维护版，改进播放/暂停切换与列表递增逻辑，拖入 PhonAcq 导出的 <code>.Collection</code> 或同名 WAV + TextGrid 即可直接审校。</p>
+            </div>
+            <a class="btn btn-outline btn-sm" href="https://github.com/KasumiKitsune/praat-simplified-chinese" target="_blank" rel="noopener">查看 Praat 汉化版仓库 →</a>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <div class="container footer-inner">
+      <div>
+        <strong>PhonAcq · 田野语音与方言字表采录系统</strong> · 由 <a href="https://github.com/KasumiKitsune" target="_blank" rel="noopener">KasumiKitsune</a> 开发维护
+      </div>
+      <div>
+        纯本地离线运行 · 不收集或上传任何田野语料与个人信息
+      </div>
+    </div>
+  </footer>
+
+  <script src="./portal.js"></script>
+</body>
+</html>

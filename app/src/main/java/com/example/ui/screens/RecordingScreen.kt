@@ -979,7 +979,6 @@ fun RecordingScreen(
                                         onlyPendingWords = onlyPendingWords,
                                         enablePicturePrompts = enablePicturePrompts,
                                         onSelectWord = { idx ->
-                                            if (isRecording) viewModel.triggerStopRecording()
                                             viewModel.selectWordBySequencePosition(idx)
                                         },
                                         onTriggerSpeakerDialog = { showSpeakerDialog = true },
@@ -1376,7 +1375,6 @@ private fun RecordingStagePane(
     LaunchedEffect(pagerState.settledPage) {
         val settled = pagerState.settledPage
         if (settled in words.indices && settled != safeCurrentIndex) {
-            if (isRecording) viewModel.triggerStopRecording()
             viewModel.selectWordBySequencePosition(settled)
         }
     }
@@ -1559,7 +1557,6 @@ private fun RecordingStagePane(
                                     enablePicturePrompts = enablePicturePrompts,
                                     wavFile = null,
                                     onClick = {
-                                        if (isRecording) viewModel.triggerStopRecording()
                                         viewModel.selectWordBySequencePosition(index)
                                     }
                                 )
@@ -1636,11 +1633,9 @@ private fun RecordingStagePane(
                         canGoNext = safeCurrentIndex < words.size - 1,
                         isCompact = true,
                         onPrev = {
-                            viewModel.triggerStopRecording()
                             viewModel.prevWord()
                         },
                         onNext = {
-                            viewModel.triggerStopRecording()
                             viewModel.nextWord()
                         },
                         onToggleRecord = {
@@ -1730,7 +1725,6 @@ private fun RecordingStagePane(
                                 enablePicturePrompts = enablePicturePrompts,
                                 wavFile = null,
                                 onClick = {
-                                    if (isRecording) viewModel.triggerStopRecording()
                                     viewModel.selectWordBySequencePosition(index)
                                 }
                             )
@@ -1770,11 +1764,9 @@ private fun RecordingStagePane(
                     canGoNext = safeCurrentIndex < words.size - 1,
                     isCompact = isCompactStageHeight,
                     onPrev = {
-                        viewModel.triggerStopRecording()
                         viewModel.prevWord()
                     },
                     onNext = {
-                        viewModel.triggerStopRecording()
                         viewModel.nextWord()
                     },
                     onToggleRecord = {

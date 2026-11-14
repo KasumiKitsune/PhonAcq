@@ -122,7 +122,7 @@ class ExampleRobolectricTest {
     org.junit.Assert.assertFalse(jsonStr.contains("NaN") || jsonStr.contains("Infinity"))
 
     assertEquals("1.0", root.getString("version"))
-    assertEquals("2.0.0", root.getString("software_version"))
+    assertEquals(BuildConfig.VERSION_NAME, root.getString("software_version"))
     assertEquals("1.0", root.getString("report_format_version"))
     assertEquals("SPK01", root.getString("active_speaker_id"))
     assertEquals("continuous", root.getString("export_numbering_rule"))

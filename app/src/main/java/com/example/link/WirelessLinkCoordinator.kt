@@ -165,6 +165,7 @@ class WirelessLinkCoordinator(
 
     // Dedicated recorder used when the non-Project-Host device captures audio into a temp WAV
     private val auxiliaryRecorder = AudioRecorder()
+    private var activeAuxCaptureToken: Long = 0L
     private var activeAuxCaptureMeta: JSONObject? = null
     private var activeAuxCaptureFile: File? = null
     @Volatile
@@ -560,7 +561,8 @@ class WirelessLinkCoordinator(
 
     fun requestStopRecording(
         fromHoldRelease: Boolean = false,
-        initiatedByRole: LinkRole = _activeRole.value
+        initiatedByRole: LinkRole = _activeRole.value,
+        immediateForNavigation: Boolean = false
     ) {
         val recordedByPromptSelfControl =
             initiatedByRole == LinkRole.PROMPT_DISPLAY && _promptPolicy.value.allowPromptStartStopRecord
@@ -574,7 +576,8 @@ class WirelessLinkCoordinator(
         if (_activeRole.value == micRole) {
             stopCaptureOnThisDevice(
                 fromHoldRelease = fromHoldRelease,
-                recordedByPromptSelfControl = recordedByPromptSelfControl
+                recordedByPromptSelfControl = recordedByPromptSelfControl,
+                tailHangoverMs = if (immediateForNavigation) 0L else 115L
             )
         } else if (_isConnected.value) {
             peerCaptureActive = false
@@ -584,12 +587,26 @@ class WirelessLinkCoordinator(
                     put("type", "CMD_STOP_CAPTURE")
                     put("fromHoldRelease", fromHoldRelease)
                     put("recordedByPromptSelfControl", recordedByPromptSelfControl)
+                    put("immediateForNavigation", immediateForNavigation)
                 }
             )
         }
     }
 
+    private fun stopActiveCaptureBeforeWordNavigation() {
+        if (_sessionSnapshot.value.isRecording ||
+            bridge.sharedRecorder.isRecording.value ||
+            auxiliaryRecorder.isRecording.value
+        ) {
+            requestStopRecording(
+                fromHoldRelease = false,
+                immediateForNavigation = true
+            )
+        }
+    }
+
     fun requestNextWord() {
+        stopActiveCaptureBeforeWordNavigation()
         latestCoachingState = null
         resetTemporaryRemarkOnTurn()
         if (_isProjectHost.value) {
@@ -602,6 +619,7 @@ class WirelessLinkCoordinator(
     }
 
     fun requestPrevWord() {
+        stopActiveCaptureBeforeWordNavigation()
         latestCoachingState = null
         resetTemporaryRemarkOnTurn()
         if (_isProjectHost.value) {
@@ -614,6 +632,7 @@ class WirelessLinkCoordinator(
     }
 
     fun requestJumpNextUnrecorded() {
+        stopActiveCaptureBeforeWordNavigation()
         latestCoachingState = null
         resetTemporaryRemarkOnTurn()
         if (_isProjectHost.value) {
@@ -626,6 +645,7 @@ class WirelessLinkCoordinator(
     }
 
     fun requestSelectWordSeqPos(seqPos: Int) {
+        stopActiveCaptureBeforeWordNavigation()
         latestCoachingState = null
         resetTemporaryRemarkOnTurn()
         if (_isProjectHost.value) {
@@ -1044,7 +1064,7 @@ class WirelessLinkCoordinator(
                 sourceStrategy = prefs.getString("audio_source_strategy", "VOICE_RECOGNITION") ?: "VOICE_RECOGNITION",
                 enablePreRoll = prefs.getBoolean("pre_roll_enabled", true)
             )
-            auxiliaryRecorder.startRecording(
+            activeAuxCaptureToken = auxiliaryRecorder.startRecording(
                 outputFile = outWav,
                 autoNextEnabled = false,
                 vadThreshold = 1200f,
@@ -1063,11 +1083,12 @@ class WirelessLinkCoordinator(
 
     private fun stopCaptureOnThisDevice(
         fromHoldRelease: Boolean = false,
-        recordedByPromptSelfControl: Boolean = false
+        recordedByPromptSelfControl: Boolean = false,
+        tailHangoverMs: Long = 115L
     ) {
         if (_isProjectHost.value) {
             scope.launch(Dispatchers.IO) {
-                val completed = bridge.performLocalStopRecordingAwait(tailHangoverMs = 115L)
+                val completed = bridge.performLocalStopRecordingAwait(tailHangoverMs = tailHangoverMs)
                 val pol = _promptPolicy.value
 
                 if (completed != null) {
@@ -1126,12 +1147,21 @@ class WirelessLinkCoordinator(
                 }
             }
         } else {
+            val tokenSnap = activeAuxCaptureToken
             val meta = activeAuxCaptureMeta
             val wavFile = activeAuxCaptureFile
+            activeAuxCaptureToken = 0L
             activeAuxCaptureMeta = null
             activeAuxCaptureFile = null
+            if (tailHangoverMs == 0L) {
+                auxiliaryRecorder.markStoppingImmediate(tokenSnap)
+            }
             scope.launch(Dispatchers.IO) {
-                val localQual = auxiliaryRecorder.stopRecording(tailHangoverMs = 115L)
+                val localQual = auxiliaryRecorder.stopRecording(
+                    tailHangoverMs = tailHangoverMs,
+                    expectedToken = tokenSnap,
+                    expectedOutputFile = wavFile
+                )
                 _sessionSnapshot.value = _sessionSnapshot.value.copy(isRecording = false)
                 transport.sendJson(
                     JSONObject().apply {
@@ -1354,13 +1384,16 @@ class WirelessLinkCoordinator(
             "CMD_STOP_CAPTURE" -> {
                 val fromHold = json.optBoolean("fromHoldRelease", false)
                 val byPromptSelf = json.optBoolean("recordedByPromptSelfControl", false)
+                val immediateNav = json.optBoolean("immediateForNavigation", false)
                 stopCaptureOnThisDevice(
                     fromHoldRelease = fromHold,
-                    recordedByPromptSelfControl = byPromptSelf
+                    recordedByPromptSelfControl = byPromptSelf,
+                    tailHangoverMs = if (immediateNav) 0L else 115L
                 )
             }
             "CMD_NAV" -> {
                 if (!_isProjectHost.value) return
+                stopActiveCaptureBeforeWordNavigation()
                 latestCoachingState = null
                 resetTemporaryRemarkOnTurn()
                 when (json.optString("op")) {

@@ -1096,6 +1096,7 @@ class RecordingViewModel(
     fun selectWordBySequencePosition(pos: Int) {
         val seq = _wordSequence.value
         if (pos in seq.indices && _currentSeqIndex.value != pos) {
+            stopRecordingForWordNavigation()
             _currentSeqIndex.value = pos
             stopPlayback()
             saveSessionWordBookmark()
@@ -1106,6 +1107,7 @@ class RecordingViewModel(
         val seq = _wordSequence.value
         val pos = _currentSeqIndex.value
         if (pos < seq.size - 1) {
+            stopRecordingForWordNavigation()
             _currentSeqIndex.value = pos + 1
             stopPlayback()
             saveSessionWordBookmark()
@@ -1117,6 +1119,7 @@ class RecordingViewModel(
     fun prevWord(): Boolean {
         val pos = _currentSeqIndex.value
         if (pos > 0) {
+            stopRecordingForWordNavigation()
             _currentSeqIndex.value = pos - 1
             stopPlayback()
             saveSessionWordBookmark()
@@ -1789,15 +1792,26 @@ class RecordingViewModel(
         }
     }
 
-    // Track active recording context so stopRecording always saves to the exact word/speaker started
+    private data class ActiveCaptureContext(
+        val token: Long,
+        val word: Word,
+        val project: Project,
+        val speaker: Speaker,
+        val destFile: File,
+        val seqPos: Int
+    )
+
+    private val captureContextLock = Any()
     @Volatile
-    private var activeRecordingWord: Word? = null
-    @Volatile
-    private var activeRecordingProject: Project? = null
-    @Volatile
-    private var activeRecordingSpeaker: Speaker? = null
-    @Volatile
-    private var activeRecordingFile: File? = null
+    private var activeCaptureContext: ActiveCaptureContext? = null
+
+    private fun consumeActiveCaptureContext(): ActiveCaptureContext? {
+        synchronized(captureContextLock) {
+            val cur = activeCaptureContext
+            activeCaptureContext = null
+            return cur
+        }
+    }
 
     // Audio Capture Trigger Management
     fun toggleRecording() {
@@ -1813,6 +1827,7 @@ class RecordingViewModel(
         val project = _currentProject.value ?: allProjects.value.firstOrNull()?.also { _currentProject.value = it } ?: return
         val speaker = _currentSpeaker.value ?: allSpeakers.value.firstOrNull()?.also { _currentSpeaker.value = it } ?: return
         val word = getCurrentWord() ?: return
+        val seqPosNow = _currentSeqIndex.value
 
         stopPlayback()
 
@@ -1820,18 +1835,13 @@ class RecordingViewModel(
         val filename = "word_${word.id}_speaker_${speaker.id}_${System.currentTimeMillis()}.wav"
         val destFile = File(projectDir, filename)
 
-        activeRecordingWord = word
-        activeRecordingProject = project
-        activeRecordingSpeaker = speaker
-        activeRecordingFile = destFile
-
         audioRecorder.setLowVolumeThreshold(_lowVolumeThreshold.value)
         audioRecorder.configureHardware(
             targetSampleRate = _sampleRateHz.value,
             sourceStrategy = _audioSourceStrategy.value,
             enablePreRoll = _preRollEnabled.value
         )
-        audioRecorder.startRecording(
+        val token = audioRecorder.startRecording(
             outputFile = destFile,
             autoNextEnabled = _autoNextEnabled.value,
             vadThreshold = _vadThreshold.value,
@@ -1840,6 +1850,33 @@ class RecordingViewModel(
                 triggerStopRecordingAndAdvance()
             }
         )
+        synchronized(captureContextLock) {
+            activeCaptureContext = ActiveCaptureContext(
+                token = token,
+                word = word,
+                project = project,
+                speaker = speaker,
+                destFile = destFile,
+                seqPos = seqPosNow
+            )
+        }
+    }
+
+    /**
+     * Stops any in-progress recording immediately (0ms hangover) when the user explicitly
+     * switches to another word, flushing and saving the previous word's take without bleeding
+     * into or ghosting the recording state on the newly selected word.
+     */
+    fun stopRecordingForWordNavigation() {
+        val snap = consumeActiveCaptureContext()
+        if (snap == null && !audioRecorder.isRecording.value) return
+        audioRecorder.markStoppingImmediate(snap?.token ?: 0L)
+        viewModelScope.launch(Dispatchers.IO) {
+            stopAndPersistLocalRecordingInternal(
+                tailHangoverMs = 0L,
+                preConsumedContext = snap
+            )
+        }
     }
 
     // Session tracking for "Reset Session" & Multi-Take retention
@@ -2207,15 +2244,21 @@ class RecordingViewModel(
     }
 
     private suspend fun stopAndPersistLocalRecordingInternal(
-        tailHangoverMs: Long = 115L
+        tailHangoverMs: Long = 115L,
+        preConsumedContext: ActiveCaptureContext? = null
     ): CompletedHostTakeInfo? = withContext(Dispatchers.IO) {
-        val word = activeRecordingWord ?: getCurrentWord()
-        val project = activeRecordingProject ?: _currentProject.value
-        val speaker = activeRecordingSpeaker ?: _currentSpeaker.value
-        val targetFile = activeRecordingFile
-        val seqPosNow = _currentSeqIndex.value
+        val ctx = preConsumedContext ?: consumeActiveCaptureContext()
+        val word = ctx?.word ?: getCurrentWord()
+        val project = ctx?.project ?: _currentProject.value
+        val speaker = ctx?.speaker ?: _currentSpeaker.value
+        val targetFile = ctx?.destFile
+        val seqPosNow = ctx?.seqPos ?: _currentSeqIndex.value
 
-        val quality = audioRecorder.stopRecording(tailHangoverMs = tailHangoverMs)
+        val quality = audioRecorder.stopRecording(
+            tailHangoverMs = tailHangoverMs,
+            expectedToken = ctx?.token ?: 0L,
+            expectedOutputFile = targetFile
+        )
         if (word == null || project == null || speaker == null) return@withContext null
 
         val (files, newestFile) = collectCandidateTakesAfterStop(project.id, word.id, speaker.id, targetFile)
@@ -2263,10 +2306,15 @@ class RecordingViewModel(
     }
 
     fun triggerStopRecording() {
-        val wordSnapshot = activeRecordingWord ?: getCurrentWord()
+        val snap = consumeActiveCaptureContext()
+        if (snap == null && !audioRecorder.isRecording.value) return
+        val wordSnapshot = snap?.word ?: getCurrentWord()
         viewModelScope.launch(Dispatchers.IO) {
-            val completed = stopAndPersistLocalRecordingInternal(tailHangoverMs = 115L) ?: return@launch
-            if (_autoPlayAfterRecord.value && wordSnapshot != null) {
+            val completed = stopAndPersistLocalRecordingInternal(
+                tailHangoverMs = 115L,
+                preConsumedContext = snap
+            ) ?: return@launch
+            if (_autoPlayAfterRecord.value && wordSnapshot != null && getCurrentWord()?.id == wordSnapshot.id) {
                 withContext(Dispatchers.Main) {
                     val updatedWord = wordSnapshot.copy(
                         isRecorded = true,
@@ -2281,9 +2329,15 @@ class RecordingViewModel(
     }
 
     private fun triggerStopRecordingAndAdvance() {
+        val snap = consumeActiveCaptureContext()
+        if (snap == null && !audioRecorder.isRecording.value) return
+        audioRecorder.markStoppingImmediate(snap?.token ?: 0L)
         viewModelScope.launch(Dispatchers.IO) {
             // VAD already waited silenceDelayMs of silence, so 0ms extra hangover is needed
-            val completed = stopAndPersistLocalRecordingInternal(tailHangoverMs = 0L) ?: return@launch
+            val completed = stopAndPersistLocalRecordingInternal(
+                tailHangoverMs = 0L,
+                preConsumedContext = snap
+            ) ?: return@launch
             if (_holdOnQualityIssue.value && SpeechQualityEvaluator.isBlockingForAutoAdvance(completed.finalStatus)) {
                 _lastHoldQualityNotice.value = S.recording.holdQualityNoticeStay.withArgs("status" to S.quality.displayStatus(completed.finalStatus))
                 return@launch
@@ -2303,12 +2357,17 @@ class RecordingViewModel(
      * Respects [autoAdvanceOnHoldRelease] and [holdOnQualityIssue].
      */
     fun triggerStopRecordingFromHoldRelease() {
-        val wordSnapshot = activeRecordingWord ?: getCurrentWord()
+        val snap = consumeActiveCaptureContext()
+        if (snap == null && !audioRecorder.isRecording.value) return
+        val wordSnapshot = snap?.word ?: getCurrentWord()
         viewModelScope.launch(Dispatchers.IO) {
-            val completed = stopAndPersistLocalRecordingInternal(tailHangoverMs = 115L) ?: return@launch
+            val completed = stopAndPersistLocalRecordingInternal(
+                tailHangoverMs = 115L,
+                preConsumedContext = snap
+            ) ?: return@launch
             val shouldAutoAdvance = _autoAdvanceOnHoldRelease.value || _pushToTalkEnabled.value
             if (!shouldAutoAdvance) {
-                if (_autoPlayAfterRecord.value && wordSnapshot != null) {
+                if (_autoPlayAfterRecord.value && wordSnapshot != null && getCurrentWord()?.id == wordSnapshot.id) {
                     withContext(Dispatchers.Main) {
                         playWordAudio(
                             wordSnapshot.copy(

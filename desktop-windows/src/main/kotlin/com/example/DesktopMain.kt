@@ -156,9 +156,6 @@ fun main() = application {
 
                     Key.DirectionLeft, Key.DirectionUp, Key.PageUp -> {
                         if ((keyEvent.isAltPressed || bareAllowed) && viewModel.currentProject.value != null) {
-                            if (viewModel.isRecording.value) {
-                                viewModel.triggerStopRecording()
-                            }
                             viewModel.prevWord()
                             return@Window true
                         }
@@ -166,9 +163,6 @@ fun main() = application {
 
                     Key.DirectionRight, Key.DirectionDown, Key.PageDown -> {
                         if ((keyEvent.isAltPressed || bareAllowed) && viewModel.currentProject.value != null) {
-                            if (viewModel.isRecording.value) {
-                                viewModel.triggerStopRecording()
-                            }
                             viewModel.nextWord()
                             return@Window true
                         }
