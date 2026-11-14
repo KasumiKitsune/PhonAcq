@@ -326,3 +326,44 @@ jobs:
             release-assets/*.apk
             release-assets/*.msi
             release-assets/*.dmg
+
+  sync-release-metadata:
+    name: Sync README, CITATION & Portal Version
+    needs:
+      - prepare
+      - build-android
+      - publish-release
+    if: ${{ !inputs.prerelease && github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout main branch
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Update README.md, CITATION.cff and docs metadata
+        env:
+          RAW_VERSION: ${{ needs.prepare.outputs.raw_version }}
+          APK_FILENAME: ${{ needs.build-android.outputs.apk_filename }}
+        run: |
+          RELEASE_DATE="$(TZ='Asia/Shanghai' date +%Y-%m-%d)"
+          python3 .github/scripts/sync_release_metadata.py \
+            --version "$RAW_VERSION" \
+            --date "$RELEASE_DATE" \
+            --apk-filename "$APK_FILENAME"
+
+      - name: Commit & Push Synced Docs (if changed)
+        env:
+          RAW_VERSION: ${{ needs.prepare.outputs.raw_version }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add README.md CITATION.cff docs/index.html docs/sitemap.xml
+          if git diff --cached --quiet; then
+            echo "All release links and metadata already match v${RAW_VERSION}."
+            exit 0
+          fi
+          git commit -m "chore(docs): sync README, CITATION.cff and portal to v${RAW_VERSION} [skip ci]"
+          git pull --rebase origin main
+          git push origin main
