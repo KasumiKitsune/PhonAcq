@@ -1,0 +1,8 @@
+@file:Suppress("PackageDirectoryMismatch")
+
+package android.content.pm
+
+object PackageManager {
+    const val PERMISSION_GRANTED = 0
+    const val PERMISSION_DENIED = -1
+}

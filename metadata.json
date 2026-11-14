@@ -1,0 +1,6 @@
+{
+  "name": "PhonAcq",
+  "description": "专业级语音学字表录制采集、语音活动强度监测与音质实时评估系统。",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

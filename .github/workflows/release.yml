@@ -1,0 +1,285 @@
+name: Release PhonAcq (Android APK · Windows MSI · macOS DMG)
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: '发布版本号（如 2.0.1 或 v2.0.1）'
+        required: true
+        default: '2.0.1'
+        type: string
+      release_notes:
+        description: '本次版本更新说明（支持 Markdown；留空则自动生成变更记录）'
+        required: false
+        default: ''
+        type: string
+      prerelease:
+        description: '标记为预发布版本 (Pre-release)'
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: write
+
+env:
+  JAVA_TOOL_OPTIONS: "-Dfile.encoding=UTF-8"
+
+jobs:
+  prepare:
+    name: Validate & Normalize Version
+    runs-on: ubuntu-latest
+    outputs:
+      raw_version: ${{ steps.norm.outputs.raw_version }}
+      tag_name: ${{ steps.norm.outputs.tag_name }}
+    steps:
+      - name: Normalize version string
+        id: norm
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          CLEAN_VER="$(echo "$INPUT_VERSION" | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//; s/^[vV]//')"
+          if [ -z "$CLEAN_VER" ] || ! echo "$CLEAN_VER" | grep -qE '^[0-9]+(\.[0-9]+)*([.-][0-9A-Za-z._-]+)?$'; then
+            echo "::error::版本号格式无效：'$INPUT_VERSION'（示例：2.0.1 或 v2.0.1）"
+            exit 1
+          fi
+          echo "raw_version=${CLEAN_VER}" >> "$GITHUB_OUTPUT"
+          echo "tag_name=v${CLEAN_VER}" >> "$GITHUB_OUTPUT"
+          echo "Normalized version: ${CLEAN_VER} (Tag: v${CLEAN_VER})"
+
+  build-android:
+    name: Build Android APK
+    needs: prepare
+    runs-on: ubuntu-latest
+    outputs:
+      apk_signed: ${{ steps.apk.outputs.apk_signed }}
+      apk_filename: ${{ steps.apk.outputs.apk_filename }}
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v5
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Accept Android SDK Licenses
+        run: yes | sdkmanager --licenses > /dev/null 2>&1 || true
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.3.1'
+
+      - name: Prepare Keystore & Build Android APK
+        id: apk
+        env:
+          RAW_VERSION: ${{ needs.prepare.outputs.raw_version }}
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          STORE_PASSWORD: ${{ secrets.STORE_PASSWORD }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          [ -f .env ] || cp .env.example .env
+
+          # Ensure debug.keystore exists so Gradle signingConfigs evaluation succeeds cleanly
+          if [ ! -f debug.keystore ]; then
+            keytool -genkeypair -v \
+              -keystore debug.keystore \
+              -storepass android \
+              -alias androiddebugkey \
+              -keypass android \
+              -keyalg RSA \
+              -keysize 2048 \
+              -validity 10000 \
+              -dname "CN=Android Debug,O=Android,C=US"
+          fi
+
+          mkdir -p dist
+          if [ -n "$ANDROID_KEYSTORE_BASE64" ] && [ -n "$STORE_PASSWORD" ] && [ -n "$KEY_PASSWORD" ]; then
+            echo "Detected release signing secrets; building signed Release APK..."
+            KEYSTORE_FILE="${RUNNER_TEMP}/upload-key.jks"
+            echo "$ANDROID_KEYSTORE_BASE64" | tr -d ' \n\r\t' | base64 -d > "$KEYSTORE_FILE"
+            export KEYSTORE_PATH="$KEYSTORE_FILE"
+            gradle :app:assembleRelease -PappVersion="${RAW_VERSION}" --no-daemon
+            APK_SRC="$(ls app/build/outputs/apk/release/*.apk | head -n 1)"
+            APK_NAME="PhonAcq-v${RAW_VERSION}-android.apk"
+            cp "$APK_SRC" "dist/${APK_NAME}"
+            rm -f "$KEYSTORE_FILE"
+            echo "apk_signed=true" >> "$GITHUB_OUTPUT"
+            echo "apk_filename=${APK_NAME}" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice::未检测到完整的 Android 签名密钥 (ANDROID_KEYSTORE_BASE64 / STORE_PASSWORD / KEY_PASSWORD)，自动回退生成可直接安装的 Debug 签名安装包。"
+            gradle :app:assembleDebug -PappVersion="${RAW_VERSION}" --no-daemon
+            APK_SRC="$(ls app/build/outputs/apk/debug/*.apk | head -n 1)"
+            APK_NAME="PhonAcq-v${RAW_VERSION}-android-debug.apk"
+            cp "$APK_SRC" "dist/${APK_NAME}"
+            echo "apk_signed=false" >> "$GITHUB_OUTPUT"
+            echo "apk_filename=${APK_NAME}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Upload Android APK Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-android-apk
+          path: dist/*.apk
+          if-no-files-found: error
+
+  build-windows:
+    name: Build Windows x64 Installer (.msi)
+    needs: prepare
+    runs-on: windows-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v5
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.10.2'
+
+      - name: Package Windows Installer (.msi)
+        env:
+          RAW_VERSION: ${{ needs.prepare.outputs.raw_version }}
+        shell: pwsh
+        run: |
+          gradle -p desktop-windows packageMsi "-PappVersion=$env:RAW_VERSION" --no-daemon
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          $msi = Get-ChildItem -Path "desktop-windows/build/compose/binaries/main/msi/*.msi" | Select-Object -First 1
+          if (-not $msi) {
+            Write-Error "未找到生成的 .msi 安装包"
+            exit 1
+          }
+          $dest = "dist/PhonAcq-v$($env:RAW_VERSION)-windows-x64-setup.msi"
+          Copy-Item -Path $msi.FullName -Destination $dest -Force
+          Write-Host "Prepared Windows MSI: $dest"
+
+      - name: Upload Windows MSI Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-windows-msi
+          path: dist/PhonAcq-v*-windows-x64-setup.msi
+          if-no-files-found: error
+
+  build-macos:
+    name: Build macOS Apple Silicon (.dmg)
+    needs: prepare
+    runs-on: macos-14
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17 (arm64)
+        uses: actions/setup-java@v5
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+          architecture: 'aarch64'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.10.2'
+
+      - name: Package macOS Apple Silicon Installer (.dmg)
+        env:
+          RAW_VERSION: ${{ needs.prepare.outputs.raw_version }}
+        run: |
+          gradle -p desktop-windows packageDmg -PappVersion="${RAW_VERSION}" --no-daemon
+          mkdir -p dist
+          DMG_SRC="$(ls desktop-windows/build/compose/binaries/main/dmg/*.dmg | head -n 1)"
+          DEST="dist/PhonAcq-v${RAW_VERSION}-macos-arm64.dmg"
+          cp "$DMG_SRC" "$DEST"
+          echo "Prepared macOS arm64 DMG: $DEST"
+
+      - name: Upload macOS DMG Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-macos-dmg
+          path: dist/PhonAcq-v*-macos-arm64.dmg
+          if-no-files-found: error
+
+  publish-release:
+    name: Publish GitHub Release
+    needs:
+      - prepare
+      - build-android
+      - build-windows
+      - build-macos
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download Release Artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release-assets
+          merge-multiple: true
+
+      - name: Compose Release Notes & SHA-256 Checksums
+        id: notes
+        env:
+          RAW_VERSION: ${{ needs.prepare.outputs.raw_version }}
+          USER_NOTES: ${{ inputs.release_notes }}
+          APK_SIGNED: ${{ needs.build-android.outputs.apk_signed }}
+          APK_FILENAME: ${{ needs.build-android.outputs.apk_filename }}
+        run: |
+          ls -lh release-assets/
+
+          BODY_FILE="${RUNNER_TEMP}/release_body.md"
+          : > "$BODY_FILE"
+
+          if [ -n "$(echo "$USER_NOTES" | tr -d '[:space:]')" ]; then
+            printf "%s\n\n---\n\n" "$USER_NOTES" >> "$BODY_FILE"
+            echo "auto_notes=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "auto_notes=true" >> "$GITHUB_OUTPUT"
+          fi
+
+          cat <<EOF >> "$BODY_FILE"
+          ### 安装包下载指引
+
+          | 平台 | 文件名 | 适用设备与安装说明 |
+          | :--- | :--- | :--- |
+          | **Android**（手机 / 平板） | \`${APK_FILENAME}\` | Android 7.0+ 通用安装包（含双机无线联动看读端/遥控端） |
+          | **Windows**（64 位） | \`PhonAcq-v${RAW_VERSION}-windows-x64-setup.msi\` | Windows 10 / 11 标准安装向导（内置运行环境，无需额外配置 Java） |
+          | **macOS**（Apple Silicon） | \`PhonAcq-v${RAW_VERSION}-macos-arm64.dmg\` | 适用于 M1 / M2 / M3 / M4 系列芯片 Mac（内置运行环境） |
+
+          > **macOS 首次打开提示**：由于安装包采用开源构建而未附加 Apple 付费商业公证，首次拖入「应用程序」打开若提示无法验证开发者，请前往 **系统设置 → 隐私与安全性** 底部点击 **「仍要打开」**，或在终端执行 \`xattr -cr /Applications/PhonAcq.app\` 即可正常使用。
+          EOF
+
+          # Remove leading indentation from heredoc
+          sed -i -E 's/^          //' "$BODY_FILE"
+
+          if [ "$APK_SIGNED" != "true" ]; then
+            printf "\n> 注：当前 Android 安装包使用测试签名构建；如需发布正式签名包，可在仓库 Secrets 中配置 \`ANDROID_KEYSTORE_BASE64\`、\`STORE_PASSWORD\` 与 \`KEY_PASSWORD\`。\n" >> "$BODY_FILE"
+          fi
+
+          {
+            printf "\n<details>\n<summary>SHA-256 文件校验值</summary>\n\n\`\`\`text\n"
+            (cd release-assets && sha256sum * | sort -k2)
+            printf "\`\`\`\n</details>\n"
+          } >> "$BODY_FILE"
+
+          echo "body_path=${BODY_FILE}" >> "$GITHUB_OUTPUT"
+
+      - name: Create or Update GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.prepare.outputs.tag_name }}
+          name: PhonAcq ${{ needs.prepare.outputs.tag_name }}
+          body_path: ${{ steps.notes.outputs.body_path }}
+          generate_release_notes: ${{ steps.notes.outputs.auto_notes == 'true' }}
+          prerelease: ${{ inputs.prerelease }}
+          overwrite_files: true
+          files: |
+            release-assets/*.apk
+            release-assets/*.msi
+            release-assets/*.dmg

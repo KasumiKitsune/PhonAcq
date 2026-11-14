@@ -1,0 +1,79 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- Balanced scale (0.047) centered at (54, 54) for harmonious adaptive icon proportions -->
+    <group
+        android:pivotX="0"
+        android:pivotY="0"
+        android:scaleX="0.047"
+        android:scaleY="0.047"
+        android:translateX="28.7"
+        android:translateY="28.7">
+
+        <group
+            android:translateX="-1661"
+            android:translateY="-699">
+
+            <!-- Flat Warm Amber-Gold Central Soundwave & Pointer Wings (No strokes, no gradients) -->
+            <path
+                android:pathData="M2232.85 1072.89C2238.46 1053.67 2258.59 1042.63 2277.81 1048.24C2297.04 1053.84 2308.07 1073.97 2302.47 1093.2L2195.77 1458.95C2190.17 1478.18 2170.04 1489.21 2150.81 1483.61C2131.59 1478 2120.55 1457.87 2126.16 1438.64Z"
+                android:fillColor="#F59E0B"
+                android:fillType="evenOdd" />
+
+            <path
+                android:pathData="M2221.49 1172.62C2215.37 1153.15 2226.2 1132.41 2245.67 1126.29C2265.14 1120.17 2285.89 1131 2292.01 1150.47L2357.6 1359.22C2363.72 1378.69 2352.89 1399.44 2333.42 1405.55C2313.95 1411.67 2293.2 1400.85 2287.08 1381.38Z"
+                android:fillColor="#F59E0B"
+                android:fillType="evenOdd" />
+
+            <path
+                android:pathData="M2437 1193 l290 43 l-263.09 61 Z"
+                android:fillColor="#F59E0B"
+                android:fillType="evenOdd" />
+
+            <path
+                android:pathData="M2367.78 1187.87C2355.61 1171.48 2359.03 1148.33 2375.42 1136.16C2391.81 1123.99 2414.95 1127.41 2427.12 1143.8L2499.19 1240.84C2511.36 1257.23 2507.94 1280.38 2491.55 1292.55C2475.17 1304.72 2452.02 1301.3 2439.85 1284.91Z"
+                android:fillColor="#F59E0B"
+                android:fillType="evenOdd" />
+
+            <path
+                android:pathData="M2356.18 1149.5C2362.09 1129.97 2382.72 1118.92 2402.25 1124.83C2421.79 1130.74 2432.83 1151.37 2426.92 1170.91L2359.8 1392.72C2353.89 1412.26 2333.26 1423.31 2313.73 1417.39C2294.19 1411.48 2283.15 1390.85 2289.06 1371.32Z"
+                android:fillColor="#F59E0B"
+                android:fillType="evenOdd" />
+
+            <group
+                android:scaleX="-1"
+                android:translateX="1962"
+                android:translateY="1186">
+                <path
+                    android:pathData="M0 0 L290 54.747 L26.907 108 Z"
+                    android:fillColor="#F59E0B"
+                    android:fillType="evenOdd" />
+            </group>
+
+            <path
+                android:pathData="M2095.06 1089.57C2100.65 1070.4 2120.72 1059.39 2139.89 1064.98C2159.06 1070.58 2170.07 1090.65 2164.48 1109.82L2099.08 1334.02C2093.49 1353.19 2073.41 1364.2 2054.24 1358.6C2035.07 1353.01 2024.07 1332.94 2029.66 1313.77Z"
+                android:fillColor="#F59E0B"
+                android:fillType="evenOdd" />
+
+            <path
+                android:pathData="M1938.48 1191.69C1950.53 1175.47 1973.44 1172.09 1989.66 1184.14C2005.89 1196.18 2009.27 1219.1 1997.22 1235.32L1958.39 1287.6C1946.34 1303.82 1923.42 1307.2 1907.2 1295.16C1890.98 1283.11 1887.6 1260.19 1899.65 1243.97Z"
+                android:fillColor="#F59E0B"
+                android:fillType="evenOdd" />
+
+            <path
+                android:pathData="M1944.59 1230.24C1932.13 1214.33 1934.92 1191.34 1950.83 1178.87C1966.73 1166.41 1989.73 1169.2 2002.19 1185.11L2093.48 1301.61C2105.94 1317.51 2103.15 1340.51 2087.24 1352.97C2071.34 1365.43 2048.34 1362.64 2035.88 1346.74Z"
+                android:fillColor="#F59E0B"
+                android:fillType="evenOdd" />
+
+            <!-- Flat Cyan-Teal Split Crescent Ring (No shadow overlays, no strokes) -->
+            <path
+                android:pathData="M1663.2 1278.4 l216.2 52.69 l1.47 5.71 C1923.18 1472.74 2050.07 1571.43 2200.02 1571.43 C2349.98 1571.43 2476.86 1472.74 2519.17 1336.8 L2520.42 1331.97 L2736.8 1279.23 L2736.13 1292.56 C2708.53 1564.1 2479.04 1776 2200.02 1776 C1921 1776 1691.51 1564.1 1663.92 1292.56 Z M2200.02 699 C2479.04 699 2708.53 910.899 2736.13 1182.44 L2737 1199.72 L2521.38 1146.77 L2519.17 1138.2 C2476.86 1002.26 2349.98 903.565 2200.02 903.565 C2050.07 903.565 1923.18 1002.26 1880.87 1138.2 L1878.44 1147.66 L1663 1200.56 L1663.92 1182.44 C1691.51 910.899 1921 699 2200.02 699 Z"
+                android:fillColor="#00ACC1"
+                android:fillType="evenOdd" />
+
+        </group>
+    </group>
+</vector>
