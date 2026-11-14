@@ -2031,6 +2031,63 @@
       display: inline-block;
     }
 
+    .bottom-dl-actions {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .dl-mirror-box {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      padding: 8px 11px;
+      border-radius: 6px;
+      background-color: var(--bg-subtle);
+      border: 1px dashed var(--border-line);
+      font-size: 12px;
+      color: var(--ink-secondary);
+    }
+
+    .dl-mirror-link {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      font-weight: 500;
+      color: var(--brand-cyan);
+      transition: color 0.15s ease;
+    }
+
+    .dl-mirror-link:hover {
+      color: var(--brand-cyan-hover);
+      text-decoration: underline;
+    }
+
+    .dl-copy-code {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      padding: 2px 7px;
+      border-radius: 4px;
+      border: 1px solid var(--border-line);
+      background-color: var(--bg-card);
+      color: var(--ink-secondary);
+      cursor: pointer;
+      transition: all 0.15s ease;
+      white-space: nowrap;
+    }
+
+    .dl-copy-code:hover {
+      border-color: var(--brand-cyan);
+      color: var(--brand-cyan);
+    }
+
+    .dl-copy-code.is-copied {
+      border-color: var(--accent-teal);
+      background-color: var(--accent-teal-tint);
+      color: var(--accent-teal);
+    }
+
     /* macOS 首次打开提示折叠栏 */
     .macos-details {
       background-color: var(--bg-card);
@@ -2478,6 +2535,8 @@
 
             <div class="hero-helper-links">
               <a href="https://github.com/KasumiKitsune/PhonAcq/releases" target="_blank" rel="noopener">查看全部历史版本与校验信息</a>
+              <span>·</span>
+              <a href="#cn-mirrors">国内网盘下载</a>
               <span>·</span>
               <a href="#macos-guide" id="jump-macos-guide">macOS 首次打开说明</a>
             </div>
@@ -5323,8 +5382,8 @@
           </div>
         </div>
 
-        <!-- 底部三端清晰下载入口 -->
-        <div class="bottom-dl-grid">
+        <!-- 底部三端清晰下载入口（含国内网盘下载） -->
+        <div class="bottom-dl-grid" id="cn-mirrors">
           <div class="bottom-dl-card is-recommended js-bottom-card" data-os="win">
             <div>
               <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px;">
@@ -5335,9 +5394,17 @@
                 适用于 Windows 10 / 11（64 位），标准 <code class="mono">.msi</code> 安装包，支持电脑端采录、双机遥控与完整归档整理。
               </p>
             </div>
-            <a href="https://github.com/KasumiKitsune/PhonAcq/releases/latest" class="btn btn-primary js-bottom-dl-btn js-dl-win" data-os="win">
-              下载 Windows 安装包 (.msi)
-            </a>
+            <div class="bottom-dl-actions">
+              <a href="https://github.com/KasumiKitsune/PhonAcq/releases/latest" class="btn btn-primary js-bottom-dl-btn js-dl-win" data-os="win">
+                下载 Windows 安装包 (.msi)
+              </a>
+              <div class="dl-mirror-box">
+                <a href="https://pan.baidu.com/s/1Fo2cKjx-XZvytgwhZvHpKA?pwd=taku" target="_blank" rel="noopener" class="dl-mirror-link">
+                  <span>百度网盘下载 →</span>
+                </a>
+                <button type="button" class="dl-copy-code" data-copy-code="taku" data-default-label="提取码 taku" title="点击复制提取码">提取码 taku</button>
+              </div>
+            </div>
           </div>
 
           <div class="bottom-dl-card js-bottom-card" data-os="mac">
@@ -5350,9 +5417,17 @@
                 适用于 Apple M 系列芯片 Mac，标准 <code class="mono">.dmg</code> 磁盘映像，拖入「应用程序」即可离线运行。
               </p>
             </div>
-            <a href="https://github.com/KasumiKitsune/PhonAcq/releases/latest" class="btn js-bottom-dl-btn js-dl-mac" data-os="mac">
-              下载 macOS 安装包 (.dmg)
-            </a>
+            <div class="bottom-dl-actions">
+              <a href="https://github.com/KasumiKitsune/PhonAcq/releases/latest" class="btn js-bottom-dl-btn js-dl-mac" data-os="mac">
+                下载 macOS 安装包 (.dmg)
+              </a>
+              <div class="dl-mirror-box">
+                <a href="https://pan.baidu.com/s/1-_2th4OnjY42yZ3VpSt0rg?pwd=57b3" target="_blank" rel="noopener" class="dl-mirror-link">
+                  <span>百度网盘下载 →</span>
+                </a>
+                <button type="button" class="dl-copy-code" data-copy-code="57b3" data-default-label="提取码 57b3" title="点击复制提取码">提取码 57b3</button>
+              </div>
+            </div>
           </div>
 
           <div class="bottom-dl-card js-bottom-card" data-os="android">
@@ -5365,9 +5440,17 @@
                 适用于 Android 7.0 及以上手机与平板，便携单机采录，或作为宣纸大字看读端与遥控端无线配对。
               </p>
             </div>
-            <a href="https://github.com/KasumiKitsune/PhonAcq/releases/latest" class="btn js-bottom-dl-btn js-dl-android" data-os="android">
-              下载 Android 安装包 (.apk)
-            </a>
+            <div class="bottom-dl-actions">
+              <a href="https://github.com/KasumiKitsune/PhonAcq/releases/latest" class="btn js-bottom-dl-btn js-dl-android" data-os="android">
+                下载 Android 安装包 (.apk)
+              </a>
+              <div class="dl-mirror-box">
+                <a href="https://kasumikitsune.lanzoul.com/iUkWB4fxy0uh" target="_blank" rel="noopener" class="dl-mirror-link">
+                  <span>蓝奏云下载 →</span>
+                </a>
+                <button type="button" class="dl-copy-code" data-copy-code="5pav" data-default-label="密码 5pav" title="点击复制提取密码">密码 5pav</button>
+              </div>
+            </div>
           </div>
         </div>
 
@@ -5452,6 +5535,24 @@
           macosDetails.open = true;
         });
       }
+
+      document.querySelectorAll('.dl-copy-code').forEach(function (btn) {
+        let timerId = null;
+        btn.addEventListener('click', function () {
+          const code = btn.getAttribute('data-copy-code') || '';
+          const fallback = btn.getAttribute('data-default-label') || code;
+          if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(code).catch(function () {});
+          }
+          btn.textContent = '已复制 ' + code;
+          btn.classList.add('is-copied');
+          clearTimeout(timerId);
+          timerId = setTimeout(function () {
+            btn.textContent = fallback;
+            btn.classList.remove('is-copied');
+          }, 1600);
+        });
+      });
 
       /* ------------------------------------------------------------------------
          1. 首屏系统自动识别 + GitHub 最新版本与安装包同步
