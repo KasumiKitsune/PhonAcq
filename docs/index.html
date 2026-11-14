@@ -3,761 +3,3769 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>PhonAcq · 田野语音与方言字表采录系统 | 交互式界面与工作流导览</title>
-  <meta name="description" content="面向方言调查、语音学实验与课堂记音训练的纯本地跨平台语音采录工具。支持 Android、Windows 与 macOS，原生衔接 Praat 与 PhonTracer。" />
-  <meta property="og:title" content="PhonAcq · 田野语音与方言字表采录系统" />
-  <meta property="og:description" content="同一字表多人建档、看图发音引导、局域网双机无线联动、实时声学把关与规范化导出。" />
-  <meta property="og:image" content="./images/hero-studio-preview.svg" />
-  <link rel="stylesheet" href="./styles.css" />
+  <title>PhonAcq — 田野语音与方言字表采录软件</title>
+  <meta name="description" content="PhonAcq 是一款开源、纯本地运行的田野语音与方言字表采录软件，面向汉语方言调查、民族语记音与语音学课堂训练。" />
+  <meta name="theme-color" content="#FAF9F6" />
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%23FAF9F6'/%3E%3Ccircle cx='16' cy='16' r='12' fill='none' stroke='%2300899B' stroke-width='2.2'/%3E%3Cline x1='10.5' y1='13' x2='10.5' y2='19' stroke='%23D97706' stroke-width='2' stroke-linecap='round'/%3E%3Cline x1='14.2' y1='9.5' x2='14.2' y2='22.5' stroke='%23D97706' stroke-width='2' stroke-linecap='round'/%3E%3Cline x1='17.8' y1='11.5' x2='17.8' y2='20.5' stroke='%23D97706' stroke-width='2' stroke-linecap='round'/%3E%3Cline x1='21.5' y1='14' x2='21.5' y2='18' stroke='%23D97706' stroke-width='2' stroke-linecap='round'/%3E%3C/svg%3E" />
+
+  <!-- 字体载入：思源宋体 + 思源黑体 + JetBrains Mono（附完整系统回退栈） -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Noto+Sans+SC:wght@400;500;600&family=Noto+Serif+SC:wght@600;700&display=swap" rel="stylesheet" />
+
+  <style>
+    :root {
+      /* 纯色色板（全站 100% 纯色块，零渐变） */
+      --bg-paper: #FAF9F6;
+      --bg-card: #FFFFFF;
+      --bg-subtle: #F2EFE9;
+      --border-line: #E4E1DA;
+      --border-strong: #CEC9BE;
+      --ink-primary: #18181B;
+      --ink-secondary: #57534E;
+      --ink-muted: #8A847C;
+      --brand-cyan: #00899B;
+      --brand-cyan-hover: #007282;
+      --brand-cyan-tint: #EBF5F6;
+      --accent-amber: #D97706;
+      --accent-amber-tint: #FCF3E6;
+
+      /* 字体规范 */
+      --font-serif: "Noto Serif SC", "Source Han Serif SC", "Songti SC", "SimSun", serif;
+      --font-sans: "Noto Sans SC", "Source Han Sans SC", "PingFang SC", "Microsoft YaHei", system-ui, -apple-system, sans-serif;
+      --font-mono: "JetBrains Mono", "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+
+      /* 尺寸规范 */
+      --nav-h: 64px;
+      --ruler-w: 56px;
+      --container-max: 1200px;
+    }
+
+    *, *::before, *::after {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    html {
+      scroll-behavior: smooth;
+      scroll-padding-top: calc(var(--nav-h) + 20px);
+      background-color: var(--bg-paper);
+      color: var(--ink-primary);
+      font-family: var(--font-sans);
+      font-size: 16px;
+      line-height: 1.68;
+      -webkit-font-smoothing: antialiased;
+      text-rendering: optimizeLegibility;
+    }
+
+    body {
+      background-color: var(--bg-paper);
+      color: var(--ink-primary);
+      padding-left: var(--ruler-w);
+    }
+
+    a {
+      color: inherit;
+      text-decoration: none;
+    }
+
+    button {
+      font: inherit;
+      color: inherit;
+      background: none;
+      border: none;
+      cursor: pointer;
+    }
+
+    img, svg {
+      display: block;
+      max-width: 100%;
+    }
+
+    .mono {
+      font-family: var(--font-mono);
+    }
+
+    .serif {
+      font-family: var(--font-serif);
+    }
+
+    /* ==========================================================================
+       左侧贯穿全页「边缘声学标尺」
+       ========================================================================== */
+    .acoustic-edge-ruler {
+      position: fixed;
+      top: var(--nav-h);
+      left: 0;
+      bottom: 0;
+      width: var(--ruler-w);
+      background-color: var(--bg-paper);
+      border-right: 1px solid var(--border-line);
+      z-index: 40;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      padding: 18px 0;
+      user-select: none;
+    }
+
+    .ruler-track {
+      position: relative;
+      flex: 1;
+      margin: 12px 0;
+    }
+
+    .ruler-ticks {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      align-items: flex-end;
+      pointer-events: none;
+    }
+
+    .ruler-tick {
+      height: 1px;
+      background-color: var(--border-line);
+      width: 8px;
+    }
+
+    .ruler-tick.major {
+      width: 16px;
+      background-color: var(--border-strong);
+    }
+
+    .ruler-stations {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      padding: 2px 0;
+    }
+
+    .ruler-station-btn {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      color: var(--ink-muted);
+      text-align: left;
+      padding: 4px 0 4px 10px;
+      transition: color 0.2s ease;
+    }
+
+    .ruler-station-btn:hover,
+    .ruler-station-btn.is-active {
+      color: var(--brand-cyan);
+      font-weight: 600;
+    }
+
+    .ruler-cursor {
+      position: absolute;
+      left: 0;
+      right: 0;
+      top: 0;
+      height: 22px;
+      margin-top: -11px;
+      pointer-events: none;
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+    }
+
+    .ruler-cursor-line {
+      width: 22px;
+      height: 2px;
+      background-color: var(--accent-amber);
+    }
+
+    .ruler-cursor-dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background-color: var(--accent-amber);
+      margin-right: -3.5px;
+    }
+
+    .ruler-readout {
+      font-family: var(--font-mono);
+      font-size: 10px;
+      letter-spacing: 0.02em;
+      color: var(--ink-secondary);
+      text-align: center;
+      line-height: 1.35;
+      padding: 0 4px;
+    }
+
+    .ruler-readout strong {
+      display: block;
+      color: var(--accent-amber);
+      font-size: 11px;
+      font-weight: 600;
+    }
+
+    /* ==========================================================================
+       顶栏导航（纯白底 + 底部 1px 细灰线）
+       ========================================================================== */
+    .site-header {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: var(--nav-h);
+      background-color: var(--bg-card);
+      border-bottom: 1px solid var(--border-line);
+      z-index: 50;
+    }
+
+    .header-inner {
+      max-width: calc(var(--container-max) + var(--ruler-w));
+      height: 100%;
+      margin: 0 auto;
+      padding: 0 28px 0 20px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 20px;
+    }
+
+    .brand-group {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-shrink: 0;
+    }
+
+    .brand-logo {
+      width: 28px;
+      height: 28px;
+      flex-shrink: 0;
+    }
+
+    .brand-name {
+      font-family: var(--font-mono);
+      font-weight: 600;
+      font-size: 17px;
+      letter-spacing: -0.02em;
+      color: var(--ink-primary);
+    }
+
+    .version-tag {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      font-weight: 500;
+      color: var(--brand-cyan);
+      background-color: var(--bg-subtle);
+      border: 1px solid var(--border-line);
+      padding: 2px 7px;
+      border-radius: 3px;
+    }
+
+    .site-nav {
+      display: flex;
+      align-items: center;
+      gap: 26px;
+    }
+
+    .nav-link {
+      font-size: 14px;
+      color: var(--ink-secondary);
+      padding: 4px 0;
+      border-bottom: 2px solid transparent;
+      transition: color 0.18s ease, border-color 0.18s ease;
+    }
+
+    .nav-link:hover,
+    .nav-link.is-active {
+      color: var(--ink-primary);
+      border-bottom-color: var(--brand-cyan);
+    }
+
+    .header-actions {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-shrink: 0;
+    }
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      font-size: 14px;
+      font-weight: 500;
+      padding: 8px 15px;
+      border-radius: 4px;
+      border: 1px solid var(--border-line);
+      background-color: var(--bg-card);
+      color: var(--ink-primary);
+      transition: background-color 0.18s ease, border-color 0.18s ease, color 0.18s ease;
+      line-height: 1.25;
+      white-space: nowrap;
+    }
+
+    .btn:hover {
+      border-color: var(--brand-cyan);
+      color: var(--brand-cyan);
+    }
+
+    .btn-primary {
+      background-color: var(--brand-cyan);
+      border-color: var(--brand-cyan);
+      color: #FFFFFF;
+    }
+
+    .btn-primary:hover {
+      background-color: var(--brand-cyan-hover);
+      border-color: var(--brand-cyan-hover);
+      color: #FFFFFF;
+    }
+
+    .mobile-menu-btn {
+      display: none;
+      width: 36px;
+      height: 36px;
+      align-items: center;
+      justify-content: center;
+      border: 1px solid var(--border-line);
+      border-radius: 4px;
+      background-color: var(--bg-card);
+    }
+
+    .mobile-drawer {
+      display: none;
+      background-color: var(--bg-card);
+      border-bottom: 1px solid var(--border-line);
+      padding: 14px 20px 18px;
+    }
+
+    .mobile-drawer.is-open {
+      display: block;
+    }
+
+    .mobile-drawer-links {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      margin-bottom: 14px;
+    }
+
+    /* ==========================================================================
+       通用版心与章节排版
+       ========================================================================== */
+    main {
+      padding-top: var(--nav-h);
+    }
+
+    .section-wrap {
+      border-bottom: 1px solid var(--border-line);
+      position: relative;
+    }
+
+    .section-wrap.bg-subtle {
+      background-color: var(--bg-subtle);
+    }
+
+    .container {
+      max-width: var(--container-max);
+      margin: 0 auto;
+      padding: 84px 32px;
+    }
+
+    .eyebrow {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      font-family: var(--font-mono);
+      font-size: 12px;
+      color: var(--brand-cyan);
+      letter-spacing: 0.04em;
+      margin-bottom: 14px;
+    }
+
+    .eyebrow-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background-color: var(--accent-amber);
+      display: inline-block;
+    }
+
+    .section-index {
+      font-family: var(--font-mono);
+      font-size: 12px;
+      color: var(--brand-cyan);
+      border: 1px solid var(--border-line);
+      background-color: var(--bg-card);
+      padding: 1px 6px;
+      border-radius: 2px;
+    }
+
+    .section-title {
+      font-family: var(--font-serif);
+      font-weight: 700;
+      font-size: clamp(26px, 3.1vw, 36px);
+      line-height: 1.32;
+      color: var(--ink-primary);
+      letter-spacing: -0.01em;
+      margin-bottom: 16px;
+    }
+
+    .section-lead {
+      font-size: 16px;
+      color: var(--ink-secondary);
+      max-width: 660px;
+      line-height: 1.75;
+    }
+
+    /* ==========================================================================
+       图片与纯线条矢量占位容器（通用）
+       ========================================================================== */
+    .media-slot {
+      position: relative;
+      width: 100%;
+      height: 100%;
+      background-color: var(--bg-card);
+      overflow: hidden;
+    }
+
+    .media-slot .slot-img {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      object-position: top center;
+      opacity: 0;
+      z-index: 2;
+      background-color: var(--bg-card);
+      transition: opacity 0.25s ease;
+    }
+
+    .media-slot.has-image .slot-img {
+      opacity: 1;
+    }
+
+    .media-slot.has-image .slot-schematic {
+      visibility: hidden;
+    }
+
+    .slot-schematic {
+      width: 100%;
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      background-color: var(--bg-card);
+    }
+
+    /* 画框四角精密十字准星装饰 */
+    .reticle-frame {
+      position: relative;
+      background-color: var(--bg-card);
+      border: 1px solid var(--border-line);
+      padding: 10px;
+    }
+
+    .reticle-corner {
+      position: absolute;
+      width: 11px;
+      height: 11px;
+      pointer-events: none;
+      z-index: 4;
+    }
+
+    .reticle-corner::before,
+    .reticle-corner::after {
+      content: "";
+      position: absolute;
+      background-color: var(--brand-cyan);
+    }
+
+    .reticle-corner::before {
+      width: 11px;
+      height: 1px;
+      top: 5px;
+      left: 0;
+    }
+
+    .reticle-corner::after {
+      width: 1px;
+      height: 11px;
+      top: 0;
+      left: 5px;
+    }
+
+    .reticle-corner.tl { top: -6px; left: -6px; }
+    .reticle-corner.tr { top: -6px; right: -6px; }
+    .reticle-corner.bl { bottom: -6px; left: -6px; }
+    .reticle-corner.br { bottom: -6px; right: -6px; }
+
+    /* ==========================================================================
+       01 首屏（左文右图 + 声波与五度声调微互动 + 底部细网格标尺）
+       ========================================================================== */
+    .hero-container {
+      padding-top: 64px;
+      padding-bottom: 56px;
+    }
+
+    .hero-grid {
+      display: grid;
+      grid-template-columns: 1.02fr 1.12fr;
+      gap: 48px;
+      align-items: center;
+    }
+
+    .hero-title-row {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 18px;
+      margin-bottom: 18px;
+    }
+
+    .hero-title {
+      font-family: var(--font-serif);
+      font-weight: 700;
+      font-size: clamp(30px, 3.5vw, 42px);
+      line-height: 1.28;
+      letter-spacing: -0.015em;
+      color: var(--ink-primary);
+    }
+
+    .hero-subtitle {
+      font-size: 16px;
+      color: var(--ink-secondary);
+      line-height: 1.78;
+      margin-bottom: 22px;
+    }
+
+    /* 首屏声波柱与五度标调格微互动插画卡 */
+    .tone-wave-card {
+      background-color: var(--bg-card);
+      border: 1px solid var(--border-line);
+      border-radius: 4px;
+      padding: 12px 14px 10px;
+      margin-bottom: 24px;
+    }
+
+    .tone-wave-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      margin-bottom: 8px;
+      font-family: var(--font-mono);
+      font-size: 11px;
+      color: var(--ink-secondary);
+    }
+
+    .tone-preset-group {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+    }
+
+    .tone-preset-btn {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      padding: 2px 6px;
+      border: 1px solid var(--border-line);
+      border-radius: 2px;
+      background-color: var(--bg-paper);
+      color: var(--ink-secondary);
+      transition: all 0.15s ease;
+    }
+
+    .tone-preset-btn:hover,
+    .tone-preset-btn.is-active {
+      border-color: var(--brand-cyan);
+      background-color: var(--brand-cyan-tint);
+      color: var(--brand-cyan);
+    }
+
+    .tone-wave-svg {
+      width: 100%;
+      height: 76px;
+      cursor: crosshair;
+      touch-action: none;
+    }
+
+    .tone-curve-path {
+      fill: none;
+      stroke: var(--accent-amber);
+      stroke-width: 2.4;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+      stroke-dasharray: 260;
+      stroke-dashoffset: 260;
+      transition: stroke-dashoffset 1.1s cubic-bezier(0.22, 1, 0.36, 1);
+    }
+
+    .tone-curve-path.is-drawn {
+      stroke-dashoffset: 0;
+    }
+
+    /* 首屏三端下载按钮组 */
+    .dl-status-line {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-family: var(--font-mono);
+      font-size: 11px;
+      color: var(--ink-muted);
+      margin-bottom: 8px;
+    }
+
+    .dl-grid-hero {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 10px;
+      margin-bottom: 14px;
+    }
+
+    .dl-card-btn {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 5px;
+      padding: 12px 13px;
+      border-radius: 4px;
+      border: 1px solid var(--border-line);
+      background-color: var(--bg-card);
+      color: var(--ink-primary);
+      transition: border-color 0.18s ease, background-color 0.18s ease, color 0.18s ease;
+      text-align: left;
+    }
+
+    .dl-card-btn:hover {
+      border-color: var(--brand-cyan);
+    }
+
+    .dl-card-top {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      width: 100%;
+      gap: 6px;
+    }
+
+    .dl-os-title {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 13px;
+      font-weight: 600;
+      line-height: 1.3;
+    }
+
+    .dl-ext {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      padding: 1px 5px;
+      border-radius: 2px;
+      background-color: var(--bg-subtle);
+      color: var(--ink-secondary);
+      border: 1px solid var(--border-line);
+    }
+
+    .dl-os-sub {
+      font-size: 11.5px;
+      color: var(--ink-secondary);
+      line-height: 1.4;
+    }
+
+    /* 识别为当前系统时自动高亮为实心青蓝色主按钮 */
+    .dl-card-btn.is-primary-os {
+      background-color: var(--brand-cyan);
+      border-color: var(--brand-cyan);
+      color: #FFFFFF;
+    }
+
+    .dl-card-btn.is-primary-os:hover {
+      background-color: var(--brand-cyan-hover);
+      border-color: var(--brand-cyan-hover);
+    }
+
+    .dl-card-btn.is-primary-os .dl-os-sub {
+      color: #E2F4F7;
+    }
+
+    .dl-card-btn.is-primary-os .dl-ext {
+      background-color: #006E7D;
+      border-color: #269DAC;
+      color: #FFFFFF;
+    }
+
+    .hero-helper-links {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 10px;
+      font-size: 13px;
+      color: var(--ink-secondary);
+    }
+
+    .hero-helper-links a {
+      border-bottom: 1px solid var(--border-strong);
+      padding-bottom: 1px;
+      transition: color 0.15s ease, border-color 0.15s ease;
+    }
+
+    .hero-helper-links a:hover {
+      color: var(--brand-cyan);
+      border-bottom-color: var(--brand-cyan);
+    }
+
+    /* 桌面端 16:10 精密设备框 */
+    .desktop-studio-frame {
+      border: 1px solid var(--border-line);
+      border-radius: 4px;
+      overflow: hidden;
+      background-color: var(--bg-card);
+    }
+
+    .window-titlebar {
+      height: 30px;
+      background-color: var(--bg-subtle);
+      border-bottom: 1px solid var(--border-line);
+      padding: 0 12px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-family: var(--font-mono);
+      font-size: 11px;
+      color: var(--ink-secondary);
+    }
+
+    .window-dots {
+      display: flex;
+      gap: 6px;
+    }
+
+    .window-dots span {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      border: 1px solid var(--border-strong);
+      background-color: var(--bg-card);
+    }
+
+    .desktop-viewport {
+      aspect-ratio: 16 / 10;
+      width: 100%;
+    }
+
+    /* 首屏底部细网格标尺 */
+    .hero-bottom-ruler {
+      border-top: 1px solid var(--border-line);
+      background-color: var(--bg-subtle);
+      height: 32px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 32px;
+      font-family: var(--font-mono);
+      font-size: 11px;
+      color: var(--ink-muted);
+      overflow: hidden;
+    }
+
+    .hero-ruler-marks {
+      display: flex;
+      align-items: center;
+      gap: 24px;
+    }
+
+    /* ==========================================================================
+       02 痛点共鸣栏（三栏等分纯色网格卡片）
+       ========================================================================== */
+    .section-head-inline {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 20px;
+      margin-bottom: 32px;
+      padding-bottom: 18px;
+      border-bottom: 1px solid var(--border-line);
+    }
+
+    .pain-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      border: 1px solid var(--border-line);
+      background-color: var(--bg-card);
+    }
+
+    .pain-card {
+      padding: 30px 28px;
+      border-right: 1px solid var(--border-line);
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+
+    .pain-card:last-child {
+      border-right: none;
+    }
+
+    .pain-card-top {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .pain-icon-box {
+      width: 38px;
+      height: 38px;
+      border: 1px solid var(--border-line);
+      background-color: var(--bg-paper);
+      border-radius: 4px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--brand-cyan);
+    }
+
+    .pain-num {
+      font-family: var(--font-mono);
+      font-size: 12px;
+      color: var(--ink-muted);
+    }
+
+    .pain-title {
+      font-family: var(--font-serif);
+      font-weight: 700;
+      font-size: 19px;
+      line-height: 1.4;
+      color: var(--ink-primary);
+    }
+
+    .pain-desc {
+      font-size: 14.5px;
+      color: var(--ink-secondary);
+      line-height: 1.75;
+    }
+
+    /* ==========================================================================
+       03 双模式拉帘对比区（左侧手机画框拉帘，右侧说明文案）
+       ========================================================================== */
+    .mode-compare-grid {
+      display: grid;
+      grid-template-columns: 380px 1fr;
+      gap: 64px;
+      align-items: center;
+    }
+
+    .phone-compare-wrap {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .phone-frame {
+      position: relative;
+      width: 100%;
+      max-width: 336px;
+      aspect-ratio: 9 / 18.2;
+      background-color: var(--bg-card);
+      border: 1px solid var(--border-strong);
+      border-radius: 22px;
+      padding: 10px;
+      user-select: none;
+    }
+
+    .phone-screen {
+      position: relative;
+      width: 100%;
+      height: 100%;
+      border: 1px solid var(--border-line);
+      border-radius: 14px;
+      overflow: hidden;
+      background-color: var(--bg-paper);
+      --split: 50%;
+      touch-action: pan-y;
+    }
+
+    .compare-layer {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+    }
+
+    .compare-layer.layer-simple {
+      z-index: 3;
+      clip-path: inset(0 calc(100% - var(--split)) 0 0);
+    }
+
+    .compare-layer.layer-advanced {
+      z-index: 1;
+    }
+
+    .compare-badge {
+      position: absolute;
+      top: 10px;
+      z-index: 5;
+      font-family: var(--font-mono);
+      font-size: 11px;
+      padding: 2px 8px;
+      border-radius: 3px;
+      border: 1px solid var(--border-line);
+      pointer-events: none;
+    }
+
+    .compare-badge.left {
+      left: 10px;
+      background-color: var(--bg-card);
+      color: var(--ink-primary);
+    }
+
+    .compare-badge.right {
+      right: 10px;
+      background-color: var(--brand-cyan);
+      border-color: var(--brand-cyan);
+      color: #FFFFFF;
+    }
+
+    .compare-divider {
+      position: absolute;
+      top: 0;
+      bottom: 0;
+      left: var(--split);
+      width: 2px;
+      margin-left: -1px;
+      background-color: var(--brand-cyan);
+      z-index: 6;
+      cursor: ew-resize;
+    }
+
+    .compare-handle {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      width: 36px;
+      height: 36px;
+      border-radius: 50%;
+      background-color: var(--bg-card);
+      border: 2px solid var(--brand-cyan);
+      color: var(--brand-cyan);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: ew-resize;
+      transition: background-color 0.15s ease, color 0.15s ease;
+    }
+
+    .compare-divider:hover .compare-handle,
+    .compare-divider.is-dragging .compare-handle {
+      background-color: var(--brand-cyan);
+      color: #FFFFFF;
+    }
+
+    .compare-caption-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      width: 100%;
+      max-width: 336px;
+      font-family: var(--font-mono);
+      font-size: 11px;
+      color: var(--ink-muted);
+    }
+
+    .mode-cards-stack {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+      margin-top: 28px;
+    }
+
+    .mode-detail-card {
+      background-color: var(--bg-card);
+      border: 1px solid var(--border-line);
+      border-radius: 4px;
+      padding: 22px;
+      text-align: left;
+      cursor: pointer;
+      transition: border-color 0.18s ease, background-color 0.18s ease;
+    }
+
+    .mode-detail-card:hover,
+    .mode-detail-card.is-focused {
+      border-color: var(--brand-cyan);
+    }
+
+    .mode-detail-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 10px;
+    }
+
+    .mode-detail-title {
+      font-family: var(--font-serif);
+      font-weight: 700;
+      font-size: 18px;
+      color: var(--ink-primary);
+    }
+
+    .mode-detail-tag {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      color: var(--brand-cyan);
+      background-color: var(--bg-subtle);
+      padding: 2px 7px;
+      border-radius: 2px;
+    }
+
+    .mode-detail-body {
+      font-size: 14px;
+      color: var(--ink-secondary);
+      line-height: 1.75;
+    }
+
+    /* ==========================================================================
+       04 田野现场四大核心场景（左侧固定画框 + 右侧滚动翻页）
+       ========================================================================== */
+    .workflow-layout {
+      display: grid;
+      grid-template-columns: 1.08fr 0.92fr;
+      gap: 52px;
+      align-items: start;
+      margin-top: 40px;
+    }
+
+    .workflow-sticky-col {
+      position: sticky;
+      top: calc(var(--nav-h) + 28px);
+    }
+
+    .workflow-stage-box {
+      background-color: var(--bg-card);
+      border: 1px solid var(--border-line);
+      border-radius: 4px;
+      overflow: hidden;
+    }
+
+    .workflow-stage-bar {
+      background-color: var(--bg-subtle);
+      border-bottom: 1px solid var(--border-line);
+      padding: 10px 14px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+    }
+
+    .stage-tabs {
+      display: flex;
+      gap: 6px;
+    }
+
+    .stage-tab-btn {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      padding: 3px 8px;
+      border: 1px solid var(--border-line);
+      background-color: var(--bg-card);
+      color: var(--ink-secondary);
+      border-radius: 2px;
+      transition: all 0.15s ease;
+    }
+
+    .stage-tab-btn.is-active {
+      background-color: var(--brand-cyan);
+      border-color: var(--brand-cyan);
+      color: #FFFFFF;
+    }
+
+    .stage-label-mono {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      color: var(--ink-secondary);
+    }
+
+    .workflow-viewport {
+      position: relative;
+      aspect-ratio: 16 / 11;
+      width: 100%;
+      background-color: var(--bg-card);
+      overflow: hidden;
+    }
+
+    /* 干脆的几何裁切翻页动画 */
+    .workflow-slide {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      clip-path: inset(100% 0 0 0);
+      transition: clip-path 0.46s cubic-bezier(0.22, 1, 0.36, 1);
+      z-index: 1;
+      background-color: var(--bg-card);
+    }
+
+    .workflow-slide.is-visited {
+      clip-path: inset(0 0 0 0);
+      z-index: 2;
+    }
+
+    .workflow-slide.is-active {
+      clip-path: inset(0 0 0 0);
+      z-index: 3;
+    }
+
+    .workflow-progress-ruler {
+      border-top: 1px solid var(--border-line);
+      background-color: var(--bg-paper);
+      padding: 8px 14px;
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 8px;
+    }
+
+    .wf-prog-seg {
+      height: 3px;
+      background-color: var(--border-line);
+      transition: background-color 0.25s ease;
+    }
+
+    .wf-prog-seg.is-done {
+      background-color: var(--brand-cyan);
+    }
+
+    .wf-prog-seg.is-current {
+      background-color: var(--accent-amber);
+    }
+
+    /* 右侧滚动叙事段 */
+    .workflow-steps-col {
+      display: flex;
+      flex-direction: column;
+      gap: 28px;
+    }
+
+    .workflow-step-card {
+      background-color: var(--bg-card);
+      border: 1px solid var(--border-line);
+      border-radius: 4px;
+      padding: 30px 28px;
+      min-height: 320px;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      transition: border-color 0.2s ease;
+    }
+
+    .workflow-step-card.is-active {
+      border-color: var(--brand-cyan);
+    }
+
+    .wf-step-num {
+      font-family: var(--font-mono);
+      font-size: 12px;
+      color: var(--brand-cyan);
+      margin-bottom: 10px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .wf-step-title {
+      font-family: var(--font-serif);
+      font-weight: 700;
+      font-size: 21px;
+      line-height: 1.38;
+      color: var(--ink-primary);
+      margin-bottom: 12px;
+    }
+
+    .wf-step-desc {
+      font-size: 15px;
+      color: var(--ink-secondary);
+      line-height: 1.78;
+    }
+
+    /* 移动端内联预览槽（桌面端隐藏） */
+    .wf-mobile-inline-media {
+      display: none;
+      margin-top: 18px;
+      border: 1px solid var(--border-line);
+      border-radius: 4px;
+      overflow: hidden;
+      aspect-ratio: 16 / 10.5;
+    }
+
+    /* 双机无线联动「信号往返」交互示意组件 */
+    .wireless-demo-box {
+      margin-top: 20px;
+      background-color: var(--bg-paper);
+      border: 1px solid var(--border-line);
+      border-radius: 4px;
+      padding: 16px;
+    }
+
+    .wireless-demo-top {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      margin-bottom: 12px;
+      font-family: var(--font-mono);
+      font-size: 11px;
+      color: var(--ink-secondary);
+    }
+
+    .wireless-boards {
+      display: grid;
+      grid-template-columns: 1fr 74px 1fr;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .wireless-pad {
+      background-color: var(--bg-card);
+      border: 1px solid var(--border-line);
+      border-radius: 4px;
+      padding: 10px 12px;
+      text-align: center;
+    }
+
+    .wireless-pad.reader-pad {
+      background-color: var(--bg-paper);
+      border-color: var(--border-strong);
+    }
+
+    .pad-role {
+      font-family: var(--font-mono);
+      font-size: 10.5px;
+      color: var(--ink-muted);
+      margin-bottom: 4px;
+    }
+
+    .pad-word {
+      font-family: var(--font-serif);
+      font-weight: 700;
+      font-size: 20px;
+      color: var(--ink-primary);
+      display: inline-block;
+      transition: transform 0.26s cubic-bezier(0.22, 1.4, 0.36, 1), color 0.2s ease;
+    }
+
+    .pad-word.is-flipping {
+      transform: scale(1.16);
+      color: var(--brand-cyan);
+    }
+
+    .pad-sub {
+      font-family: var(--font-mono);
+      font-size: 10.5px;
+      color: var(--ink-secondary);
+      margin-top: 3px;
+    }
+
+    .wireless-bridge {
+      position: relative;
+      height: 28px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .wireless-dotted-line {
+      width: 100%;
+      border-top: 2px dotted var(--border-strong);
+    }
+
+    .wireless-signal-dot {
+      position: absolute;
+      left: 0;
+      top: 50%;
+      width: 9px;
+      height: 9px;
+      margin-top: -4.5px;
+      border-radius: 50%;
+      background-color: var(--accent-amber);
+      opacity: 0;
+      pointer-events: none;
+    }
+
+    .wireless-signal-dot.is-sending {
+      animation: signalSlide 0.52s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+    }
+
+    @keyframes signalSlide {
+      0% { left: 2%; opacity: 1; transform: scale(0.9); }
+      75% { left: 90%; opacity: 1; transform: scale(1.2); }
+      100% { left: 94%; opacity: 0; transform: scale(0.8); }
+    }
+
+    .wireless-action-row {
+      margin-top: 12px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+    }
+
+    .wireless-next-btn {
+      font-size: 13px;
+      font-weight: 500;
+      padding: 6px 12px;
+      border-radius: 3px;
+      background-color: var(--brand-cyan);
+      color: #FFFFFF;
+      border: 1px solid var(--brand-cyan);
+      transition: background-color 0.15s ease;
+    }
+
+    .wireless-next-btn:hover {
+      background-color: var(--brand-cyan-hover);
+    }
+
+    /* 多遍录音与文白异读微交互条 */
+    .multitake-mini {
+      margin-top: 16px;
+      padding: 12px 14px;
+      background-color: var(--bg-paper);
+      border: 1px solid var(--border-line);
+      border-radius: 4px;
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+    }
+
+    .take-pills {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+
+    .take-pill {
+      font-family: var(--font-mono);
+      font-size: 11.5px;
+      padding: 4px 9px;
+      border: 1px solid var(--border-line);
+      background-color: var(--bg-card);
+      border-radius: 3px;
+      color: var(--ink-secondary);
+      transition: all 0.15s ease;
+    }
+
+    .take-pill.is-picked {
+      border-color: var(--brand-cyan);
+      background-color: var(--brand-cyan-tint);
+      color: var(--brand-cyan);
+      font-weight: 600;
+    }
+
+    /* ==========================================================================
+       05 规范导出与同作者开源工具链
+       ========================================================================== */
+    .export-explorer {
+      display: grid;
+      grid-template-columns: 0.95fr 1.05fr;
+      border: 1px solid var(--border-line);
+      background-color: var(--bg-card);
+      margin-top: 32px;
+      border-radius: 4px;
+      overflow: hidden;
+    }
+
+    .archive-tree-col {
+      border-right: 1px solid var(--border-line);
+      background-color: var(--bg-paper);
+      padding: 22px;
+    }
+
+    .archive-root-head {
+      font-family: var(--font-mono);
+      font-size: 12px;
+      color: var(--ink-primary);
+      font-weight: 600;
+      padding-bottom: 12px;
+      margin-bottom: 12px;
+      border-bottom: 1px solid var(--border-line);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .archive-list {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .archive-row {
+      width: 100%;
+      text-align: left;
+      padding: 12px 14px;
+      border: 1px solid transparent;
+      border-radius: 4px;
+      background-color: transparent;
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 10px;
+      transition: all 0.15s ease;
+    }
+
+    .archive-row:hover,
+    .archive-row.is-active {
+      background-color: var(--bg-card);
+      border-color: var(--brand-cyan);
+    }
+
+    .archive-row-main {
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+    }
+
+    .archive-filename {
+      font-family: var(--font-mono);
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--ink-primary);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .archive-row.is-active .archive-filename {
+      color: var(--brand-cyan);
+    }
+
+    .archive-brief {
+      font-size: 12.5px;
+      color: var(--ink-secondary);
+      padding-left: 22px;
+    }
+
+    .archive-ext-badge {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      color: var(--ink-muted);
+      background-color: var(--bg-subtle);
+      padding: 2px 6px;
+      border-radius: 2px;
+      flex-shrink: 0;
+    }
+
+    .archive-preview-col {
+      padding: 26px 28px;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      gap: 18px;
+    }
+
+    .preview-save-tag {
+      display: inline-block;
+      font-family: var(--font-mono);
+      font-size: 11px;
+      color: var(--accent-amber);
+      background-color: var(--accent-amber-tint);
+      border: 1px solid #F0D4A8;
+      padding: 2px 8px;
+      border-radius: 2px;
+      margin-bottom: 10px;
+    }
+
+    .preview-card-title {
+      font-family: var(--font-serif);
+      font-weight: 700;
+      font-size: 20px;
+      color: var(--ink-primary);
+      margin-bottom: 8px;
+    }
+
+    .preview-card-desc {
+      font-size: 14.5px;
+      color: var(--ink-secondary);
+      line-height: 1.75;
+    }
+
+    .export-shot-frame {
+      border: 1px solid var(--border-line);
+      border-radius: 4px;
+      aspect-ratio: 16 / 8.6;
+      overflow: hidden;
+      background-color: var(--bg-paper);
+    }
+
+    /* 同作者开源工具链闭环 */
+    .toolchain-block {
+      margin-top: 52px;
+    }
+
+    .pipeline-bar {
+      background-color: var(--bg-subtle);
+      border: 1px solid var(--border-line);
+      border-radius: 4px;
+      padding: 16px 22px;
+      margin-bottom: 20px;
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      font-size: 14px;
+    }
+
+    .pipeline-node {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      font-weight: 500;
+      color: var(--ink-primary);
+    }
+
+    .pipeline-node.current {
+      color: var(--brand-cyan);
+      font-weight: 600;
+    }
+
+    .pipeline-arrow {
+      font-family: var(--font-mono);
+      color: var(--ink-muted);
+      font-size: 13px;
+    }
+
+    .companion-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 20px;
+    }
+
+    .companion-card {
+      background-color: var(--bg-card);
+      border: 1px solid var(--border-line);
+      border-radius: 4px;
+      padding: 26px 28px;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      gap: 16px;
+      transition: border-color 0.18s ease;
+    }
+
+    .companion-card:hover {
+      border-color: var(--brand-cyan);
+    }
+
+    .companion-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 8px;
+    }
+
+    .companion-name {
+      font-family: var(--font-serif);
+      font-weight: 700;
+      font-size: 20px;
+      color: var(--ink-primary);
+    }
+
+    .companion-role {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      color: var(--brand-cyan);
+      background-color: var(--bg-subtle);
+      padding: 2px 8px;
+      border-radius: 2px;
+    }
+
+    .companion-desc {
+      font-size: 14.5px;
+      color: var(--ink-secondary);
+      line-height: 1.75;
+    }
+
+    .companion-links {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      font-size: 13.5px;
+      font-weight: 500;
+      color: var(--brand-cyan);
+    }
+
+    .companion-links a:hover {
+      text-decoration: underline;
+    }
+
+    /* ==========================================================================
+       06 底部安心承诺与下载收尾区（浅暖灰 #F2EFE9 纯色通栏）
+       ========================================================================== */
+    .privacy-banner {
+      background-color: var(--bg-card);
+      border: 1px solid var(--border-line);
+      border-radius: 4px;
+      padding: 32px 34px;
+      display: grid;
+      grid-template-columns: 1.2fr 0.8fr;
+      gap: 32px;
+      align-items: center;
+      margin-bottom: 36px;
+    }
+
+    .privacy-badges {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      border-left: 1px solid var(--border-line);
+      padding-left: 28px;
+    }
+
+    .privacy-badge-item {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-family: var(--font-mono);
+      font-size: 13px;
+      color: var(--ink-primary);
+    }
+
+    .bottom-dl-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 16px;
+      margin-bottom: 20px;
+    }
+
+    .bottom-dl-card {
+      background-color: var(--bg-card);
+      border: 1px solid var(--border-line);
+      border-radius: 4px;
+      padding: 22px 24px;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      gap: 16px;
+    }
+
+    .bottom-dl-card.is-recommended {
+      border-color: var(--brand-cyan);
+    }
+
+    .rec-pill {
+      display: none;
+      font-family: var(--font-mono);
+      font-size: 11px;
+      color: var(--brand-cyan);
+      background-color: var(--brand-cyan-tint);
+      padding: 2px 7px;
+      border-radius: 2px;
+    }
+
+    .bottom-dl-card.is-recommended .rec-pill {
+      display: inline-block;
+    }
+
+    /* macOS 首次打开提示折叠栏 */
+    .macos-details {
+      background-color: var(--bg-card);
+      border: 1px solid var(--border-line);
+      border-radius: 4px;
+    }
+
+    .macos-details summary {
+      list-style: none;
+      cursor: pointer;
+      padding: 15px 20px;
+      font-size: 14px;
+      font-weight: 500;
+      color: var(--ink-primary);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+    }
+
+    .macos-details summary::-webkit-details-marker {
+      display: none;
+    }
+
+    .macos-chevron {
+      transition: transform 0.2s ease;
+      color: var(--ink-secondary);
+      flex-shrink: 0;
+    }
+
+    .macos-details[open] .macos-chevron {
+      transform: rotate(180deg);
+    }
+
+    .macos-details-body {
+      padding: 0 20px 18px;
+      font-size: 14px;
+      color: var(--ink-secondary);
+      line-height: 1.75;
+      border-top: 1px solid var(--border-line);
+      padding-top: 14px;
+    }
+
+    /* 页脚 */
+    .site-footer {
+      background-color: var(--bg-paper);
+      padding: 28px 32px;
+    }
+
+    .footer-inner {
+      max-width: var(--container-max);
+      margin: 0 auto;
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      font-size: 13.5px;
+      color: var(--ink-secondary);
+    }
+
+    .footer-links {
+      display: flex;
+      align-items: center;
+      gap: 18px;
+    }
+
+    .footer-links a:hover {
+      color: var(--brand-cyan);
+    }
+
+    /* ==========================================================================
+       响应式适配
+       ========================================================================== */
+    @media (max-width: 1080px) {
+      .hero-grid {
+        grid-template-columns: 1fr;
+        gap: 38px;
+      }
+
+      .mode-compare-grid {
+        grid-template-columns: 320px 1fr;
+        gap: 36px;
+      }
+
+      .export-explorer {
+        grid-template-columns: 1fr;
+      }
+
+      .archive-tree-col {
+        border-right: none;
+        border-bottom: 1px solid var(--border-line);
+      }
+    }
+
+    @media (max-width: 920px) {
+      :root {
+        --ruler-w: 0px;
+      }
+
+      body {
+        padding-left: 0;
+      }
+
+      .acoustic-edge-ruler {
+        display: none;
+      }
+
+      .site-nav {
+        display: none;
+      }
+
+      .mobile-menu-btn {
+        display: inline-flex;
+      }
+
+      .pain-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .pain-card {
+        border-right: none;
+        border-bottom: 1px solid var(--border-line);
+      }
+
+      .pain-card:last-child {
+        border-bottom: none;
+      }
+
+      .mode-compare-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .mode-cards-stack {
+        grid-template-columns: 1fr;
+      }
+
+      .workflow-layout {
+        grid-template-columns: 1fr;
+      }
+
+      .workflow-sticky-col {
+        display: none;
+      }
+
+      .wf-mobile-inline-media {
+        display: block;
+      }
+
+      .workflow-step-card {
+        min-height: auto;
+      }
+
+      .companion-grid,
+      .bottom-dl-grid,
+      .privacy-banner {
+        grid-template-columns: 1fr;
+      }
+
+      .privacy-badges {
+        border-left: none;
+        border-top: 1px solid var(--border-line);
+        padding-left: 0;
+        padding-top: 18px;
+      }
+    }
+
+    @media (max-width: 640px) {
+      .container {
+        padding: 56px 20px;
+      }
+
+      .dl-grid-hero {
+        grid-template-columns: 1fr;
+      }
+
+      .header-actions .btn-github-top {
+        display: none;
+      }
+
+      .wireless-boards {
+        grid-template-columns: 1fr;
+      }
+
+      .wireless-bridge {
+        height: 20px;
+      }
+
+      .hero-bottom-ruler {
+        padding: 0 20px;
+      }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      html {
+        scroll-behavior: auto;
+      }
+      .tone-curve-path,
+      .workflow-slide,
+      .pad-word {
+        transition: none !important;
+      }
+    }
+  </style>
 </head>
 <body>
 
-  <!-- 顶栏导航 -->
+  <!-- 左侧贯穿全页「边缘声学标尺」 -->
+  <aside class="acoustic-edge-ruler" aria-label="章节声学刻度尺">
+    <div class="ruler-readout">
+      <strong id="ruler-current-idx">01 / 06</strong>
+      <span>SCALE</span>
+    </div>
+
+    <div class="ruler-track" id="ruler-track">
+      <div class="ruler-ticks" id="ruler-ticks" aria-hidden="true"></div>
+
+      <div class="ruler-stations">
+        <button type="button" class="ruler-station-btn is-active" data-target="#sec-01">01</button>
+        <button type="button" class="ruler-station-btn" data-target="#sec-02">02</button>
+        <button type="button" class="ruler-station-btn" data-target="#sec-03">03</button>
+        <button type="button" class="ruler-station-btn" data-target="#sec-04">04</button>
+        <button type="button" class="ruler-station-btn" data-target="#sec-05">05</button>
+        <button type="button" class="ruler-station-btn" data-target="#sec-06">06</button>
+      </div>
+
+      <div class="ruler-cursor" id="ruler-cursor" aria-hidden="true">
+        <span class="ruler-cursor-line"></span>
+        <span class="ruler-cursor-dot"></span>
+      </div>
+    </div>
+
+    <div class="ruler-readout">
+      <span id="ruler-scroll-pct">000%</span>
+      <span>PCM</span>
+    </div>
+  </aside>
+
+  <!-- 极简固定顶栏 -->
   <header class="site-header">
-    <div class="container header-inner">
-      <a href="#" class="brand-link" aria-label="PhonAcq 首页">
-        <!-- 官方圆润超椭圆品牌图标 SVG -->
-        <svg width="34" height="34" viewBox="0 0 64 64" aria-hidden="true">
-          <rect x="2" y="2" width="60" height="60" rx="18" fill="#FFFFFF" stroke="#DCE4EC" stroke-width="2.5"/>
-          <path d="M 43 17 A 18 18 0 1 0 43 47" fill="none" stroke="#00ACC1" stroke-width="5.5" stroke-linecap="round"/>
-          <rect x="22" y="26" width="4.4" height="12" rx="2.2" fill="#F59E0B"/>
-          <rect x="29.5" y="19" width="4.4" height="26" rx="2.2" fill="#F59E0B"/>
-          <rect x="37" y="23" width="4.4" height="18" rx="2.2" fill="#F59E0B"/>
-          <rect x="44.5" y="28" width="4.4" height="8" rx="2.2" fill="#00ACC1"/>
+    <div class="header-inner">
+      <a href="#sec-01" class="brand-group" aria-label="PhonAcq 首页">
+        <svg class="brand-logo" viewBox="0 0 32 32" fill="none" aria-hidden="true">
+          <circle cx="16" cy="16" r="13" stroke="#00899B" stroke-width="2.2" />
+          <line x1="16" y1="1" x2="16" y2="4" stroke="#00899B" stroke-width="1.4" />
+          <line x1="16" y1="28" x2="16" y2="31" stroke="#00899B" stroke-width="1.4" />
+          <line x1="1" y1="16" x2="4" y2="16" stroke="#00899B" stroke-width="1.4" />
+          <line x1="28" y1="16" x2="31" y2="16" stroke="#00899B" stroke-width="1.4" />
+          <line x1="10.5" y1="13" x2="10.5" y2="19" stroke="#D97706" stroke-width="2.1" stroke-linecap="round" />
+          <line x1="14.2" y1="9.5" x2="14.2" y2="22.5" stroke="#D97706" stroke-width="2.1" stroke-linecap="round" />
+          <line x1="17.8" y1="11.5" x2="17.8" y2="20.5" stroke="#D97706" stroke-width="2.1" stroke-linecap="round" />
+          <line x1="21.5" y1="14" x2="21.5" y2="18" stroke="#D97706" stroke-width="2.1" stroke-linecap="round" />
         </svg>
-        <span>PhonAcq</span>
-        <span class="brand-sub">田野语音与方言字表采录系统</span>
+        <span class="brand-name">PhonAcq</span>
+        <span class="version-tag js-version-badge">v2.0.1</span>
       </a>
 
-      <nav class="nav-links" aria-label="页面章节">
-        <a href="#studio-demo">主工作台互动</a>
-        <a href="#picture-prompt">看图发音词卡</a>
-        <a href="#wireless-sync">双机无线联动</a>
-        <a href="#macro-acoustics">声调与元音格局</a>
-        <a href="#export-ecosystem">规范导出与工具链</a>
+      <nav class="site-nav" aria-label="主导航">
+        <a href="#sec-02" class="nav-link" data-sec="sec-02">功能亮点</a>
+        <a href="#sec-03" class="nav-link" data-sec="sec-03">双模式体验</a>
+        <a href="#sec-04" class="nav-link" data-sec="sec-04">田野工作流</a>
+        <a href="#sec-05" class="nav-link" data-sec="sec-05">配套工具</a>
+        <a href="#sec-06" class="nav-link" data-sec="sec-06">下载安装</a>
       </nav>
 
       <div class="header-actions">
-        <a class="btn btn-outline btn-sm" href="https://github.com/KasumiKitsune/PhonAcq" target="_blank" rel="noopener">GitHub 仓库</a>
-        <a class="btn btn-primary btn-sm" href="https://github.com/KasumiKitsune/PhonAcq/releases/latest" target="_blank" rel="noopener">下载安装包</a>
+        <a href="https://github.com/KasumiKitsune/PhonAcq" target="_blank" rel="noopener" class="btn btn-github-top">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22" />
+          </svg>
+          <span>GitHub 开源主页</span>
+        </a>
+        <a href="#sec-06" class="btn btn-primary">立即下载</a>
+        <button type="button" class="mobile-menu-btn" id="mobile-menu-btn" aria-label="展开菜单" aria-expanded="false">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
+            <line x1="4" y1="7" x2="20" y2="7" />
+            <line x1="4" y1="12" x2="20" y2="12" />
+            <line x1="4" y1="17" x2="20" y2="17" />
+          </svg>
+        </button>
       </div>
+    </div>
+
+    <div class="mobile-drawer" id="mobile-drawer">
+      <div class="mobile-drawer-links">
+        <a href="#sec-02" class="nav-link">功能亮点</a>
+        <a href="#sec-03" class="nav-link">双模式体验</a>
+        <a href="#sec-04" class="nav-link">田野工作流</a>
+        <a href="#sec-05" class="nav-link">配套工具</a>
+        <a href="#sec-06" class="nav-link">下载安装</a>
+      </div>
+      <a href="https://github.com/KasumiKitsune/PhonAcq" target="_blank" rel="noopener" class="btn" style="width: 100%;">GitHub 开源主页</a>
     </div>
   </header>
 
   <main>
-    <!-- Hero 与主工作台全真 SVG 交互沙盘 -->
-    <section class="hero" id="studio-demo">
-      <div class="container">
-        <div class="hero-top">
-          <div class="eyebrow-row">
-            <span class="badge badge-blue">v2.0.1 跨平台正式版</span>
-            <span class="badge badge-teal">44.1 / 48 kHz 16-bit 无损 PCM WAV</span>
-            <span class="badge badge-neutral">纯本地离线架构 · 零云端上传</span>
-          </div>
-          <h1>把田野调查的收音把关、记音建档与格式整理合而为一</h1>
-          <p class="hero-lead">
-            面向汉语方言摸底、民族语田野记音与实验语音学课堂训练。同一份字表关联多位发音人，兼顾「看图发音」与无线双机看读，录毕即生成可直接拖入 <strong>Praat</strong> 与 <strong>PhonTracer</strong> 的规范语料包。
-          </p>
-
-          <div class="download-strip">
-            <a class="download-pill primary-dl" href="https://github.com/KasumiKitsune/PhonAcq/releases/latest" target="_blank" rel="noopener">
-              <span>Android 手机 / 平板</span>
-              <span class="dl-meta">.apk · Android 7.0+</span>
-            </a>
-            <a class="download-pill" href="https://github.com/KasumiKitsune/PhonAcq/releases/latest" target="_blank" rel="noopener">
-              <span>Windows 桌面端</span>
-              <span class="dl-meta">x64 .msi 安装包</span>
-            </a>
-            <a class="download-pill" href="https://github.com/KasumiKitsune/PhonAcq/releases/latest" target="_blank" rel="noopener">
-              <span>macOS 桌面端</span>
-              <span class="dl-meta">Apple Silicon .dmg</span>
-            </a>
-          </div>
-          <p class="hero-hint">下方为与真实客户端 1:1 同源绘制的<strong>可交互矢量工作台</strong>——可直接点击左侧词条、切换「简洁 / 进阶」模式、点按音标速记、试听调值轮廓或在语图上滑动读取基频与共振峰。</p>
-        </div>
-
-        <!-- 交互沙盘 1：主工作台 SVG -->
-        <div class="sandbox-shell">
-          <div class="sandbox-toolbar" role="toolbar" aria-label="工作台状态切换栏">
-            <div class="toolbar-group">
-              <span class="toolbar-label">界面模式：</span>
-              <div class="seg-group">
-                <button type="button" class="seg-btn active" id="btn-mode-adv">进阶模式（含声学参考）</button>
-                <button type="button" class="seg-btn" id="btn-mode-simple">简洁模式（纯净采录）</button>
-              </div>
-              <button type="button" class="chip-toggle" id="btn-clean-prompt">看读纯净大字</button>
+    <!-- ========================================================================
+         01 首屏
+         ======================================================================== -->
+    <section id="sec-01" class="section-wrap" data-index="01 / 06">
+      <div class="container hero-container">
+        <div class="hero-grid">
+          <!-- 左栏：文案 + 声波五度标调微互动 + 下载组 -->
+          <div>
+            <div class="eyebrow">
+              <span class="eyebrow-dot"></span>
+              <span>开源 · 纯本地运行 · 田野语音与方言字表采录软件</span>
             </div>
 
-            <div class="toolbar-group">
-              <span class="toolbar-label">当前发音人：</span>
-              <div class="seg-group">
-                <button type="button" class="seg-btn active" id="btn-spk-01">沈阿婆 (SPK01 · 女 71岁)</button>
-                <button type="button" class="seg-btn" id="btn-spk-02">周老伯 (SPK02 · 男 74岁)</button>
-              </div>
+            <div class="hero-title-row">
+              <h1 class="hero-title">
+                让每一次方言田野发音，<br />
+                录得清晰，理得井井有条。
+              </h1>
             </div>
 
-            <div class="kbd-hint">
-              <span>快捷键体验：</span>
-              <kbd>Space</kbd><span>录/停</span>
-              <kbd>↑</kbd><kbd>↓</kbd><span>切词</span>
-              <kbd>Enter</kbd><span>试听</span>
-            </div>
-          </div>
-
-          <div class="svg-stage">
-            <svg id="studio-svg" viewBox="0 0 1180 680" role="img" aria-label="PhonAcq 主工作台交互矢量界面">
-              <defs>
-                <linearGradient id="studioSpecBg" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stop-color="#F8FAFC"/>
-                  <stop offset="52%" stop-color="#E2E8F0"/>
-                  <stop offset="100%" stop-color="#F1F5F9"/>
-                </linearGradient>
-                <linearGradient id="formantBandGrad" x1="0" y1="0" x2="1" y2="0">
-                  <stop offset="0%" stop-color="#64748B" stop-opacity="0.06"/>
-                  <stop offset="18%" stop-color="#334155" stop-opacity="0.34"/>
-                  <stop offset="55%" stop-color="#1E293B" stop-opacity="0.42"/>
-                  <stop offset="85%" stop-color="#334155" stop-opacity="0.28"/>
-                  <stop offset="100%" stop-color="#64748B" stop-opacity="0.05"/>
-                </linearGradient>
-                <clipPath id="specClip">
-                  <rect x="814" y="160" width="328" height="190" rx="8"/>
-                </clipPath>
-                <clipPath id="miniPicClip">
-                  <rect x="-126" y="106" width="252" height="122" rx="12"/>
-                </clipPath>
-              </defs>
-
-              <!-- 应用底色 -->
-              <rect width="1180" height="680" fill="#F1F5F9"/>
-
-              <!-- 顶部客户端状态与导航栏 -->
-              <rect x="0" y="0" width="1180" height="54" fill="#FFFFFF"/>
-              <line x1="0" y1="54" x2="1180" y2="54" stroke="#CBD5E1" stroke-width="1"/>
-
-              <!-- 应用图标与项目标题 -->
-              <g transform="translate(18, 10)">
-                <rect x="0" y="0" width="34" height="34" rx="10" fill="#FFFFFF" stroke="#DCE4EC" stroke-width="1.6"/>
-                <path d="M 23 9 A 9.5 9.5 0 1 0 23 25" fill="none" stroke="#00ACC1" stroke-width="3" stroke-linecap="round"/>
-                <rect x="11.5" y="13.5" width="2.5" height="7" rx="1.2" fill="#F59E0B"/>
-                <rect x="15.5" y="10" width="2.5" height="14" rx="1.2" fill="#F59E0B"/>
-                <rect x="19.5" y="12" width="2.5" height="10" rx="1.2" fill="#F59E0B"/>
-                <rect x="23.5" y="15" width="2.5" height="4.5" rx="1.2" fill="#00ACC1"/>
-              </g>
-              <text x="62" y="25" font-size="14" font-weight="800" fill="#0F172A">苏州方言声韵调与日常词调查</text>
-              <text x="62" y="42" font-size="11" font-weight="600" fill="#64748B">吴语太湖片单字音系与看图词汇核对样本 · 48 kHz / 16-bit Mono PCM</text>
-
-              <!-- 顶栏右侧输入源与模式指示 -->
-              <g transform="translate(598, 12)">
-                <rect x="0" y="0" width="204" height="30" rx="8" fill="#F8FAFC" stroke="#CBD5E1"/>
-                <circle cx="15" cy="15" r="4.5" fill="#0F766E"/>
-                <text x="27" y="19" font-size="11.5" font-weight="700" fill="#0F172A">Zoom H1n USB · 48kHz</text>
-              </g>
-
-              <g id="svg-clean-pill" class="svg-clickable" transform="translate(812, 12)">
-                <rect id="svg-clean-pill-bg" x="0" y="0" width="92" height="30" rx="15" fill="#F8FAFC" stroke="#CBD5E1"/>
-                <text id="svg-clean-pill-txt" x="46" y="19" text-anchor="middle" font-size="11.5" font-weight="700" fill="#334155">看读大字</text>
-              </g>
-
-              <g id="svg-mode-pill" class="svg-clickable" transform="translate(914, 12)">
-                <rect id="svg-mode-pill-bg" x="0" y="0" width="122" height="30" rx="15" fill="#DBEAFE" stroke="#93C5FD"/>
-                <text id="svg-mode-pill-txt" x="61" y="19" text-anchor="middle" font-size="11.5" font-weight="800" fill="#1E3A8A">进阶模式 · 切换</text>
-              </g>
-
-              <g transform="translate(1046, 12)">
-                <rect x="0" y="0" width="118" height="30" rx="8" fill="#0F766E"/>
-                <text x="59" y="19" text-anchor="middle" font-size="11.5" font-weight="700" fill="#FFFFFF">打包导出 .zip</text>
-              </g>
-
-              <!-- ==================== 左栏：发音人与调查字表 ==================== -->
-              <g id="svg-left-pane">
-                <rect x="16" y="68" width="236" height="596" rx="14" fill="#FFFFFF" stroke="#CBD5E1"/>
-
-                <!-- 发音人切换胶囊 -->
-                <g id="svg-spk-pill" class="svg-clickable" transform="translate(28, 80)">
-                  <rect x="0" y="0" width="212" height="44" rx="10" fill="#F8FAFC" stroke="#CBD5E1"/>
-                  <circle id="svg-spk-avatar" cx="22" cy="22" r="13" fill="#DBEAFE"/>
-                  <text id="svg-spk-initial" x="22" y="26.5" text-anchor="middle" font-size="12" font-weight="800" fill="#1E3A8A">沈</text>
-                  <text id="svg-spk-name" x="43" y="19" font-size="12.5" font-weight="800" fill="#0F172A">沈阿婆 · SPK01</text>
-                  <text id="svg-spk-meta" x="43" y="34" font-size="10.5" font-weight="600" fill="#64748B">女 · 71岁 · 苏州城区老派 ⇄</text>
-                </g>
-
-                <!-- 进度条 -->
-                <text x="28" y="144" font-size="11" font-weight="700" fill="#475569">示例样本（点击任意词条切换）</text>
-                <text id="svg-progress-count" x="240" y="144" text-anchor="end" font-size="11" font-weight="800" fill="#0F766E">6 / 6 已录</text>
-                <rect x="28" y="151" width="212" height="5" rx="2.5" fill="#E2E8F0"/>
-                <rect x="28" y="151" width="212" height="5" rx="2.5" fill="#0F766E"/>
-
-                <!-- 动态词表容器 -->
-                <g id="svg-wordlist-rows" transform="translate(28, 168)"></g>
-
-                <!-- 底部导入与模板说明 -->
-                <rect x="28" y="616" width="212" height="34" rx="8" fill="#F8FAFC" stroke="#E2E8F0"/>
-                <text x="134" y="637" text-anchor="middle" font-size="11" font-weight="700" fill="#475569">+ 导入 Excel / Word / 批量配图</text>
-              </g>
-
-              <!-- ==================== 中栏：录音工作台与四栏音标速记 ==================== -->
-              <g id="svg-center-pane">
-                <rect id="svg-center-bg" x="264" y="68" width="516" height="596" rx="14" fill="#FFFFFF" stroke="#CBD5E1"/>
-
-                <!-- 以中栏中心 X 为原点的自适应内容组（进阶模式 translate(522,0)，简洁模式 translate(714,0)） -->
-                <g id="svg-center-inner" transform="translate(522, 0)">
-                  <!-- 顶部词条分组与多遍留存胶囊 -->
-                  <rect id="svg-cat-pill-bg" x="-228" y="82" width="146" height="26" rx="13" fill="#F1F5F9" stroke="#CBD5E1"/>
-                  <text id="svg-word-cat" x="-155" y="99" text-anchor="middle" font-size="11" font-weight="700" fill="#334155">01 · 阴平 · 闭前元音</text>
-
-                  <g id="svg-take-pill" class="svg-clickable">
-                    <rect x="92" y="82" width="136" height="26" rx="13" fill="#CCFBF1" stroke="#99F6E4"/>
-                    <text id="svg-take-badge" x="160" y="99" text-anchor="middle" font-size="11" font-weight="800" fill="#134E4A">★ 采用第 3 遍 (共3遍)</text>
-                  </g>
-
-                  <!-- 看图发音插画区（仅当选中带图词条如「12 日头」时显示） -->
-                  <g id="svg-pic-prompt" display="none">
-                    <rect x="-128" y="105" width="256" height="124" rx="13" fill="#FAF6EE" stroke="#CBD5E1" stroke-width="1.2"/>
-                    <g clip-path="url(#miniPicClip)">
-                      <rect x="-126" y="106" width="252" height="122" fill="#FEF9C3"/>
-                      <!-- 温暖红日与光晕 -->
-                      <circle cx="48" cy="144" r="28" fill="#FDE68A" opacity="0.7"/>
-                      <circle cx="48" cy="144" r="19" fill="#F59E0B"/>
-                      <!-- 远山与江南粉墙黛瓦屋檐 -->
-                      <path d="M -130 202 Q -60 176 12 198 T 130 192 L 130 232 L -130 232 Z" fill="#CBD5E1" opacity="0.55"/>
-                      <rect x="-112" y="182" width="128" height="48" fill="#FFFFFF" stroke="#94A3B8" stroke-width="1"/>
-                      <path d="M -120 184 Q -48 164 24 184 L 18 191 L -114 191 Z" fill="#334155"/>
-                      <rect x="-64" y="198" width="32" height="30" rx="2" fill="#E2E8F0" stroke="#64748B" stroke-width="1"/>
-                      <line x1="-48" y1="198" x2="-48" y2="228" stroke="#64748B" stroke-width="1"/>
-                    </g>
-                    <rect x="44" y="112" width="76" height="20" rx="10" fill="#0F172A" opacity="0.72"/>
-                    <text x="82" y="125.5" text-anchor="middle" font-size="10" font-weight="700" fill="#FFFFFF">上图下字词卡</text>
-                  </g>
-
-                  <!-- 目标调查字与释义提示 -->
-                  <text id="svg-target-char" x="0" y="218" text-anchor="middle" font-size="88" font-weight="800" fill="#0F172A">衣</text>
-                  <text id="svg-target-gloss" x="0" y="262" text-anchor="middle" font-size="15" font-weight="600" fill="#475569">阴平 44 · 衣服（例：一件新衣裳）</text>
-
-                  <!-- 进阶模式：四栏国际音标随手记面板 -->
-                  <g id="svg-ipa-panel" transform="translate(0, 286)">
-                    <rect x="-228" y="0" width="456" height="218" rx="12" fill="#F8FAFC" stroke="#CBD5E1"/>
-                    <text x="-212" y="23" font-size="11.5" font-weight="800" fill="#0F172A">现场记音随手记（按发音人独立保存）</text>
-                    <g id="svg-derive-btn" class="svg-clickable" transform="translate(106, 8)">
-                      <rect x="0" y="0" width="110" height="22" rx="11" fill="#DBEAFE"/>
-                      <text id="svg-derive-txt" x="55" y="14.5" text-anchor="middle" font-size="10.5" font-weight="700" fill="#1E3A8A">+ 派生文白异读</text>
-                    </g>
-
-                    <!-- 记音输入框 -->
-                    <rect x="-212" y="34" width="424" height="36" rx="8" fill="#FFFFFF" stroke="#93C5FD" stroke-width="1.3"/>
-                    <text id="svg-note-text" x="-200" y="57" font-size="13" font-weight="700" fill="#0F172A">[i⁴⁴] 擦音轻微，元音平稳</text>
-                    <g id="svg-note-clear" class="svg-clickable" transform="translate(166, 41)">
-                      <rect x="0" y="0" width="40" height="22" rx="6" fill="#F1F5F9"/>
-                      <text x="20" y="14.5" text-anchor="middle" font-size="10.5" font-weight="700" fill="#64748B">重置</text>
-                    </g>
-
-                    <!-- 四栏分类切换标签 -->
-                    <g id="svg-ipa-tabs" transform="translate(-212, 80)"></g>
-
-                    <!-- 快捷音标按钮网格（点击追加到输入框） -->
-                    <g id="svg-ipa-chips" transform="translate(-212, 114)"></g>
-                  </g>
-
-                  <!-- 简洁模式专属：三档收音控制与质量把关提示（默认隐藏，切换简洁模式显示） -->
-                  <g id="svg-simple-panel" transform="translate(0, 306)" display="none">
-                    <rect x="-260" y="0" width="520" height="178" rx="14" fill="#F8FAFC" stroke="#CBD5E1"/>
-                    <text x="0" y="32" text-anchor="middle" font-size="13" font-weight="800" fill="#0F172A">简洁采录模式 · 隐去复杂声学参数，专注现场收音与核对</text>
-                    <g transform="translate(-210, 50)">
-                      <rect x="0" y="0" width="420" height="38" rx="10" fill="#E2E8F0"/>
-                      <rect x="4" y="4" width="136" height="30" rx="8" fill="#FFFFFF"/>
-                      <text x="72" y="23" text-anchor="middle" font-size="12" font-weight="800" fill="#1D4ED8">点按开始 / 停止</text>
-                      <text x="210" y="23" text-anchor="middle" font-size="12" font-weight="700" fill="#475569">读完停顿自动翻页</text>
-                      <text x="348" y="23" text-anchor="middle" font-size="12" font-weight="700" fill="#475569">按住录 · 松手存</text>
-                    </g>
-                    <rect x="-210" y="106" width="420" height="48" rx="10" fill="#CCFBF1" stroke="#99F6E4"/>
-                    <text x="0" y="128" text-anchor="middle" font-size="12.5" font-weight="800" fill="#134E4A">✓ 环境信噪比优良（SNR 34 dB）· 防吞字预录缓冲已开启</text>
-                    <text x="0" y="145" text-anchor="middle" font-size="11" font-weight="600" fill="#0F766E">导出时将自动生成纯净中文目录与双工作表《录音汇总表.xlsx》</text>
-                  </g>
-
-                  <!-- 实时电平与防削波质检条 -->
-                  <g transform="translate(0, 522)">
-                    <text x="-228" y="14" font-size="11" font-weight="700" fill="#475569">实时电平与信噪把关</text>
-                    <text id="svg-snr-label" x="228" y="14" text-anchor="end" font-size="11" font-weight="800" fill="#0F766E">-12.4 dBFS · SNR 34 dB · 正常</text>
-                    <rect x="-228" y="22" width="456" height="10" rx="5" fill="#E2E8F0"/>
-                    <rect id="svg-meter-fill" x="-228" y="22" width="312" height="10" rx="5" fill="#0F766E"/>
-                    <!-- 削波警戒刻度线 -->
-                    <line x1="190" y1="19" x2="190" y2="35" stroke="#DC2626" stroke-width="1.5"/>
-                  </g>
-
-                  <!-- 底部传输控制栏：上一词 · 录音 · 试听 · 下一词 -->
-                  <g transform="translate(0, 574)">
-                    <g id="svg-prev-btn" class="svg-clickable" transform="translate(-228, 8)">
-                      <rect x="0" y="0" width="88" height="44" rx="12" fill="#F8FAFC" stroke="#CBD5E1"/>
-                      <text x="44" y="27" text-anchor="middle" font-size="12.5" font-weight="800" fill="#334155">◀ 上一词</text>
-                    </g>
-
-                    <!-- 主录音键 -->
-                    <g id="svg-rec-btn" class="svg-clickable" transform="translate(-124, 2)">
-                      <circle id="svg-rec-pulse" cx="62" cy="28" r="28" fill="#DC2626" opacity="0"/>
-                      <rect id="svg-rec-bg" x="0" y="0" width="124" height="56" rx="28" fill="#DC2626"/>
-                      <circle id="svg-rec-dot" cx="30" cy="28" r="7" fill="#FFFFFF"/>
-                      <text id="svg-rec-label" x="72" y="33" text-anchor="middle" font-size="14" font-weight="800" fill="#FFFFFF">开始重录</text>
-                    </g>
-
-                    <!-- 试听键 -->
-                    <g id="svg-play-btn" class="svg-clickable" transform="translate(12, 8)">
-                      <rect id="svg-play-bg" x="0" y="0" width="116" height="44" rx="12" fill="#DBEAFE" stroke="#93C5FD"/>
-                      <text id="svg-play-label" x="58" y="27" text-anchor="middle" font-size="12.5" font-weight="800" fill="#1E3A8A">▶ 试听调值</text>
-                    </g>
-
-                    <g id="svg-next-btn" class="svg-clickable" transform="translate(140, 8)">
-                      <rect x="0" y="0" width="88" height="44" rx="12" fill="#F8FAFC" stroke="#CBD5E1"/>
-                      <text x="44" y="27" text-anchor="middle" font-size="12.5" font-weight="800" fill="#334155">下一词 ▶</text>
-                    </g>
-                  </g>
-                </g>
-              </g>
-
-              <!-- ==================== 右栏：单字实时宽带语图与元音参考（进阶模式可见） ==================== -->
-              <g id="svg-right-pane">
-                <rect x="792" y="68" width="372" height="596" rx="14" fill="#FFFFFF" stroke="#CBD5E1"/>
-
-                <text x="810" y="96" font-size="13" font-weight="800" fill="#0F172A">单字声学速览（鼠标移入语图可读数）</text>
-                <text id="svg-right-sub" x="1146" y="96" text-anchor="end" font-size="11" font-weight="700" fill="#0F766E">五度参考 [44]</text>
-
-                <!-- 四枚核心测量指标胶囊 -->
-                <g transform="translate(810, 108)">
-                  <rect x="0" y="0" width="106" height="36" rx="8" fill="#F8FAFC" stroke="#E2E8F0"/>
-                  <text x="10" y="14" font-size="9.5" font-weight="700" fill="#64748B">有效韵母时长</text>
-                  <text id="svg-metric-dur" x="10" y="29" font-size="12.5" font-weight="800" fill="#0F172A">0.68 s</text>
-
-                  <rect x="114" y="0" width="106" height="36" rx="8" fill="#DBEAFE" stroke="#BFDBFE"/>
-                  <text x="124" y="14" font-size="9.5" font-weight="700" fill="#1E3A8A">基频均值 F0</text>
-                  <text id="svg-metric-f0" x="124" y="29" font-size="12.5" font-weight="800" fill="#1E3A8A">235 Hz</text>
-
-                  <rect x="228" y="0" width="108" height="36" rx="8" fill="#CCFBF1" stroke="#99F6E4"/>
-                  <text x="238" y="14" font-size="9.5" font-weight="700" fill="#134E4A">F1 / F2 稳态</text>
-                  <text id="svg-metric-formants" x="238" y="29" font-size="11.5" font-weight="800" fill="#134E4A">295 / 2290</text>
-                </g>
-
-                <!-- 宽带语图 + 基频蓝线 + 共振峰红点轨 -->
-                <rect x="814" y="160" width="328" height="190" rx="8" fill="url(#studioSpecBg)" stroke="#CBD5E1"/>
-
-                <g clip-path="url(#specClip)">
-                  <!-- 频率网格线 -->
-                  <line x1="814" y1="198" x2="1142" y2="198" stroke="#CBD5E1" stroke-dasharray="3 3"/>
-                  <line x1="814" y1="236" x2="1142" y2="236" stroke="#CBD5E1" stroke-dasharray="3 3"/>
-                  <line x1="814" y1="274" x2="1142" y2="274" stroke="#CBD5E1" stroke-dasharray="3 3"/>
-                  <line x1="814" y1="312" x2="1142" y2="312" stroke="#CBD5E1" stroke-dasharray="3 3"/>
-
-                  <!-- 模拟宽带语图横纹与三道共振峰能量带 -->
-                  <rect id="svg-spec-f3-band" x="838" y="186" width="280" height="16" rx="8" fill="url(#formantBandGrad)"/>
-                  <rect id="svg-spec-f2-band" x="838" y="232" width="280" height="20" rx="10" fill="url(#formantBandGrad)"/>
-                  <rect id="svg-spec-f1-band" x="838" y="308" width="280" height="22" rx="10" fill="url(#formantBandGrad)"/>
-
-                  <!-- 共振峰红点散点轨 -->
-                  <path id="svg-f1-track" d="M 852 318 L 978 318 L 1104 318" fill="none" stroke="#DC2626" stroke-width="3" stroke-linecap="round" stroke-dasharray="1 10"/>
-                  <path id="svg-f2-track" d="M 852 242 L 978 242 L 1104 242" fill="none" stroke="#DC2626" stroke-width="3" stroke-linecap="round" stroke-dasharray="1 10"/>
-                  <path id="svg-f3-track" d="M 852 194 L 978 194 L 1104 194" fill="none" stroke="#DC2626" stroke-width="2.5" stroke-linecap="round" stroke-dasharray="1 11" opacity="0.75"/>
-
-                  <!-- 基频 F0 实测蓝色曲线 -->
-                  <path id="svg-spec-f0-glow" d="M 854 226 Q 978 228 1102 231" fill="none" stroke="#93C5FD" stroke-width="7" stroke-linecap="round" opacity="0.55"/>
-                  <path id="svg-spec-f0-path" d="M 854 226 Q 978 228 1102 231" fill="none" stroke="#1D4ED8" stroke-width="3.2" stroke-linecap="round"/>
-
-                  <!-- 试听播放扫描指针 -->
-                  <line id="svg-playhead-line" x1="854" y1="160" x2="854" y2="350" stroke="#F59E0B" stroke-width="2.4" opacity="0"/>
-
-                  <!-- 鼠标悬停十字游标与实时读数标签 -->
-                  <g id="svg-crosshair-group" opacity="0">
-                    <line id="svg-crosshair-line" x1="978" y1="160" x2="978" y2="350" stroke="#0F172A" stroke-width="1.2" stroke-dasharray="4 3"/>
-                    <circle id="svg-crosshair-dot" cx="978" cy="228" r="5" fill="#1D4ED8" stroke="#FFFFFF" stroke-width="2"/>
-                    <rect id="svg-crosshair-box" x="868" y="166" width="218" height="24" rx="6" fill="#0F172A" opacity="0.9"/>
-                    <text id="svg-crosshair-text" x="977" y="182" text-anchor="middle" font-size="10.5" font-weight="700" fill="#FFFFFF">t=0.34s · F0=235Hz · F1=295 · F2=2290</text>
-                  </g>
-                </g>
-
-                <!-- 语图轴标与透明交互捕获层 -->
-                <text x="820" y="174" font-size="9.5" font-weight="700" fill="#64748B">4000 Hz</text>
-                <text x="820" y="344" font-size="9.5" font-weight="700" fill="#64748B">0 Hz</text>
-                <text x="1136" y="174" text-anchor="end" font-size="9.5" font-weight="700" fill="#1D4ED8">蓝线 F0 · 红点 F1–F3</text>
-                <rect id="svg-spec-hit" x="814" y="160" width="328" height="190" fill="transparent" style="cursor: crosshair;"/>
-
-                <!-- 下半部：当前字在 F1–F2 元音空间中的实时落点 -->
-                <text x="810" y="376" font-size="12.5" font-weight="800" fill="#0F172A">全表元音空间实时定位（F2 ← · F1 ↓）</text>
-                <rect x="814" y="388" width="328" height="260" rx="10" fill="#F8FAFC" stroke="#CBD5E1"/>
-
-                <!-- 元音四边形参考框 -->
-                <polygon points="862,424 1094,424 1062,612 946,612" fill="#FFFFFF" stroke="#CBD5E1" stroke-width="1.4" stroke-dasharray="4 3"/>
-                <text x="846" y="422" font-size="11" font-weight="700" fill="#94A3B8">[i]</text>
-                <text x="1104" y="422" font-size="11" font-weight="700" fill="#94A3B8">[u]</text>
-                <text x="932" y="628" font-size="11" font-weight="700" fill="#94A3B8">[a]</text>
-                <text x="1072" y="628" font-size="11" font-weight="700" fill="#94A3B8">[ɑ]</text>
-
-                <!-- 全表参考散点 -->
-                <circle cx="872" cy="432" r="4.5" fill="#94A3B8" opacity="0.5"/>
-                <circle cx="964" cy="452" r="4.5" fill="#94A3B8" opacity="0.5"/>
-                <circle cx="1078" cy="468" r="4.5" fill="#94A3B8" opacity="0.5"/>
-                <circle cx="914" cy="512" r="4.5" fill="#94A3B8" opacity="0.5"/>
-                <circle cx="978" cy="496" r="4.5" fill="#94A3B8" opacity="0.5"/>
-
-                <!-- 当前激活词条的高亮落点 -->
-                <circle id="svg-mini-vowel-ring" cx="872" cy="432" r="14" fill="#0F766E" opacity="0.18"/>
-                <circle id="svg-mini-vowel-dot" cx="872" cy="432" r="6.5" fill="#0F766E" stroke="#FFFFFF" stroke-width="2"/>
-                <text id="svg-mini-vowel-label" x="892" y="436" font-size="12" font-weight="800" fill="#134E4A">衣 [i]</text>
-
-                <text x="978" y="641" text-anchor="middle" font-size="10" font-weight="600" fill="#64748B">F2 舌位前后 (2600 → 700 Hz)</text>
-              </g>
-            </svg>
-          </div>
-        </div>
-      </div>
-    </section>
-
-    <!-- 章节 2：看图发音与防字面诱导词卡 -->
-    <section class="section" id="picture-prompt">
-      <div class="container">
-        <div class="section-header">
-          <div class="section-title-wrap">
-            <span class="section-kicker">Picture Elicitation · 看图发音词卡</span>
-            <h2>面对高龄或不识字发音人，避免书面字面诱导地道口语词</h2>
-            <p class="section-desc">
-              调查「太阳 / 日头」「衣服 / 衣裳」「水桶 / 吊桶」等日常核心词时，直接展示汉字往往会诱使发音人读出文读字音或普通话词汇。PhonAcq 支持按需配图、文件名批量建词及看读页独立显隐汉字。
+            <p class="hero-subtitle">
+              面向汉语方言调查、民族语记音与语音学课堂训练。从字表准备、长辈看图引导、现场收音把关到自动重命名归档，把繁琐的录音整理工作留在现场完成。
             </p>
-          </div>
-        </div>
 
-        <div class="split-grid">
-          <div class="sandbox-shell">
-            <div class="sandbox-toolbar">
-              <div class="toolbar-group">
-                <span class="toolbar-label">示例词卡：</span>
-                <div class="seg-group" id="pic-item-tabs">
-                  <button type="button" class="seg-btn active" data-pic="0">01 · 日头</button>
-                  <button type="button" class="seg-btn" data-pic="1">02 · 衣裳</button>
-                  <button type="button" class="seg-btn" data-pic="2">03 · 吊桶</button>
+            <!-- 纯线条「声波与五度声调」微互动插画 -->
+            <div class="tone-wave-card" aria-label="声波柱与五度标调互动标尺">
+              <div class="tone-wave-head">
+                <span>声波响应与五度标调格（划过声波柱或点选调值）</span>
+                <div class="tone-preset-group" role="group" aria-label="五度调值示例">
+                  <button type="button" class="tone-preset-btn is-active" data-tone="214">214</button>
+                  <button type="button" class="tone-preset-btn" data-tone="55">55</button>
+                  <button type="button" class="tone-preset-btn" data-tone="35">35</button>
+                  <button type="button" class="tone-preset-btn" data-tone="51">51</button>
                 </div>
               </div>
-              <div class="toolbar-group">
-                <button type="button" class="chip-toggle" id="btn-pic-hide-char">隐藏汉字（防诱导）</button>
-                <button type="button" class="chip-toggle" id="btn-pic-zoom">1.6x 放大看细节</button>
-              </div>
-            </div>
+              <svg class="tone-wave-svg" id="tone-wave-svg" viewBox="0 0 480 76" preserveAspectRatio="none">
+                <!-- 左侧声波基准中轴线 -->
+                <line x1="6" y1="38" x2="258" y2="38" stroke="#E4E1DA" stroke-width="1" />
+                <!-- 动态弹性声波柱组（由脚本生成并驱动物理弹簧动画） -->
+                <g id="spring-wave-bars"></g>
 
-            <div class="svg-stage">
-              <svg id="piccard-svg" viewBox="0 0 640 420" role="img" aria-label="看图发音词卡交互演示">
-                <defs>
-                  <clipPath id="picStageClip">
-                    <rect x="40" y="62" width="560" height="236" rx="14"/>
-                  </clipPath>
-                </defs>
-                <rect width="640" height="420" fill="#F1F5F9"/>
-                <rect x="20" y="16" width="600" height="388" rx="18" fill="#FFFFFF" stroke="#CBD5E1"/>
+                <!-- 分隔刻度竖线 -->
+                <line x1="274" y1="8" x2="274" y2="68" stroke="#E4E1DA" stroke-width="1" stroke-dasharray="2 2" />
 
-                <!-- 词卡顶栏 -->
-                <text id="pic-svg-index" x="42" y="45" font-size="12.5" font-weight="800" fill="#0F766E">看图识词 · 自然天文 (01 / 03)</text>
-                <rect x="444" y="28" width="154" height="24" rx="12" fill="#F8FAFC" stroke="#CBD5E1"/>
-                <text id="pic-svg-mode-badge" x="521" y="44" text-anchor="middle" font-size="10.5" font-weight="700" fill="#475569">上图下字 · 支持双指缩放</text>
-
-                <!-- 插画视口 -->
-                <rect x="40" y="62" width="560" height="236" rx="14" fill="#FAF6EE" stroke="#CBD5E1"/>
-                <g clip-path="url(#picStageClip)">
-                  <g id="pic-svg-artwork" transform="translate(320, 180) scale(1)">
-                    <!-- 由 portal.js 动态绘制 3 张高清方言实物插画 -->
-                  </g>
+                <!-- 右侧五度标调格（1 至 5 度横线 + 右侧标调竖杆） -->
+                <g font-family="JetBrains Mono, monospace" font-size="9" fill="#8A847C">
+                  <line x1="296" y1="11" x2="452" y2="11" stroke="#E4E1DA" stroke-width="1" />
+                  <text x="458" y="14">5</text>
+                  <line x1="296" y1="24.5" x2="452" y2="24.5" stroke="#E4E1DA" stroke-width="1" />
+                  <text x="458" y="27.5">4</text>
+                  <line x1="296" y1="38" x2="452" y2="38" stroke="#E4E1DA" stroke-width="1" />
+                  <text x="458" y="41">3</text>
+                  <line x1="296" y1="51.5" x2="452" y2="51.5" stroke="#E4E1DA" stroke-width="1" />
+                  <text x="458" y="54.5">2</text>
+                  <line x1="296" y1="65" x2="452" y2="65" stroke="#E4E1DA" stroke-width="1" />
+                  <text x="458" y="68">1</text>
+                  <!-- 五度标调参考竖线 -->
+                  <line x1="452" y1="11" x2="452" y2="65" stroke="#18181B" stroke-width="1.5" />
                 </g>
 
-                <!-- 底部文字与调查员提示区 -->
-                <g id="pic-svg-char-group">
-                  <text id="pic-svg-title" x="320" y="344" text-anchor="middle" font-size="36" font-weight="800" fill="#0F172A">日头</text>
-                  <text id="pic-svg-cue" x="320" y="376" text-anchor="middle" font-size="13" font-weight="600" fill="#64748B">调查目标：引导自然说出本地口语词「日头 [niəʔ⁵ dɤ²⁴]」，避免直接念出「太阳」</text>
-                </g>
-                <g id="pic-svg-hidden-placeholder" display="none">
-                  <rect x="170" y="318" width="300" height="44" rx="12" fill="#FEF3C7" stroke="#FCD34D"/>
-                  <text x="320" y="345" text-anchor="middle" font-size="13.5" font-weight="800" fill="#92400E">汉字已隐藏 · 请请发音人直接看图说出当地叫法</text>
-                  <text x="320" y="380" text-anchor="middle" font-size="12" font-weight="600" fill="#64748B">（调查人遥控端与后台文件名仍保留「01_日头」词条归档）</text>
-                </g>
+                <!-- 一笔画出的平滑声调曲线 -->
+                <path id="tone-curve-path" class="tone-curve-path" d="M 304 51.5 C 338 66, 366 67, 392 56 C 414 46, 432 33, 448 24.5" />
+                <circle id="tone-curve-end" cx="448" cy="24.5" r="3" fill="#D97706" />
               </svg>
             </div>
+
+            <!-- 首屏系统自动识别下载组 -->
+            <div class="dl-status-line">
+              <span id="detected-os-hint">已根据当前访问环境高亮推荐安装包</span>
+              <span class="js-version-text">当前稳定版 v2.0.1</span>
+            </div>
+
+            <div class="dl-grid-hero">
+              <a href="https://github.com/KasumiKitsune/PhonAcq/releases/latest" class="dl-card-btn is-primary-os js-dl-btn js-dl-win" data-os="win">
+                <div class="dl-card-top">
+                  <span class="dl-os-title">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+                      <rect x="3" y="3" width="8" height="8" /><rect x="13" y="3" width="8" height="8" />
+                      <rect x="3" y="13" width="8" height="8" /><rect x="13" y="13" width="8" height="8" />
+                    </svg>
+                    <span>下载 Windows 版</span>
+                  </span>
+                  <span class="dl-ext">.msi</span>
+                </div>
+                <span class="dl-os-sub">适用于 Windows 10 / 11（64 位）</span>
+              </a>
+
+              <a href="https://github.com/KasumiKitsune/PhonAcq/releases/latest" class="dl-card-btn js-dl-btn js-dl-mac" data-os="mac">
+                <div class="dl-card-top">
+                  <span class="dl-os-title">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                      <rect x="3" y="4" width="18" height="12" rx="2" /><line x1="2" y1="20" x2="22" y2="20" />
+                    </svg>
+                    <span>下载 macOS 版</span>
+                  </span>
+                  <span class="dl-ext">.dmg</span>
+                </div>
+                <span class="dl-os-sub">适用于 Apple M 系列芯片 Mac</span>
+              </a>
+
+              <a href="https://github.com/KasumiKitsune/PhonAcq/releases/latest" class="dl-card-btn js-dl-btn js-dl-android" data-os="android">
+                <div class="dl-card-top">
+                  <span class="dl-os-title">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                      <rect x="6" y="2" width="12" height="20" rx="2.5" /><line x1="10" y1="18" x2="14" y2="18" />
+                    </svg>
+                    <span>下载 Android 版</span>
+                  </span>
+                  <span class="dl-ext">.apk</span>
+                </div>
+                <span class="dl-os-sub">适用于 Android 7.0+ 手机与平板</span>
+              </a>
+            </div>
+
+            <div class="hero-helper-links">
+              <a href="https://github.com/KasumiKitsune/PhonAcq/releases" target="_blank" rel="noopener">查看全部历史版本与校验信息</a>
+              <span>·</span>
+              <a href="#macos-guide" id="jump-macos-guide">macOS 首次打开说明</a>
+            </div>
           </div>
 
-          <div class="feature-points">
-            <div class="point-card">
-              <h3>按文件名一键批量建词与配图</h3>
-              <p>准备一组形如 <code>01_日头_太阳.jpg</code>、<code>02_衣裳_衣服.png</code> 的图片，即可一次性自动生成带序号、词目与备注的调查表，未配图词条依然按常规文字展示。</p>
-            </div>
-            <div class="point-card">
-              <h3>独立显隐汉字，杜绝字面干扰</h3>
-              <p>在录音台或无线看读端点击顶栏「看读」设置，可随时隐藏目标汉字与词表释义，只向发音人呈现干净大图；调查人手持端仍完整显示记音提示与目标音标。</p>
-            </div>
-            <div class="point-card">
-              <h3>无级缩放局部细节 + 导出包随行备份</h3>
-              <p>配图区域支持双指捏合放大至 4 倍并拖动平移，方便指认农具、服饰构件或动植物局部；打包导出时可选将词卡图片随 <code>images/</code> 目录完整归档并支持无损导回。</p>
+          <!-- 右栏：首屏主视觉（四角精密十字准星刻度 + 16:10 桌面录音台全景） -->
+          <div class="reticle-frame">
+            <span class="reticle-corner tl"></span>
+            <span class="reticle-corner tr"></span>
+            <span class="reticle-corner bl"></span>
+            <span class="reticle-corner br"></span>
+
+            <div class="desktop-studio-frame">
+              <div class="window-titlebar">
+                <div class="window-dots" aria-hidden="true">
+                  <span></span><span></span><span></span>
+                </div>
+                <span>PhonAcq Studio — 方言点字表采录台</span>
+                <span>48kHz / 24-bit PCM</span>
+              </div>
+
+              <div class="desktop-viewport">
+                <div class="media-slot">
+                  <img
+                    src="images/hero-desktop-studio.png"
+                    alt="PhonAcq 桌面端主录音台全景"
+                    class="slot-img"
+                    onload="this.parentElement.classList.add('has-image')"
+                    onerror="this.parentElement.classList.add('no-image')"
+                  />
+                  <!-- 纯线条桌面主录音台示意图占位（放入 images/hero-desktop-studio.png 后自动替换为实拍图） -->
+                  <div class="slot-schematic">
+                    <svg viewBox="0 0 640 400" width="100%" height="100%" fill="none" font-family="Noto Sans SC, sans-serif">
+                      <rect width="640" height="400" fill="#FFFFFF" />
+                      <!-- 顶部工具条 -->
+                      <rect x="0" y="0" width="640" height="34" fill="#FAF9F6" />
+                      <line x1="0" y1="34" x2="640" y2="34" stroke="#E4E1DA" />
+                      <rect x="14" y="8" width="118" height="18" rx="2" fill="#FFFFFF" stroke="#E4E1DA" />
+                      <text x="22" y="20" font-size="9.5" fill="#18181B">发音人：老男_01 张伯</text>
+                      <rect x="140" y="8" width="92" height="18" rx="2" fill="#EBF5F6" stroke="#00899B" />
+                      <text x="149" y="20" font-size="9.5" fill="#00899B" font-family="JetBrains Mono, monospace">进度 042 / 120</text>
+                      <circle cx="534" cy="17" r="3.5" fill="#D97706" />
+                      <text x="543" y="20" font-size="9" fill="#57534E" font-family="JetBrains Mono, monospace">底噪 -51dB 良好</text>
+
+                      <!-- 左栏：字表目录 -->
+                      <rect x="0" y="34" width="154" height="366" fill="#FAF9F6" />
+                      <line x1="154" y1="34" x2="154" y2="400" stroke="#E4E1DA" />
+                      <text x="14" y="54" font-size="9" fill="#8A847C" font-family="JetBrains Mono, monospace">WORDLIST · 天文时令</text>
+                      <g font-size="10">
+                        <rect x="8" y="64" width="138" height="28" rx="2" fill="#FFFFFF" stroke="#E4E1DA" />
+                        <text x="16" y="82" fill="#57534E">040 太阳</text>
+                        <text x="116" y="82" fill="#00899B" font-family="JetBrains Mono, monospace">已录</text>
+
+                        <rect x="8" y="98" width="138" height="28" rx="2" fill="#FFFFFF" stroke="#E4E1DA" />
+                        <text x="16" y="116" fill="#57534E">041 月亮</text>
+                        <text x="116" y="116" fill="#00899B" font-family="JetBrains Mono, monospace">已录</text>
+
+                        <rect x="8" y="132" width="138" height="32" rx="2" fill="#EBF5F6" stroke="#00899B" />
+                        <text x="16" y="152" fill="#18181B" font-weight="600">042 日头</text>
+                        <text x="102" y="152" fill="#00899B" font-family="JetBrains Mono, monospace">[ȵiʔ⁵]</text>
+
+                        <rect x="8" y="170" width="138" height="28" rx="2" fill="#FFFFFF" stroke="#E4E1DA" />
+                        <text x="16" y="188" fill="#57534E">043 落雨</text>
+                        <text x="116" y="188" fill="#8A847C" font-family="JetBrains Mono, monospace">待录</text>
+
+                        <rect x="8" y="204" width="138" height="28" rx="2" fill="#FFFFFF" stroke="#E4E1DA" />
+                        <text x="16" y="222" fill="#57534E">044 天亮</text>
+                        <text x="116" y="222" fill="#8A847C" font-family="JetBrains Mono, monospace">待录</text>
+                      </g>
+
+                      <!-- 中栏：主字词卡片 + 实时波形与语图 -->
+                      <rect x="168" y="48" width="302" height="122" rx="3" fill="#FAF9F6" stroke="#E4E1DA" />
+                      <text x="182" y="68" font-size="9.5" fill="#8A847C" font-family="JetBrains Mono, monospace">#042 · 词义提示：太阳（日常口语说法）</text>
+                      <text x="319" y="120" text-anchor="middle" font-size="38" font-weight="700" fill="#18181B" font-family="Noto Serif SC, serif">日头</text>
+                      <text x="319" y="148" text-anchor="middle" font-size="12" fill="#00899B" font-family="JetBrains Mono, monospace">[ ȵiʔ⁵ dɤ²¹ ] · 白读</text>
+
+                      <!-- 波形与基频监测框 -->
+                      <rect x="168" y="180" width="302" height="132" rx="3" fill="#FFFFFF" stroke="#E4E1DA" />
+                      <line x1="168" y1="226" x2="470" y2="226" stroke="#F2EFE9" />
+                      <line x1="168" y1="268" x2="470" y2="268" stroke="#F2EFE9" />
+                      <!-- 波形示意竖线 -->
+                      <g stroke="#00899B" stroke-width="1.6" stroke-linecap="round">
+                        <line x1="196" y1="222" x2="196" y2="230" /><line x1="206" y1="214" x2="206" y2="238" />
+                        <line x1="216" y1="200" x2="216" y2="252" /><line x1="226" y1="194" x2="226" y2="258" />
+                        <line x1="236" y1="204" x2="236" y2="248" /><line x1="246" y1="215" x2="246" y2="237" />
+                        <line x1="256" y1="223" x2="256" y2="229" /><line x1="286" y1="216" x2="286" y2="236" />
+                        <line x1="296" y1="202" x2="296" y2="250" /><line x1="306" y1="196" x2="306" y2="256" />
+                        <line x1="316" y1="200" x2="316" y2="252" /><line x1="326" y1="208" x2="326" y2="244" />
+                        <line x1="336" y1="216" x2="336" y2="236" /><line x1="346" y1="221" x2="346" y2="231" />
+                      </g>
+                      <!-- 基频曲线 -->
+                      <path d="M 204 274 Q 226 264, 248 278" stroke="#D97706" stroke-width="2.2" fill="none" stroke-linecap="round" />
+                      <path d="M 286 278 C 306 284, 326 294, 348 298" stroke="#D97706" stroke-width="2.2" fill="none" stroke-linecap="round" />
+                      <text x="178" y="302" font-size="9" fill="#8A847C" font-family="JetBrains Mono, monospace">F0 PITCH TRACK · 75–400 Hz</text>
+
+                      <!-- 底部采录控制栏 -->
+                      <rect x="168" y="324" width="302" height="58" rx="3" fill="#FAF9F6" stroke="#E4E1DA" />
+                      <rect x="182" y="339" width="76" height="28" rx="3" fill="#FFFFFF" stroke="#E4E1DA" />
+                      <text x="220" y="357" text-anchor="middle" font-size="10" fill="#18181B">试听第 2 遍</text>
+                      <rect x="270" y="336" width="98" height="34" rx="4" fill="#00899B" />
+                      <circle cx="290" cy="353" r="4" fill="#FFFFFF" />
+                      <text x="328" y="357" text-anchor="middle" font-size="10.5" font-weight="600" fill="#FFFFFF">录音 / 停止</text>
+                      <rect x="380" y="339" width="76" height="28" rx="3" fill="#FFFFFF" stroke="#E4E1DA" />
+                      <text x="418" y="357" text-anchor="middle" font-size="10" fill="#18181B">下一词 →</text>
+
+                      <!-- 右栏：四栏记音与多遍版本管理 -->
+                      <line x1="484" y1="34" x2="484" y2="400" stroke="#E4E1DA" />
+                      <text x="498" y="54" font-size="9" fill="#8A847C" font-family="JetBrains Mono, monospace">IPA &amp; TAKES</text>
+                      <rect x="498" y="64" width="128" height="28" rx="2" fill="#FAF9F6" stroke="#E4E1DA" />
+                      <text x="506" y="82" font-size="9.5" fill="#57534E">声母：ȵ  韵母：iʔ</text>
+                      <rect x="498" y="98" width="128" height="28" rx="2" fill="#FAF9F6" stroke="#E4E1DA" />
+                      <text x="506" y="116" font-size="9.5" fill="#57534E">调值：55 / 21</text>
+                      <rect x="498" y="132" width="128" height="28" rx="2" fill="#FFFFFF" stroke="#00899B" />
+                      <text x="506" y="150" font-size="9.5" fill="#00899B">+ 派生文白异读词条</text>
+
+                      <text x="498" y="186" font-size="9" fill="#8A847C" font-family="JetBrains Mono, monospace">历史遍数择优</text>
+                      <rect x="498" y="196" width="128" height="26" rx="2" fill="#FFFFFF" stroke="#E4E1DA" />
+                      <text x="506" y="213" font-size="9.5" fill="#57534E">第 1 遍 (1.42s)</text>
+                      <rect x="498" y="228" width="128" height="26" rx="2" fill="#EBF5F6" stroke="#00899B" />
+                      <text x="506" y="245" font-size="9.5" fill="#00899B" font-weight="600">第 2 遍 · 已采用</text>
+
+                      <text x="498" y="386" font-size="8.5" fill="#8A847C" font-family="JetBrains Mono, monospace">images/hero-desktop-studio.png</text>
+                    </svg>
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
         </div>
       </div>
+
+      <!-- 首屏底部细网格标尺 -->
+      <div class="hero-bottom-ruler" aria-hidden="true">
+        <div class="hero-ruler-marks">
+          <span>00:00.000</span>
+          <span>|····|····|····|····|</span>
+          <span>SAMPLE RATE: 44.1 / 48 kHz</span>
+          <span>|····|····|····|····|</span>
+          <span>WAV · TEXTGRID · XLSX · TEPROJ</span>
+        </div>
+        <span>LOCAL-FIRST FIELDWORK ARCHIVE</span>
+      </div>
     </section>
 
-    <!-- 章节 3：离线局域网双机无线联动 -->
-    <section class="section" id="wireless-sync">
+    <!-- ========================================================================
+         02 痛点共鸣栏（三栏等分纯色网格卡片）
+         ======================================================================== -->
+    <section id="sec-02" class="section-wrap" data-index="02 / 06">
       <div class="container">
-        <div class="section-header">
-          <div class="section-title-wrap">
-            <span class="section-kicker">Offline LAN Dual-Device Sync · 双机无线联动</span>
-            <h2>零互联网田野现场：一台平板给长辈看字，一台手机在手边静默遥控</h2>
-            <p class="section-desc">
-              两台设备只需连入同一手机热点或路由器，输入六位配对码即可直连。支持远程切词、<strong>随机打乱顺序（防顺序效应）</strong>、护眼宣纸/墨水屏/黑板切换、中场茶歇屏以及无线实时耳返监听。
-            </p>
+        <div class="section-head-inline">
+          <div>
+            <div class="eyebrow">
+              <span class="section-index">02</span>
+              <span>FIELDWORK PAIN POINTS</span>
+            </div>
+            <h2 class="section-title" style="margin-bottom: 0;">为什么我们需要专门的字表采录工具</h2>
           </div>
+          <span class="mono" style="font-size: 12px; color: var(--ink-muted);">GRID SPECIMEN · 03 ITEMS</span>
         </div>
 
-        <div class="sandbox-shell">
-          <div class="sandbox-toolbar">
-            <div class="toolbar-group">
-              <span class="toolbar-label">点击左侧「调查人遥控端」按钮，实时驱动右侧「发音人看读平板」：</span>
+        <div class="pain-grid">
+          <!-- 卡片一 -->
+          <article class="pain-card">
+            <div class="pain-card-top">
+              <div class="pain-icon-box" aria-hidden="true">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                  <polyline points="14 2 14 8 20 8" />
+                  <line x1="9" y1="15" x2="15" y2="15" />
+                </svg>
+              </div>
+              <span class="pain-num">01 / AUTO-ARCHIVE</span>
             </div>
-            <div class="toolbar-group">
-              <span class="badge badge-teal" id="lan-status-pill">配对码 842-916 · 局域网直连 1.8 ms</span>
+            <h3 class="pain-title">告别事后逐条剪音频、改文件名</h3>
+            <p class="pain-desc">
+              用普通录音笔一录半小时，回去还要对着字表一段段切分、重命名。在 PhonAcq 中按词条逐个录制，录完那一刻，每一条音频就已经按「发音人 + 序号 + 字词」自动归好档。
+            </p>
+          </article>
+
+          <!-- 卡片二 -->
+          <article class="pain-card">
+            <div class="pain-card-top">
+              <div class="pain-icon-box" aria-hidden="true">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
+                  <circle cx="9" cy="7" r="4" />
+                  <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
+                  <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+                </svg>
+              </div>
+              <span class="pain-num">02 / MULTI-SPEAKER</span>
             </div>
-          </div>
+            <h3 class="pain-title">多位发音人共用一套字表，互不干扰</h3>
+            <p class="pain-desc">
+              调查同一个方言点往往需要对比老男、老女、青年等多位发音人。同一份字表下可随时切换不同发音人独立录音与记音，进度分开统计，文件绝不混杂。
+            </p>
+          </article>
 
-          <div class="svg-stage">
-            <svg id="lan-svg" viewBox="0 0 1140 490" role="img" aria-label="双机局域网无线联动交互沙盘">
-              <rect width="1140" height="490" fill="#F1F5F9"/>
-
-              <!-- 左侧：调查人手机遥控端 -->
-              <g transform="translate(34, 24)">
-                <rect x="0" y="0" width="356" height="442" rx="26" fill="#0F172A"/>
-                <rect x="10" y="10" width="336" height="422" rx="18" fill="#FFFFFF"/>
-
-                <!-- 遥控端顶栏 -->
-                <rect x="10" y="10" width="336" height="44" rx="18" fill="#F8FAFC"/>
-                <line x1="10" y1="54" x2="346" y2="54" stroke="#E2E8F0"/>
-                <circle cx="30" cy="32" r="5" fill="#0F766E"/>
-                <text x="44" y="36" font-size="12.5" font-weight="800" fill="#0F172A">调查人遥控端 · 实时耳返已开</text>
-                <text id="lan-order-badge" x="330" y="36" text-anchor="end" font-size="11" font-weight="700" fill="#1D4ED8">顺序模式</text>
-
-                <!-- 遥控端当前词条与内部提示 -->
-                <rect x="26" y="68" width="304" height="92" rx="12" fill="#F8FAFC" stroke="#CBD5E1"/>
-                <text id="lan-remote-idx" x="40" y="90" font-size="11" font-weight="700" fill="#64748B">当前推送词条 (1 / 6)</text>
-                <text id="lan-remote-char" x="40" y="126" font-size="28" font-weight="800" fill="#0F172A">衣</text>
-                <text id="lan-remote-note" x="92" y="118" font-size="12" font-weight="700" fill="#1E3A8A">目标音系：阴平 44 · [i⁴⁴]</text>
-                <text id="lan-remote-cue" x="92" y="138" font-size="11" font-weight="600" fill="#64748B">提示：仅调查人可见，不推送至平板</text>
-
-                <!-- 切词与随机打乱按钮行 -->
-                <g id="lan-btn-prev" class="svg-clickable" transform="translate(26, 174)">
-                  <rect x="0" y="0" width="94" height="40" rx="10" fill="#F1F5F9" stroke="#CBD5E1"/>
-                  <text x="47" y="25" text-anchor="middle" font-size="12" font-weight="800" fill="#334155">◀ 上一词</text>
-                </g>
-                <g id="lan-btn-next" class="svg-clickable" transform="translate(128, 174)">
-                  <rect x="0" y="0" width="94" height="40" rx="10" fill="#DBEAFE" stroke="#93C5FD"/>
-                  <text x="47" y="25" text-anchor="middle" font-size="12" font-weight="800" fill="#1E3A8A">下一词 ▶</text>
-                </g>
-                <g id="lan-btn-shuffle" class="svg-clickable" transform="translate(230, 174)">
-                  <rect id="lan-shuffle-bg" x="0" y="0" width="100" height="40" rx="10" fill="#F1F5F9" stroke="#CBD5E1"/>
-                  <text id="lan-shuffle-txt" x="50" y="25" text-anchor="middle" font-size="12" font-weight="800" fill="#334155">⇄ 随机排序</text>
-                </g>
-
-                <!-- 看读端视觉底色预设 -->
-                <text x="26" y="238" font-size="11" font-weight="800" fill="#475569">远程切换看读平板护眼主题：</text>
-                <g id="lan-theme-xuan" class="svg-clickable" transform="translate(26, 248)">
-                  <rect id="lan-theme-xuan-bg" x="0" y="0" width="96" height="36" rx="9" fill="#FAF6EE" stroke="#1D4ED8" stroke-width="2"/>
-                  <text x="48" y="22.5" text-anchor="middle" font-size="11.5" font-weight="800" fill="#27241D">温和宣纸</text>
-                </g>
-                <g id="lan-theme-eink" class="svg-clickable" transform="translate(130, 248)">
-                  <rect id="lan-theme-eink-bg" x="0" y="0" width="96" height="36" rx="9" fill="#F4F4F2" stroke="#CBD5E1" stroke-width="1.2"/>
-                  <text x="48" y="22.5" text-anchor="middle" font-size="11.5" font-weight="800" fill="#18181B">电子墨水</text>
-                </g>
-                <g id="lan-theme-dark" class="svg-clickable" transform="translate(234, 248)">
-                  <rect id="lan-theme-dark-bg" x="0" y="0" width="96" height="36" rx="9" fill="#14181F" stroke="#334155" stroke-width="1.2"/>
-                  <text x="48" y="22.5" text-anchor="middle" font-size="11.5" font-weight="800" fill="#FDE047">高对比黑板</text>
-                </g>
-
-                <!-- 中场茶歇与远程录音开关 -->
-                <g id="lan-btn-rest" class="svg-clickable" transform="translate(26, 302)">
-                  <rect id="lan-rest-bg" x="0" y="0" width="304" height="40" rx="10" fill="#F8FAFC" stroke="#CBD5E1"/>
-                  <text id="lan-rest-txt" x="152" y="25" text-anchor="middle" font-size="12" font-weight="800" fill="#334155">切换「中场休息」护眼提示屏</text>
-                </g>
-
-                <g id="lan-btn-rec" class="svg-clickable" transform="translate(26, 356)">
-                  <rect id="lan-rec-bg" x="0" y="0" width="304" height="54" rx="27" fill="#DC2626"/>
-                  <circle cx="96" cy="27" r="6.5" fill="#FFFFFF"/>
-                  <text id="lan-rec-txt" x="166" y="32" text-anchor="middle" font-size="14" font-weight="800" fill="#FFFFFF">远程启动看读端录音</text>
-                </g>
-              </g>
-
-              <!-- 中间：离线局域网双向同步波束 -->
-              <g transform="translate(398, 190)">
-                <line x1="8" y1="42" x2="132" y2="42" stroke="#CBD5E1" stroke-width="2"/>
-                <line id="lan-wave-line" class="lan-flow-line" x1="8" y1="42" x2="132" y2="42" stroke="#0F766E" stroke-width="3.5" stroke-dasharray="10 8"/>
-                <rect x="14" y="8" width="112" height="24" rx="12" fill="#FFFFFF" stroke="#CBD5E1"/>
-                <text x="70" y="24" text-anchor="middle" font-size="10.5" font-weight="800" fill="#0F766E">Wi-Fi / 热点直连</text>
-                <text id="lan-sync-caption" x="70" y="68" text-anchor="middle" font-size="10.5" font-weight="700" fill="#64748B">字卡推送 + PCM耳返</text>
-              </g>
-
-              <!-- 右侧：发音人看读端平板 -->
-              <g transform="translate(546, 36)">
-                <rect id="lan-tablet-bezel" x="0" y="0" width="560" height="418" rx="26" fill="#1E293B"/>
-                <rect id="lan-tablet-screen" x="14" y="14" width="532" height="390" rx="16" fill="#FAF6EE" stroke="#E2DDD2" stroke-width="2"/>
-
-                <!-- 看读端录音红框状态灯 -->
-                <rect id="lan-tablet-rec-ring" x="16" y="16" width="528" height="386" rx="15" fill="none" stroke="#DC2626" stroke-width="4" opacity="0"/>
-
-                <!-- 看读端顶栏 -->
-                <text id="lan-tablet-header" x="40" y="46" font-size="13" font-weight="700" fill="#57534E">发音人看读端 · 沈阿婆 (SPK01)</text>
-                <g id="lan-tablet-rec-pill" opacity="0" transform="translate(412, 27)">
-                  <rect x="0" y="0" width="110" height="26" rx="13" fill="#FEE2E2" stroke="#FCA5A5"/>
-                  <circle cx="18" cy="13" r="5" fill="#DC2626"/>
-                  <text x="62" y="17.5" text-anchor="middle" font-size="11" font-weight="800" fill="#991B1B">正在收音…</text>
-                </g>
-
-                <!-- 正常看读大字区 -->
-                <g id="lan-tablet-prompt-group">
-                  <text id="lan-tablet-char" x="280" y="236" text-anchor="middle" font-size="126" font-weight="800" fill="#27241D">衣</text>
-                  <text id="lan-tablet-sub" x="280" y="314" text-anchor="middle" font-size="20" font-weight="600" fill="#57534E">请自然读出上方字词</text>
-                  <text id="lan-tablet-progress" x="280" y="374" text-anchor="middle" font-size="13" font-weight="700" fill="#78716C">第 1 / 6 项 · 已锁定防误触翻页</text>
-                </g>
-
-                <!-- 中场茶歇视图 -->
-                <g id="lan-tablet-rest-group" display="none">
-                  <circle cx="280" cy="168" r="42" fill="#0F766E" opacity="0.14"/>
-                  <path d="M 260 162 L 296 162 L 292 186 Q 278 194 264 186 Z" fill="none" stroke="#0F766E" stroke-width="3.5" stroke-linejoin="round"/>
-                  <path d="M 296 166 Q 308 166 308 175 Q 308 183 294 183" fill="none" stroke="#0F766E" stroke-width="3.2"/>
-                  <path d="M 271 152 Q 274 144 271 138 M 283 152 Q 286 144 283 138" fill="none" stroke="#0F766E" stroke-width="2.5" stroke-linecap="round"/>
-                  <text id="lan-rest-title" x="280" y="252" text-anchor="middle" font-size="34" font-weight="800" fill="#27241D">中场休息片刻</text>
-                  <text id="lan-rest-sub" x="280" y="294" text-anchor="middle" font-size="17" font-weight="600" fill="#57534E">辛苦啦，请喝口温水润润嗓子，稍后继续</text>
-                </g>
-              </g>
-            </svg>
-          </div>
+          <!-- 卡片三 -->
+          <article class="pain-card">
+            <div class="pain-card-top">
+              <div class="pain-icon-box" aria-hidden="true">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+                  <polyline points="22 12 18 12 15 21 9 3 6 12 2 12" />
+                </svg>
+              </div>
+              <span class="pain-num">03 / LIVE QC MONITOR</span>
+            </div>
+            <h3 class="pain-title">现场就能发现漏录、杂音与截断</h3>
+            <p class="pain-desc">
+              等回到学校打开电脑才发现某几个字没录上、声音太轻或开头被吞掉，往往难以补救。软件在录音同时监测环境底噪与音量，当场给出温和提示，支持随时重录多遍择优保留。
+            </p>
+          </article>
         </div>
       </div>
     </section>
 
-    <!-- 章节 4：全表声调轮廓聚类与元音分布格局 -->
-    <section class="section" id="macro-acoustics">
+    <!-- ========================================================================
+         03 双模式拉帘对比区
+         ======================================================================== -->
+    <section id="sec-03" class="section-wrap bg-subtle" data-index="03 / 06">
       <div class="container">
-        <div class="section-header">
-          <div class="section-title-wrap">
-            <span class="section-kicker">Corpus-Level Acoustic Overview · 全表声学格局</span>
-            <h2>录完即看全表声调五度聚类与 F1–F2 元音椭圆分布</h2>
-            <p class="section-desc">
-              无需等到回实验室跑脚本，在田野驻地即可核查各调类是否存在混同或记音归类偏差；支持 Bark 听觉标度、Hz 线性标度及跨性别发音人 <strong>Lobanov 声道归一化</strong> 叠加对比。
-            </p>
-          </div>
-        </div>
+        <div class="mode-compare-grid">
+          <!-- 左侧：交互式手机双模式拉帘对比画框 -->
+          <div class="phone-compare-wrap">
+            <div class="phone-frame">
+              <div
+                class="phone-screen"
+                id="mode-compare-screen"
+                role="slider"
+                tabindex="0"
+                aria-label="左右拖动对比简洁模式与进阶模式"
+                aria-valuemin="5"
+                aria-valuemax="95"
+                aria-valuenow="50"
+              >
+                <span class="compare-badge left">简洁模式</span>
+                <span class="compare-badge right">进阶模式</span>
 
-        <div class="sandbox-shell">
-          <div class="sandbox-toolbar">
-            <div class="toolbar-group">
-              <span class="toolbar-label">分析视图：</span>
-              <div class="seg-group">
-                <button type="button" class="seg-btn active" id="btn-chart-tone">全表声调调域图（6调类五度归一化）</button>
-                <button type="button" class="seg-btn" id="btn-chart-vowel">全表元音椭圆图（F1–F2 格局）</button>
+                <!-- 上层（左侧裁切显示）：图2 mode-simple.png -->
+                <div class="compare-layer layer-simple">
+                  <div class="media-slot">
+                    <img
+                      src="images/mode-simple.png"
+                      alt="手机端简洁模式录音界面"
+                      class="slot-img"
+                      onload="this.parentElement.classList.add('has-image')"
+                      onerror="this.parentElement.classList.add('no-image')"
+                    />
+                    <div class="slot-schematic">
+                      <svg viewBox="0 0 300 610" width="100%" height="100%" fill="none" font-family="Noto Sans SC, sans-serif">
+                        <rect width="300" height="610" fill="#FAF9F6" />
+                        <rect x="0" y="0" width="300" height="44" fill="#FFFFFF" />
+                        <line x1="0" y1="44" x2="300" y2="44" stroke="#E4E1DA" />
+                        <text x="150" y="28" text-anchor="middle" font-size="11" fill="#57534E" font-family="JetBrains Mono, monospace">042 / 120 · 老男_张伯</text>
+
+                        <!-- 同位置对齐的大字卡片 -->
+                        <rect x="20" y="64" width="260" height="220" rx="6" fill="#FFFFFF" stroke="#E4E1DA" />
+                        <text x="150" y="102" text-anchor="middle" font-size="12" fill="#8A847C">词条 042 · 天文</text>
+                        <text x="150" y="176" text-anchor="middle" font-size="52" font-weight="700" fill="#18181B" font-family="Noto Serif SC, serif">日头</text>
+                        <text x="150" y="216" text-anchor="middle" font-size="13" fill="#57534E">释义：太阳（日常说法）</text>
+                        <rect x="92" y="238" width="116" height="24" rx="12" fill="#FAF9F6" stroke="#E4E1DA" />
+                        <circle cx="108" cy="250" r="3.5" fill="#00899B" />
+                        <text x="156" y="254" text-anchor="middle" font-size="10.5" fill="#57534E">环境安静 · 可录音</text>
+
+                        <!-- 清爽留白提示 -->
+                        <text x="150" y="346" text-anchor="middle" font-size="11.5" fill="#8A847C">读完停顿自动翻页已开启</text>
+
+                        <!-- 简洁底部大按钮区 -->
+                        <rect x="20" y="400" width="260" height="44" rx="6" fill="#FFFFFF" stroke="#E4E1DA" />
+                        <text x="150" y="427" text-anchor="middle" font-size="13" fill="#18181B">试听回放 (1.4s)</text>
+
+                        <circle cx="150" cy="512" r="42" fill="#00899B" />
+                        <circle cx="150" cy="512" r="14" fill="#FFFFFF" />
+                        <text x="150" y="576" text-anchor="middle" font-size="11" fill="#57534E">点按录音</text>
+                        <text x="16" y="600" font-size="8.5" fill="#8A847C" font-family="JetBrains Mono, monospace">mode-simple.png</text>
+                      </svg>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- 底层（右侧显示）：图3 mode-advanced.png -->
+                <div class="compare-layer layer-advanced">
+                  <div class="media-slot">
+                    <img
+                      src="images/mode-advanced.png"
+                      alt="手机端进阶模式录音与语图界面"
+                      class="slot-img"
+                      onload="this.parentElement.classList.add('has-image')"
+                      onerror="this.parentElement.classList.add('no-image')"
+                    />
+                    <div class="slot-schematic">
+                      <svg viewBox="0 0 300 610" width="100%" height="100%" fill="none" font-family="Noto Sans SC, sans-serif">
+                        <rect width="300" height="610" fill="#FAF9F6" />
+                        <rect x="0" y="0" width="300" height="44" fill="#FFFFFF" />
+                        <line x1="0" y1="44" x2="300" y2="44" stroke="#E4E1DA" />
+                        <text x="150" y="28" text-anchor="middle" font-size="11" fill="#00899B" font-family="JetBrains Mono, monospace">042 / 120 · 老男_张伯 [ADV]</text>
+
+                        <!-- 同位置对齐的词卡（紧凑含文白派生） -->
+                        <rect x="20" y="64" width="260" height="156" rx="6" fill="#FFFFFF" stroke="#E4E1DA" />
+                        <text x="34" y="88" font-size="10" fill="#00899B" font-family="JetBrains Mono, monospace">#042 白读</text>
+                        <rect x="194" y="74" width="74" height="20" rx="3" fill="#EBF5F6" stroke="#00899B" />
+                        <text x="231" y="88" text-anchor="middle" font-size="9.5" fill="#00899B">+ 文白异读</text>
+                        <text x="150" y="152" text-anchor="middle" font-size="44" font-weight="700" fill="#18181B" font-family="Noto Serif SC, serif">日头</text>
+                        <text x="150" y="192" text-anchor="middle" font-size="12" fill="#00899B" font-family="JetBrains Mono, monospace">[ ȵiʔ⁵ dɤ²¹ ]</text>
+
+                        <!-- 实时语图 + 单字五度声调走势参考 -->
+                        <rect x="20" y="230" width="260" height="122" rx="6" fill="#FFFFFF" stroke="#E4E1DA" />
+                        <text x="30" y="247" font-size="9" fill="#8A847C" font-family="JetBrains Mono, monospace">SPECTROGRAM + F0 (1-5 SCALE)</text>
+                        <line x1="28" y1="262" x2="270" y2="262" stroke="#F2EFE9" />
+                        <line x1="28" y1="286" x2="270" y2="286" stroke="#F2EFE9" />
+                        <line x1="28" y1="310" x2="270" y2="310" stroke="#F2EFE9" />
+                        <line x1="28" y1="334" x2="270" y2="334" stroke="#F2EFE9" />
+                        <!-- 语图谐波条纹 -->
+                        <g stroke="#CEC9BE" stroke-width="2">
+                          <line x1="48" y1="296" x2="120" y2="292" /><line x1="48" y1="312" x2="122" y2="310" />
+                          <line x1="150" y1="288" x2="238" y2="300" /><line x1="150" y1="316" x2="240" y2="324" />
+                        </g>
+                        <!-- 琥珀色声调曲线 -->
+                        <path d="M 52 268 Q 86 262, 118 272" stroke="#D97706" stroke-width="2.4" fill="none" stroke-linecap="round" />
+                        <path d="M 152 296 C 182 308, 210 324, 238 332" stroke="#D97706" stroke-width="2.4" fill="none" stroke-linecap="round" />
+
+                        <!-- 四栏国际音标快捷输入 -->
+                        <g font-family="JetBrains Mono, monospace" font-size="10.5">
+                          <rect x="20" y="362" width="60" height="34" rx="4" fill="#FFFFFF" stroke="#00899B" />
+                          <text x="50" y="383" text-anchor="middle" fill="#18181B">声 ȵ</text>
+                          <rect x="86" y="362" width="60" height="34" rx="4" fill="#FFFFFF" stroke="#E4E1DA" />
+                          <text x="116" y="383" text-anchor="middle" fill="#18181B">韵 iʔ</text>
+                          <rect x="152" y="362" width="60" height="34" rx="4" fill="#FFFFFF" stroke="#E4E1DA" />
+                          <text x="182" y="383" text-anchor="middle" fill="#18181B">调 55</text>
+                          <rect x="218" y="362" width="62" height="34" rx="4" fill="#FFFFFF" stroke="#E4E1DA" />
+                          <text x="249" y="383" text-anchor="middle" fill="#57534E">注 白</text>
+                        </g>
+
+                        <!-- 多遍择优条 -->
+                        <rect x="20" y="406" width="124" height="32" rx="4" fill="#FFFFFF" stroke="#E4E1DA" />
+                        <text x="82" y="426" text-anchor="middle" font-size="10.5" fill="#57534E">遍 1 (1.3s)</text>
+                        <rect x="154" y="406" width="126" height="32" rx="4" fill="#EBF5F6" stroke="#00899B" />
+                        <text x="217" y="426" text-anchor="middle" font-size="10.5" fill="#00899B" font-weight="600">遍 2 · 采用</text>
+
+                        <!-- 录音控制圆钮 -->
+                        <circle cx="150" cy="512" r="42" fill="#00899B" />
+                        <circle cx="150" cy="512" r="14" fill="#FFFFFF" />
+                        <text x="186" y="600" font-size="8.5" fill="#8A847C" font-family="JetBrains Mono, monospace">mode-advanced.png</text>
+                      </svg>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- 竖向拉帘分割线与左右箭头手柄 -->
+                <div class="compare-divider" id="compare-divider">
+                  <div class="compare-handle" aria-hidden="true">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                      <polyline points="8 8 4 12 8 16" />
+                      <polyline points="16 8 20 12 16 16" />
+                    </svg>
+                  </div>
+                </div>
               </div>
             </div>
 
-            <div class="toolbar-group" id="tone-filter-toolbar">
-              <span class="toolbar-label">点击高亮调类：</span>
-              <button type="button" class="chip-toggle active" data-tone="all">全部显示</button>
-              <button type="button" class="chip-toggle" data-tone="yinping">阴平 44</button>
-              <button type="button" class="chip-toggle" data-tone="yangping">阳平 24</button>
-              <button type="button" class="chip-toggle" data-tone="shang">上声 51</button>
-              <button type="button" class="chip-toggle" data-tone="yinqu">阴去 412</button>
-              <button type="button" class="chip-toggle" data-tone="yinru">阴入 5 (短促)</button>
-            </div>
-
-            <div class="toolbar-group" id="vowel-filter-toolbar" style="display: none;">
-              <button type="button" class="chip-toggle active" id="btn-vowel-bark">Bark 感知标度</button>
-              <button type="button" class="chip-toggle" id="btn-vowel-lobanov">叠加周老伯 (Lobanov 归一化对比)</button>
+            <div class="compare-caption-bar">
+              <span>← 拖动分割线实时比对繁简细节 →</span>
+              <span id="compare-pct-readout">50 : 50</span>
             </div>
           </div>
 
-          <div class="svg-stage">
-            <svg id="acoustic-svg" viewBox="0 0 1140 470" role="img" aria-label="全表声调轮廓与元音分布格局互动图">
-              <rect width="1140" height="470" fill="#FFFFFF"/>
-              <!-- 由 portal.js 实时渲染高精度声调调域曲线或 F1-F2 元音椭圆坐标系 -->
-              <g id="acoustic-svg-content"></g>
-            </svg>
+          <!-- 右侧：双模式说明文案 -->
+          <div>
+            <div class="eyebrow">
+              <span class="section-index">03</span>
+              <span>一套软件，两种面貌</span>
+            </div>
+            <h2 class="section-title">初次上手不眼花，深入研究够顺手。</h2>
+            <p class="section-lead">
+              无论是第一次完成方言调查课程作业的本科同学，还是需要现场观察声学表现的研究者，都能找到舒适的界面节奏。两种模式可随时在设置中一键切换，已录音频与记音内容完全互通。
+            </p>
+
+            <div class="mode-cards-stack">
+              <button type="button" class="mode-detail-card" data-split-target="82">
+                <div class="mode-detail-head">
+                  <h3 class="mode-detail-title">简洁模式</h3>
+                  <span class="mode-detail-tag">点按展开预览</span>
+                </div>
+                <p class="mode-detail-body">
+                  隐去复杂的图表与参数，只保留清晰的字词卡片、录音键（支持点按录、读完停顿自动翻页、按住录）与试听回放；导出时直接生成中文命名的文件夹与双页签 Excel 汇总表。
+                </p>
+              </button>
+
+              <button type="button" class="mode-detail-card" data-split-target="18">
+                <div class="mode-detail-head">
+                  <h3 class="mode-detail-title">进阶模式</h3>
+                  <span class="mode-detail-tag">点按展开预览</span>
+                </div>
+                <p class="mode-detail-body">
+                  开放实时语图、单字声调走势参考、全表声调与元音格局速览、四栏国际音标快捷输入，以及在同一词条下现场派生「文白异读」词条等进阶能力。
+                </p>
+              </button>
+            </div>
           </div>
         </div>
       </div>
     </section>
 
-    <!-- 章节 5：规范化导出结构与同作者工具链 -->
-    <section class="section" id="export-ecosystem">
+    <!-- ========================================================================
+         04 田野现场四大核心场景（固定画框 + 滚动几何裁切翻页）
+         ======================================================================== -->
+    <section id="sec-04" class="section-wrap" data-index="04 / 06">
       <div class="container">
-        <div class="section-header">
-          <div class="section-title-wrap">
-            <span class="section-kicker">Standardized Archiving &amp; Toolchain · 规范导出与下游衔接</span>
-            <h2>告别手工改名与切音：一键生成 Excel 汇总表、TextGrid 与 PhonTracer 工程包</h2>
-            <p class="section-desc">
-              点击下方导出格式与目录树中的任意文件，实时预览 PhonAcq 生成的原生冻结表头工作簿、Praat 四层对齐标注与 <code>.teproj</code> 边界元数据。
-            </p>
-          </div>
+        <div class="eyebrow">
+          <span class="section-index">04</span>
+          <span>FIELDWORK SCENARIOS</span>
         </div>
+        <h2 class="section-title">贴合真实田野现场的四个工作细节</h2>
+        <p class="section-lead">
+          在乡村堂屋、社区活动室或语音学课堂里，现场条件往往并不理想。PhonAcq 围绕调查人与发音人面对面的真实互动设计每一处细节。
+        </p>
 
-        <div class="sandbox-shell">
-          <div class="sandbox-toolbar">
-            <div class="toolbar-group">
-              <span class="toolbar-label">导出包类型：</span>
-              <div class="seg-group" id="export-pkg-tabs">
-                <button type="button" class="seg-btn active" data-pkg="adv">进阶模式标准包 (.zip)</button>
-                <button type="button" class="seg-btn" data-pkg="simple">简洁模式中文包 (.zip)</button>
-                <button type="button" class="seg-btn" data-pkg="teproj">PhonTracer 工程包 (.teproj)</button>
-                <button type="button" class="seg-btn" data-pkg="collection">Praat 集合 (.Collection)</button>
+        <div class="workflow-layout">
+          <!-- 左侧固定停留画框 -->
+          <div class="workflow-sticky-col">
+            <div class="workflow-stage-box">
+              <div class="workflow-stage-bar">
+                <div class="stage-tabs" role="tablist" aria-label="田野场景切换">
+                  <button type="button" class="stage-tab-btn is-active" data-step-jump="0">01 看图引导</button>
+                  <button type="button" class="stage-tab-btn" data-step-jump="1">02 双机联动</button>
+                  <button type="button" class="stage-tab-btn" data-step-jump="2">03 多遍与异读</button>
+                  <button type="button" class="stage-tab-btn" data-step-jump="3">04 声调元音图</button>
+                </div>
+                <span class="stage-label-mono" id="wf-stage-code">SCENE 01 / 04</span>
+              </div>
+
+              <div class="workflow-viewport">
+                <!-- 场景 1 画幅：feature-picture-card.png -->
+                <div class="workflow-slide is-active" data-slide="0">
+                  <div class="media-slot">
+                    <img
+                      src="images/feature-picture-card.png"
+                      alt="看图发音上图下字引导界面"
+                      class="slot-img"
+                      onload="this.parentElement.classList.add('has-image')"
+                      onerror="this.parentElement.classList.add('no-image')"
+                    />
+                    <div class="slot-schematic">
+                      <svg viewBox="0 0 560 385" width="100%" height="100%" fill="none" font-family="Noto Sans SC, sans-serif">
+                        <rect width="560" height="385" fill="#FAF9F6" />
+                        <rect x="24" y="20" width="512" height="345" rx="6" fill="#FFFFFF" stroke="#E4E1DA" />
+                        <text x="44" y="46" font-size="10.5" fill="#8A847C" font-family="JetBrains Mono, monospace">纯净看读视图 · 上图下字引导（支持双指缩放图片 / 一键隐去汉字）</text>
+                        <rect x="424" y="31" width="92" height="22" rx="3" fill="#EBF5F6" stroke="#00899B" />
+                        <text x="470" y="46" text-anchor="middle" font-size="10" fill="#00899B">隐去字面提示</text>
+
+                        <!-- 器物/自然插图框：向日葵/日头与农具纯线条写生 -->
+                        <rect x="64" y="64" width="432" height="196" rx="4" fill="#FAF9F6" stroke="#E4E1DA" />
+                        <circle cx="280" cy="144" r="36" stroke="#D97706" stroke-width="2" fill="#FCF3E6" />
+                        <line x1="280" y1="94" x2="280" y2="80" stroke="#D97706" stroke-width="1.8" stroke-linecap="round" />
+                        <line x1="280" y1="194" x2="280" y2="208" stroke="#D97706" stroke-width="1.8" stroke-linecap="round" />
+                        <line x1="230" y1="144" x2="216" y2="144" stroke="#D97706" stroke-width="1.8" stroke-linecap="round" />
+                        <line x1="330" y1="144" x2="344" y2="144" stroke="#D97706" stroke-width="1.8" stroke-linecap="round" />
+                        <line x1="244" y1="108" x2="234" y2="98" stroke="#D97706" stroke-width="1.8" stroke-linecap="round" />
+                        <line x1="316" y1="108" x2="326" y2="98" stroke="#D97706" stroke-width="1.8" stroke-linecap="round" />
+                        <path d="M 110 232 Q 200 198, 280 226 T 450 220" stroke="#00899B" stroke-width="1.6" fill="none" />
+
+                        <text x="280" y="312" text-anchor="middle" font-size="36" font-weight="700" fill="#18181B" font-family="Noto Serif SC, serif">向日葵 / 朝太阳</text>
+                        <text x="280" y="342" text-anchor="middle" font-size="12" fill="#57534E">请问当地日常口语管这种植物叫什么？</text>
+                        <text x="38" y="378" font-size="9" fill="#8A847C" font-family="JetBrains Mono, monospace">images/feature-picture-card.png</text>
+                      </svg>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- 场景 2 画幅：feature-wireless-pair.png -->
+                <div class="workflow-slide" data-slide="1">
+                  <div class="media-slot">
+                    <img
+                      src="images/feature-wireless-pair.png"
+                      alt="双机无线联动遥控与看读端界面"
+                      class="slot-img"
+                      onload="this.parentElement.classList.add('has-image')"
+                      onerror="this.parentElement.classList.add('no-image')"
+                    />
+                    <div class="slot-schematic">
+                      <svg viewBox="0 0 560 385" width="100%" height="100%" fill="none" font-family="Noto Sans SC, sans-serif">
+                        <rect width="560" height="385" fill="#FAF9F6" />
+                        <text x="280" y="34" text-anchor="middle" font-size="11" fill="#00899B" font-family="JetBrains Mono, monospace">LAN DIRECT PAIRING · 手机热点局域网六位码配对 [ 842 - 916 ]</text>
+
+                        <!-- 左：调查人遥控手机 -->
+                        <rect x="42" y="56" width="186" height="292" rx="12" fill="#FFFFFF" stroke="#18181B" stroke-width="1.2" />
+                        <text x="135" y="82" text-anchor="middle" font-size="10" fill="#57534E" font-family="JetBrains Mono, monospace">调查人遥控端 · 实时监听</text>
+                        <line x1="42" y1="94" x2="228" y2="94" stroke="#E4E1DA" />
+                        <rect x="58" y="110" width="154" height="72" rx="4" fill="#FAF9F6" stroke="#E4E1DA" />
+                        <text x="135" y="152" text-anchor="middle" font-size="24" font-weight="700" fill="#18181B" font-family="Noto Serif SC, serif" class="js-sync-svg-word">日头</text>
+                        <rect x="58" y="196" width="154" height="36" rx="4" fill="#FFFFFF" stroke="#E4E1DA" />
+                        <text x="68" y="218" font-size="10" fill="#00899B" font-family="JetBrains Mono, monospace" class="js-sync-svg-ipa">随手记音：[ȵiʔ⁵ dɤ²¹]</text>
+                        <rect x="58" y="246" width="72" height="32" rx="4" fill="#00899B" />
+                        <text x="94" y="266" text-anchor="middle" font-size="10.5" fill="#FFFFFF">远程录音</text>
+                        <rect x="140" y="246" width="72" height="32" rx="4" fill="#FAF9F6" stroke="#00899B" />
+                        <text x="176" y="266" text-anchor="middle" font-size="10.5" fill="#00899B">同步翻页</text>
+                        <text x="135" y="318" text-anchor="middle" font-size="9.5" fill="#8A847C">耳机监听已连接 · -49dB</text>
+
+                        <!-- 中间无线信号连线 -->
+                        <line x1="236" y1="202" x2="306" y2="202" stroke="#00899B" stroke-width="1.8" stroke-dasharray="4 4" />
+                        <circle cx="271" cy="202" r="5" fill="#D97706" />
+
+                        <!-- 右：长辈面前宣纸大字看读平板 -->
+                        <rect x="314" y="76" width="208" height="252" rx="10" fill="#FAF9F6" stroke="#CEC9BE" stroke-width="1.5" />
+                        <text x="418" y="104" text-anchor="middle" font-size="10" fill="#8A847C">发音人看读端 · 宣纸护眼大字牌</text>
+                        <rect x="332" y="120" width="172" height="176" rx="4" fill="#FAF9F6" stroke="#E4E1DA" />
+                        <text x="418" y="220" text-anchor="middle" font-size="48" font-weight="700" fill="#18181B" font-family="Noto Serif SC, serif" class="js-sync-svg-word">日头</text>
+                        <text x="418" y="262" text-anchor="middle" font-size="12" fill="#57534E" class="js-sync-svg-gloss">太阳（日常口语）</text>
+
+                        <text x="38" y="374" font-size="9" fill="#8A847C" font-family="JetBrains Mono, monospace">images/feature-wireless-pair.png</text>
+                      </svg>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- 场景 3 画幅：多遍录音对比择优 & 现场派生文白异读 -->
+                <div class="workflow-slide" data-slide="2">
+                  <div class="slot-schematic">
+                    <svg viewBox="0 0 560 385" width="100%" height="100%" fill="none" font-family="Noto Sans SC, sans-serif">
+                      <rect width="560" height="385" fill="#FAF9F6" />
+                      <rect x="28" y="24" width="504" height="336" rx="6" fill="#FFFFFF" stroke="#E4E1DA" />
+                      <text x="48" y="52" font-size="10.5" fill="#8A847C" font-family="JetBrains Mono, monospace">MULTI-TAKE ARCHIVE &amp; LITERARY/COLLOQUIAL DERIVATION</text>
+
+                      <!-- 左侧字条与派生文白两读 -->
+                      <rect x="48" y="70" width="218" height="122" rx="4" fill="#FAF9F6" stroke="#E4E1DA" />
+                      <text x="64" y="96" font-size="11" fill="#57534E">原词条 #042</text>
+                      <text x="64" y="132" font-size="26" font-weight="700" fill="#18181B" font-family="Noto Serif SC, serif">日头（白读）</text>
+                      <text x="64" y="160" font-size="12" fill="#00899B" font-family="JetBrains Mono, monospace">[ ȵiʔ⁵ dɤ²¹ ] · 口语常用</text>
+
+                      <rect x="48" y="206" width="218" height="126" rx="4" fill="#EBF5F6" stroke="#00899B" />
+                      <text x="64" y="232" font-size="11" fill="#00899B" font-weight="600">现场一键派生紧邻词条 #042-B</text>
+                      <text x="64" y="268" font-size="26" font-weight="700" fill="#18181B" font-family="Noto Serif SC, serif">日头（文读）</text>
+                      <text x="64" y="296" font-size="12" fill="#00899B" font-family="JetBrains Mono, monospace">[ zəʔ⁵ dɤ²¹ ] · 读书音留存</text>
+
+                      <!-- 右侧多遍录音历史择优 -->
+                      <rect x="286" y="70" width="224" height="262" rx="4" fill="#FAF9F6" stroke="#E4E1DA" />
+                      <text x="304" y="96" font-size="11.5" font-weight="600" fill="#18181B">同一词条历史录音遍数</text>
+
+                      <rect x="304" y="112" width="188" height="56" rx="4" fill="#FFFFFF" stroke="#E4E1DA" />
+                      <text x="318" y="135" font-size="11.5" fill="#57534E">第 1 遍 · 1.58s</text>
+                      <text x="318" y="154" font-size="10" fill="#8A847C">起音略迟疑，保留备查</text>
+
+                      <rect x="304" y="180" width="188" height="62" rx="4" fill="#FFFFFF" stroke="#00899B" stroke-width="1.6" />
+                      <circle cx="320" cy="203" r="4" fill="#D97706" />
+                      <text x="332" y="207" font-size="12" font-weight="600" fill="#00899B">第 2 遍 · 1.36s [正式采用]</text>
+                      <text x="318" y="228" font-size="10" fill="#57534E">发音自然清晰，信噪比高</text>
+
+                      <rect x="304" y="254" width="188" height="56" rx="4" fill="#FFFFFF" stroke="#E4E1DA" />
+                      <text x="318" y="277" font-size="11.5" fill="#57534E">第 3 遍 · 1.41s</text>
+                      <text x="318" y="296" font-size="10" fill="#8A847C">窗外偶发车声，未勾选导出</text>
+                    </svg>
+                  </div>
+                </div>
+
+                <!-- 场景 4 画幅：feature-macro-chart.png -->
+                <div class="workflow-slide" data-slide="3">
+                  <div class="media-slot">
+                    <img
+                      src="images/feature-macro-chart.png"
+                      alt="全表声调走势图与元音分布图界面"
+                      class="slot-img"
+                      onload="this.parentElement.classList.add('has-image')"
+                      onerror="this.parentElement.classList.add('no-image')"
+                    />
+                    <div class="slot-schematic">
+                      <svg viewBox="0 0 560 385" width="100%" height="100%" fill="none" font-family="Noto Sans SC, sans-serif">
+                        <rect width="560" height="385" fill="#FAF9F6" />
+                        <!-- 左半：全表声调分类轮廓叠合 -->
+                        <rect x="24" y="24" width="248" height="334" rx="5" fill="#FFFFFF" stroke="#E4E1DA" />
+                        <text x="38" y="48" font-size="11" font-weight="600" fill="#18181B">全表声调走势速览 (T-Value 1–5)</text>
+                        <g stroke="#F2EFE9" stroke-width="1">
+                          <line x1="42" y1="76" x2="248" y2="76" /><line x1="42" y1="128" x2="248" y2="128" />
+                          <line x1="42" y1="180" x2="248" y2="180" /><line x1="42" y1="232" x2="248" y2="232" />
+                          <line x1="42" y1="284" x2="248" y2="284" />
+                        </g>
+                        <!-- 阴平 55 -->
+                        <path d="M 52 80 Q 145 76, 238 82" stroke="#00899B" stroke-width="2.4" fill="none" />
+                        <text x="206" y="72" font-size="9.5" fill="#00899B" font-family="JetBrains Mono, monospace">阴平 55</text>
+                        <!-- 阳平 24 -->
+                        <path d="M 52 234 Q 145 186, 238 124" stroke="#D97706" stroke-width="2.4" fill="none" />
+                        <text x="206" y="118" font-size="9.5" fill="#D97706" font-family="JetBrains Mono, monospace">阳平 24</text>
+                        <!-- 上声 51 -->
+                        <path d="M 52 88 C 110 130, 178 232, 238 280" stroke="#18181B" stroke-width="2" stroke-dasharray="5 3" fill="none" />
+                        <text x="206" y="298" font-size="9.5" fill="#18181B" font-family="JetBrains Mono, monospace">上声 51</text>
+                        <text x="42" y="336" font-size="10" fill="#57534E">支持老男 / 青年发音人同屏叠合比对</text>
+
+                        <!-- 右半：元音舌位声学四边形 F1/F2 -->
+                        <rect x="288" y="24" width="248" height="334" rx="5" fill="#FFFFFF" stroke="#E4E1DA" />
+                        <text x="304" y="48" font-size="11" font-weight="600" fill="#18181B">元音格局分布图 (F2 / F1 Hz)</text>
+                        <!-- 声学元音梯形网格 -->
+                        <polygon points="322,86 504,86 476,288 378,288" fill="#FAF9F6" stroke="#CEC9BE" stroke-width="1.2" />
+                        <line x1="413" y1="86" x2="427" y2="288" stroke="#E4E1DA" />
+                        <line x1="340" y1="152" x2="495" y2="152" stroke="#E4E1DA" />
+                        <line x1="358" y1="220" x2="486" y2="220" stroke="#E4E1DA" />
+                        <!-- 元音散点 -->
+                        <circle cx="338" cy="100" r="5" fill="#00899B" /><text x="348" y="104" font-size="12" fill="#18181B" font-family="JetBrains Mono, monospace">i</text>
+                        <circle cx="488" cy="104" r="5" fill="#00899B" /><text x="470" y="108" font-size="12" fill="#18181B" font-family="JetBrains Mono, monospace">u</text>
+                        <circle cx="356" cy="166" r="5" fill="#D97706" /><text x="366" y="170" font-size="12" fill="#18181B" font-family="JetBrains Mono, monospace">e</text>
+                        <circle cx="474" cy="172" r="5" fill="#D97706" /><text x="456" y="176" font-size="12" fill="#18181B" font-family="JetBrains Mono, monospace">o</text>
+                        <circle cx="424" cy="272" r="5" fill="#00899B" /><text x="434" y="276" font-size="12" fill="#18181B" font-family="JetBrains Mono, monospace">a</text>
+                        <text x="304" y="336" font-size="10" fill="#57534E">一键导出矢量/高清图表报告</text>
+                        <text x="304" y="352" font-size="8.5" fill="#8A847C" font-family="JetBrains Mono, monospace">images/feature-macro-chart.png</text>
+                      </svg>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- 同步步进进度刻度 -->
+              <div class="workflow-progress-ruler" aria-hidden="true">
+                <span class="wf-prog-seg is-current"></span>
+                <span class="wf-prog-seg"></span>
+                <span class="wf-prog-seg"></span>
+                <span class="wf-prog-seg"></span>
               </div>
             </div>
-            <span class="kbd-hint">点击左侧目录树中的文件查看内部结构预览</span>
           </div>
 
-          <div class="svg-stage">
-            <svg id="export-svg" viewBox="0 0 1140 440" role="img" aria-label="导出包目录树与文件内容预览">
-              <rect width="1140" height="440" fill="#F8FAFC"/>
-              <g id="export-svg-tree"></g>
-              <g id="export-svg-preview"></g>
+          <!-- 右侧四段滚动叙事文案 -->
+          <div class="workflow-steps-col">
+            <!-- 场景 01 -->
+            <article class="workflow-step-card is-active" data-step="0">
+              <div class="wf-step-num">
+                <span>SCENARIO 01</span>
+                <span>·</span>
+                <span>PICTURE ELICITATION</span>
+              </div>
+              <h3 class="wf-step-title">看图说词，照顾不识字或高龄的长辈</h3>
+              <p class="wf-step-desc">
+                面对高龄发音人或没有文字的方言土语，看着汉字容易诱导出字面读书音。支持为任意词条添加实拍照片或插图，采用「上图下字」大屏展示，图片支持双指随时放大查看细节；开启纯净「看读」视图后还可一键隐去备注甚至汉字，让长辈自然说出地道口语。
+              </p>
+              <div class="wf-mobile-inline-media">
+                <div class="media-slot">
+                  <img src="images/feature-picture-card.png" alt="看图发音引导界面" class="slot-img" onload="this.parentElement.classList.add('has-image')" onerror="this.parentElement.classList.add('no-image')" />
+                  <div class="slot-schematic" style="padding: 18px; justify-content: center; align-items: center; text-align: center;">
+                    <span class="mono" style="font-size: 11px; color: var(--brand-cyan);">[ 上图下字纯净看读模式 · 支持隐去汉字避免读书音 ]</span>
+                  </div>
+                </div>
+              </div>
+            </article>
+
+            <!-- 场景 02（内嵌双机无线联动「信号往返」交互示意） -->
+            <article class="workflow-step-card" data-step="1">
+              <div class="wf-step-num">
+                <span>SCENARIO 02</span>
+                <span>·</span>
+                <span>LAN DUAL-DEVICE PAIRING</span>
+              </div>
+              <h3 class="wf-step-title">两台设备无线配合，长辈看大字，你在对面从容操控</h3>
+              <p class="wf-step-desc">
+                在没有外网的乡村田野，只需打开手机热点让两台设备连入同一局域网，输入六位数字即可配对。把平板或手机放在长辈面前充当柔和的宣纸大字看读牌，调查人在对面用另一台手机或电脑安静地翻页、控制起止录音、戴耳机实时监听并随手记音，避免频繁探身点按屏幕打断发音人状态。
+              </p>
+
+              <!-- 双机无线联动「信号往返」可点击交互示意 -->
+              <div class="wireless-demo-box" aria-label="双机无线联动交互演示">
+                <div class="wireless-demo-top">
+                  <span>局域网热点直连示意 · 配对码 842-916</span>
+                  <span id="wireless-ack-status">状态：已同步就绪</span>
+                </div>
+
+                <div class="wireless-boards">
+                  <div class="wireless-pad">
+                    <div class="pad-role">调查人遥控端</div>
+                    <div class="pad-word" id="remote-pad-word">太阳</div>
+                    <div class="pad-sub" id="remote-pad-ipa">[tʰæ⁵¹ iɑŋ²¹]</div>
+                  </div>
+
+                  <div class="wireless-bridge" aria-hidden="true">
+                    <div class="wireless-dotted-line"></div>
+                    <span class="wireless-signal-dot" id="wireless-signal-dot"></span>
+                  </div>
+
+                  <div class="wireless-pad reader-pad">
+                    <div class="pad-role">发音人看读端（宣纸）</div>
+                    <div class="pad-word" id="reader-pad-word">太阳</div>
+                    <div class="pad-sub" id="reader-pad-gloss">词条 #041</div>
+                  </div>
+                </div>
+
+                <div class="wireless-action-row">
+                  <span class="mono" style="font-size: 11px; color: var(--ink-muted);">点按右侧按钮体验无线同步翻页：</span>
+                  <button type="button" class="wireless-next-btn" id="wireless-next-btn">下一词：日头</button>
+                </div>
+              </div>
+            </article>
+
+            <!-- 场景 03 -->
+            <article class="workflow-step-card" data-step="2">
+              <div class="wf-step-num">
+                <span>SCENARIO 03</span>
+                <span>·</span>
+                <span>MULTI-TAKE &amp; VARIANTS</span>
+              </div>
+              <h3 class="wf-step-title">多遍录音对比择优，现场记录文白两读</h3>
+              <p class="wf-step-desc">
+                同一个字长辈读了两三遍，不必担心后一遍覆盖前一遍。软件会自动保留历史遍数，随时点按试听对比，勾选最自然的一遍作为正式采用版本；遇到文读、白读并存的字词，可当场一键派生出紧邻的异读词条分开留存。
+              </p>
+
+              <div class="multitake-mini" aria-label="多遍择优切换示例">
+                <div class="take-pills" id="demo-take-pills">
+                  <button type="button" class="take-pill" data-take-msg="第 1 遍 (1.58s)：保留备查">第 1 遍</button>
+                  <button type="button" class="take-pill is-picked" data-take-msg="第 2 遍 (1.36s)：已设为正式导出版本">第 2 遍 · 采用</button>
+                  <button type="button" class="take-pill" data-take-msg="第 3 遍 (1.41s)：保留备查">第 3 遍</button>
+                </div>
+                <span class="mono" id="demo-take-status" style="font-size: 11px; color: var(--ink-secondary);">第 2 遍 (1.36s)：已设为正式导出版本</span>
+              </div>
+            </article>
+
+            <!-- 场景 04 -->
+            <article class="workflow-step-card" data-step="3">
+              <div class="wf-step-num">
+                <span>SCENARIO 04</span>
+                <span>·</span>
+                <span>TONE &amp; VOWEL PLOTS</span>
+              </div>
+              <h3 class="wf-step-title">录完即可速览声调走势与元音分布</h3>
+              <p class="wf-step-desc">
+                无需等到回实验室跑脚本，在采录间隙即可查看单字音高曲线、五度参考调值，或汇总浏览全表的声调分类轮廓与元音开口度、前后分布图，支持不同发音人同屏叠合比对，并可直接导出图表报告。
+              </p>
+              <div class="wf-mobile-inline-media">
+                <div class="media-slot">
+                  <img src="images/feature-macro-chart.png" alt="声调走势与元音分布图" class="slot-img" onload="this.parentElement.classList.add('has-image')" onerror="this.parentElement.classList.add('no-image')" />
+                  <div class="slot-schematic" style="padding: 18px; justify-content: center; align-items: center; text-align: center;">
+                    <span class="mono" style="font-size: 11px; color: var(--brand-cyan);">[ 全表五度声调轮廓图 + 元音 F1/F2 分布图同屏速览 ]</span>
+                  </div>
+                </div>
+              </div>
+            </article>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ========================================================================
+         05 规范导出与同作者开源工具链
+         ======================================================================== -->
+    <section id="sec-05" class="section-wrap" data-index="05 / 06">
+      <div class="container">
+        <div class="eyebrow">
+          <span class="section-index">05</span>
+          <span>从采录到分析，无缝衔接</span>
+        </div>
+        <h2 class="section-title">导出即规范，直接进入你的下一步研究。</h2>
+        <p class="section-lead">
+          采录完成后，可按自定义命名规则一键打包导出，不再把时间花在格式转换和编码乱码排查上：
+        </p>
+
+        <!-- 导出成果「档案目录点选预览」交互区 -->
+        <div class="export-explorer">
+          <div class="archive-tree-col" role="listbox" aria-label="归档文件夹目录预览">
+            <div class="archive-root-head">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#00899B" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
+              </svg>
+              <span>方言调查标准归档包.zip</span>
+            </div>
+
+            <div class="archive-list">
+              <button type="button" class="archive-row is-active" data-export-key="xlsx">
+                <div class="archive-row-main">
+                  <span class="archive-filename">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="9" y1="21" x2="9" y2="9"/></svg>
+                    <span>字表与发音人记音汇总表.xlsx</span>
+                  </span>
+                  <span class="archive-brief">原生双页签表格，国际音标与生僻字零乱码</span>
+                </div>
+                <span class="archive-ext-badge">.xlsx</span>
+              </button>
+
+              <button type="button" class="archive-row" data-export-key="wav">
+                <div class="archive-row-main">
+                  <span class="archive-filename">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/></svg>
+                    <span>audio/老男_0042_日头.wav</span>
+                  </span>
+                  <span class="archive-brief">按自定义规则批量命名的无损单字词音频</span>
+                </div>
+                <span class="archive-ext-badge">.wav</span>
+              </button>
+
+              <button type="button" class="archive-row" data-export-key="praat">
+                <div class="archive-row-main">
+                  <span class="archive-filename">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+                    <span>同名 .TextGrid 与 .Collection 集合</span>
+                  </span>
+                  <span class="archive-brief">拖入 Praat 一次性成对载入全部声音与标注</span>
+                </div>
+                <span class="archive-ext-badge">.Collection</span>
+              </button>
+
+              <button type="button" class="archive-row" data-export-key="teproj">
+                <div class="archive-row-main">
+                  <span class="archive-filename">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+                    <span>声学批量精修工程包.teproj</span>
+                  </span>
+                  <span class="archive-brief">预置分组与起止边界，直通下游提取声学参数</span>
+                </div>
+                <span class="archive-ext-badge">.teproj</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- 右侧动态详情卡片 + feature-export-sheet.png 实拍/示意画框 -->
+          <div class="archive-preview-col">
+            <div>
+              <span class="preview-save-tag" id="export-save-tag">省去手工活：免除 CSV 转码与音标乱码修复</span>
+              <h3 class="preview-card-title" id="export-preview-title">原生 .xlsx 汇总表格（含标准归档压缩包 .zip）</h3>
+              <p class="preview-card-desc" id="export-preview-desc">
+                标准归档压缩包 (.zip) 内含无损 .wav 录音、同名 Praat .TextGrid 标注文件与原生 .xlsx 汇总表格。双击即可在 Excel、WPS 或 Numbers 中清晰打开，汉字、方言俗字与国际音标绝不乱码，每位发音人进度与记音一目了然。
+              </p>
+            </div>
+
+            <div class="export-shot-frame">
+              <div class="media-slot">
+                <img
+                  src="images/feature-export-sheet.png"
+                  alt="导出对话框或导出的 Excel 汇总表实拍截图"
+                  class="slot-img"
+                  onload="this.parentElement.classList.add('has-image')"
+                  onerror="this.parentElement.classList.add('no-image')"
+                />
+                <div class="slot-schematic">
+                  <svg viewBox="0 0 520 280" width="100%" height="100%" fill="none" font-family="Noto Sans SC, sans-serif">
+                    <rect width="520" height="280" fill="#FFFFFF" />
+                    <rect x="0" y="0" width="520" height="32" fill="#F2EFE9" />
+                    <line x1="0" y1="32" x2="520" y2="32" stroke="#E4E1DA" />
+                    <text x="16" y="21" font-size="10.5" font-weight="600" fill="#18181B" font-family="JetBrains Mono, monospace">归档汇总表.xlsx — 页签：[01_记音总表] [02_发音人档案]</text>
+
+                    <!-- 表格网格 -->
+                    <g font-size="10.5" fill="#18181B">
+                      <rect x="16" y="46" width="488" height="28" fill="#FAF9F6" stroke="#E4E1DA" />
+                      <text x="26" y="64" font-weight="600">序号</text>
+                      <text x="82" y="64" font-weight="600">词目</text>
+                      <text x="158" y="64" font-weight="600">老男_张伯 (IPA)</text>
+                      <text x="292" y="64" font-weight="600">青年_小陈 (IPA)</text>
+                      <text x="418" y="64" font-weight="600">音频文件名</text>
+
+                      <rect x="16" y="74" width="488" height="30" fill="#FFFFFF" stroke="#E4E1DA" />
+                      <text x="26" y="93" font-family="JetBrains Mono, monospace" fill="#57534E">041</text>
+                      <text x="82" y="93">太阳</text>
+                      <text x="158" y="93" font-family="JetBrains Mono, monospace" fill="#00899B">tʰæ⁵¹ iɑŋ²¹</text>
+                      <text x="292" y="93" font-family="JetBrains Mono, monospace" fill="#00899B">tʰE⁵¹ iɑŋ²¹</text>
+                      <text x="418" y="93" font-family="JetBrains Mono, monospace" font-size="9.5" fill="#57534E">老男_041_太阳.wav</text>
+
+                      <rect x="16" y="104" width="488" height="30" fill="#EBF5F6" stroke="#E4E1DA" />
+                      <text x="26" y="123" font-family="JetBrains Mono, monospace" fill="#57534E">042</text>
+                      <text x="82" y="123" font-weight="600">日头 [白]</text>
+                      <text x="158" y="123" font-family="JetBrains Mono, monospace" fill="#00899B">ȵiʔ⁵ dɤ²¹</text>
+                      <text x="292" y="123" font-family="JetBrains Mono, monospace" fill="#00899B">zəʔ⁵ dɤ²¹</text>
+                      <text x="418" y="123" font-family="JetBrains Mono, monospace" font-size="9.5" fill="#57534E">老男_042_日头.wav</text>
+
+                      <rect x="16" y="134" width="488" height="30" fill="#FFFFFF" stroke="#E4E1DA" />
+                      <text x="26" y="153" font-family="JetBrains Mono, monospace" fill="#57534E">042B</text>
+                      <text x="82" y="153">日头 [文]</text>
+                      <text x="158" y="153" font-family="JetBrains Mono, monospace" fill="#00899B">zəʔ⁵ dɤ²¹</text>
+                      <text x="292" y="153" font-family="JetBrains Mono, monospace" fill="#8A847C">—</text>
+                      <text x="418" y="153" font-family="JetBrains Mono, monospace" font-size="9.5" fill="#57534E">老男_042B_日头.wav</text>
+
+                      <rect x="16" y="164" width="488" height="30" fill="#FFFFFF" stroke="#E4E1DA" />
+                      <text x="26" y="183" font-family="JetBrains Mono, monospace" fill="#57534E">043</text>
+                      <text x="82" y="183">落雨</text>
+                      <text x="158" y="183" font-family="JetBrains Mono, monospace" fill="#00899B">loʔ² hɦy³¹</text>
+                      <text x="292" y="183" font-family="JetBrains Mono, monospace" fill="#00899B">loʔ² y³¹</text>
+                      <text x="418" y="183" font-family="JetBrains Mono, monospace" font-size="9.5" fill="#57534E">老男_043_落雨.wav</text>
+                    </g>
+
+                    <text x="18" y="264" font-size="9" fill="#8A847C" font-family="JetBrains Mono, monospace">images/feature-export-sheet.png · 支持 .zip / .Collection / .teproj 一键导出</text>
+                  </svg>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 同作者配套开源工具链闭环 -->
+        <div class="toolchain-block">
+          <div class="pipeline-bar" aria-label="开源语音学工具链闭环">
+            <span class="pipeline-node current">
+              <span class="eyebrow-dot"></span>
+              <span>现场采录：PhonAcq</span>
+            </span>
+            <span class="pipeline-arrow">────▶</span>
+            <span class="pipeline-node">边界精修与批量提取：PhonTracer</span>
+            <span class="pipeline-arrow">────▶</span>
+            <span class="pipeline-node">精细审校与制图：Praat 简体中文汉化版</span>
+          </div>
+
+          <div class="companion-grid">
+            <!-- 配套工具 1：PhonTracer -->
+            <article class="companion-card">
+              <div>
+                <div class="companion-head">
+                  <h3 class="companion-name">PhonTracer</h3>
+                  <span class="companion-role">下游声学提取</span>
+                </div>
+                <p class="companion-desc">
+                  同作者开源的语音声学边界精修与参数批量提取工具。可直接载入 PhonAcq 导出的 <code class="mono">.teproj</code> 工程包，继承分组信息与初始起止边界，快速完成全表声调基频、元音共振峰与时长的可视化核校及汇总导出。
+                </p>
+              </div>
+              <div class="companion-links">
+                <a href="https://github.com/KasumiKitsune/PhonTracer" target="_blank" rel="noopener">访问 PhonTracer 开源仓库 →</a>
+              </div>
+            </article>
+
+            <!-- 配套工具 2：Praat 简体中文汉化版 -->
+            <article class="companion-card">
+              <div>
+                <div class="companion-head">
+                  <h3 class="companion-name">Praat 简体中文汉化版</h3>
+                  <span class="companion-role">审校与声学制图</span>
+                </div>
+                <p class="companion-desc">
+                  基于官方源码持续维护的简体中文本地化版本，汉化主界面菜单、对话框与内置入门教程。将 PhonAcq 导出的 <code class="mono">.Collection</code> 集合文件直接拖入窗口，即可成对展开全部声音与 TextGrid 标注对象进行精细审校。
+                </p>
+              </div>
+              <div class="companion-links">
+                <a href="https://kasumikitsune.github.io/praat-simplified-chinese/" target="_blank" rel="noopener">项目门户主页 →</a>
+                <a href="https://github.com/KasumiKitsune/praat-simplified-chinese" target="_blank" rel="noopener">GitHub 仓库 →</a>
+              </div>
+            </article>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ========================================================================
+         06 底部安心承诺与下载收尾区（浅暖灰 #F2EFE9 纯色通栏）
+         ======================================================================== -->
+    <section id="sec-06" class="section-wrap bg-subtle" data-index="06 / 06">
+      <div class="container">
+        <!-- 纯本地离线承诺 -->
+        <div class="privacy-banner">
+          <div>
+            <div class="eyebrow">
+              <span class="section-index">06</span>
+              <span>LOCAL-FIRST &amp; OFFLINE PRIVACY</span>
+            </div>
+            <h2 class="section-title">你的田野语料，只留在你自己的设备里。</h2>
+            <p class="section-lead">
+              PhonAcq 采用纯本地离线架构，不设账号体系，不接入任何云端服务器。所有录音原声、词表配图、发音人背景资料均保存在你的手机或电脑本地；双机联动仅通过现场局域网直连传输。
+            </p>
+          </div>
+
+          <div class="privacy-badges">
+            <div class="privacy-badge-item">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#00899B" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg>
+              <span>100% 纯本地离线存储，无云端上传</span>
+            </div>
+            <div class="privacy-badge-item">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#00899B" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg>
+              <span>免注册登录，深山乡村无外网照常工作</span>
+            </div>
+            <div class="privacy-badge-item">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#00899B" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg>
+              <span>开源透明，导出开放标准格式不绑架数据</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- 底部三端清晰下载入口 -->
+        <div class="bottom-dl-grid">
+          <div class="bottom-dl-card is-recommended js-bottom-card" data-os="win">
+            <div>
+              <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px;">
+                <strong class="serif" style="font-size: 19px;">Windows 桌面版</strong>
+                <span class="rec-pill">当前设备推荐</span>
+              </div>
+              <p style="font-size: 13.5px; color: var(--ink-secondary);">
+                适用于 Windows 10 / 11（64 位），标准 <code class="mono">.msi</code> 安装包，支持电脑端采录、双机遥控与完整归档整理。
+              </p>
+            </div>
+            <a href="https://github.com/KasumiKitsune/PhonAcq/releases/latest" class="btn btn-primary js-bottom-dl-btn js-dl-win" data-os="win">
+              下载 Windows 安装包 (.msi)
+            </a>
+          </div>
+
+          <div class="bottom-dl-card js-bottom-card" data-os="mac">
+            <div>
+              <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px;">
+                <strong class="serif" style="font-size: 19px;">macOS 桌面版</strong>
+                <span class="rec-pill">当前设备推荐</span>
+              </div>
+              <p style="font-size: 13.5px; color: var(--ink-secondary);">
+                适用于 Apple M 系列芯片 Mac，标准 <code class="mono">.dmg</code> 磁盘映像，拖入「应用程序」即可离线运行。
+              </p>
+            </div>
+            <a href="https://github.com/KasumiKitsune/PhonAcq/releases/latest" class="btn js-bottom-dl-btn js-dl-mac" data-os="mac">
+              下载 macOS 安装包 (.dmg)
+            </a>
+          </div>
+
+          <div class="bottom-dl-card js-bottom-card" data-os="android">
+            <div>
+              <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px;">
+                <strong class="serif" style="font-size: 19px;">Android 移动版</strong>
+                <span class="rec-pill">当前设备推荐</span>
+              </div>
+              <p style="font-size: 13.5px; color: var(--ink-secondary);">
+                适用于 Android 7.0 及以上手机与平板，便携单机采录，或作为宣纸大字看读端与遥控端无线配对。
+              </p>
+            </div>
+            <a href="https://github.com/KasumiKitsune/PhonAcq/releases/latest" class="btn js-bottom-dl-btn js-dl-android" data-os="android">
+              下载 Android 安装包 (.apk)
+            </a>
+          </div>
+        </div>
+
+        <!-- macOS 首次打开提示折叠栏 -->
+        <details class="macos-details" id="macos-guide">
+          <summary>
+            <span>macOS 首次打开说明（若提示「无法验证开发者」如何处理？）</span>
+            <svg class="macos-chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <polyline points="6 9 12 15 18 9" />
             </svg>
+          </summary>
+          <div class="macos-details-body">
+            由于软件为免费开源发布，未附加苹果商业付费公证，macOS 用户首次拖入「应用程序」打开若提示无法验证开发者，前往「系统设置 → 隐私与安全性」底部点击「仍要打开」即可正常使用。
           </div>
-        </div>
-
-        <!-- 同作者完整语音学工具链 -->
-        <div class="ecosystem-grid">
-          <div class="eco-card">
-            <div>
-              <span class="eco-step">第 1 站 · 田野采录与初筛</span>
-              <h3>PhonAcq（本项目）</h3>
-              <p>完成多发音人字表与看图词卡采录、实时信噪比把关、四栏国际音标速记，并按统一规则输出无损 WAV、对齐 TextGrid、Excel 工作簿与 <code>.teproj</code> 工程包。</p>
-            </div>
-            <a class="btn btn-outline btn-sm" href="https://github.com/KasumiKitsune/PhonAcq/releases/latest" target="_blank" rel="noopener">前往 GitHub Releases 下载</a>
-          </div>
-
-          <div class="eco-card">
-            <div>
-              <span class="eco-step">第 2 站 · 边界精修与批量提取</span>
-              <h3>PhonTracer</h3>
-              <p>基于 Python 与 Parselmouth 构建的声调（基频）与共振峰批量提取工具。可直接打开 PhonAcq 导出的 <code>.teproj</code> 工程包，在声谱图上微调起止边界并批量导出标准化测量表。</p>
-            </div>
-            <a class="btn btn-outline btn-sm" href="https://github.com/KasumiKitsune/PhonTracer" target="_blank" rel="noopener">查看 PhonTracer 仓库 →</a>
-          </div>
-
-          <div class="eco-card">
-            <div>
-              <span class="eco-step">第 3 站 · 精细语图审校与制图</span>
-              <h3>Praat 简体中文汉化版</h3>
-              <p>针对语音学日常标注体验深度优化的 Praat 简体中文维护版，改进播放/暂停切换与列表递增逻辑，拖入 PhonAcq 导出的 <code>.Collection</code> 或同名 WAV + TextGrid 即可直接审校。</p>
-            </div>
-            <a class="btn btn-outline btn-sm" href="https://github.com/KasumiKitsune/praat-simplified-chinese" target="_blank" rel="noopener">查看 Praat 汉化版仓库 →</a>
-          </div>
-        </div>
+        </details>
       </div>
     </section>
   </main>
 
+  <!-- 页脚 -->
   <footer class="site-footer">
-    <div class="container footer-inner">
+    <div class="footer-inner">
       <div>
-        <strong>PhonAcq · 田野语音与方言字表采录系统</strong> · 由 <a href="https://github.com/KasumiKitsune" target="_blank" rel="noopener">KasumiKitsune</a> 开发维护
+        <strong class="mono">PhonAcq</strong>
+        <span> · 由 KasumiKitsune 开发并开源</span>
       </div>
-      <div>
-        纯本地离线运行 · 不收集或上传任何田野语料与个人信息
+      <div class="footer-links">
+        <a href="https://github.com/KasumiKitsune/PhonAcq" target="_blank" rel="noopener">GitHub 仓库</a>
+        <span>|</span>
+        <a href="https://github.com/KasumiKitsune/PhonAcq/issues" target="_blank" rel="noopener">问题反馈与建议</a>
+        <span>|</span>
+        <a href="https://github.com/KasumiKitsune/PhonAcq/releases" target="_blank" rel="noopener">历史版本发布</a>
       </div>
     </div>
   </footer>
 
-  <script src="./portal.js"></script>
+  <!-- ==========================================================================
+       内联交互脚本（零外部依赖）
+       ========================================================================== -->
+  <script>
+    (function () {
+      'use strict';
+
+      const CONFIG = {
+        repo: 'KasumiKitsune/PhonAcq',
+        fallbackVersion: 'v2.0.1',
+        latestReleasePage: 'https://github.com/KasumiKitsune/PhonAcq/releases/latest'
+      };
+
+      /* ------------------------------------------------------------------------
+         0. 检查已缓存图片状态 + 移动端菜单切换 + macOS 说明跳转自动展开
+         ------------------------------------------------------------------------ */
+      document.querySelectorAll('.slot-img').forEach(function (img) {
+        if (img.complete) {
+          if (img.naturalWidth > 0) {
+            img.parentElement.classList.add('has-image');
+          } else {
+            img.parentElement.classList.add('no-image');
+          }
+        }
+      });
+
+      const mobileMenuBtn = document.getElementById('mobile-menu-btn');
+      const mobileDrawer = document.getElementById('mobile-drawer');
+      if (mobileMenuBtn && mobileDrawer) {
+        mobileMenuBtn.addEventListener('click', function () {
+          const open = mobileDrawer.classList.toggle('is-open');
+          mobileMenuBtn.setAttribute('aria-expanded', String(open));
+        });
+        mobileDrawer.querySelectorAll('a').forEach(function (link) {
+          link.addEventListener('click', function () {
+            mobileDrawer.classList.remove('is-open');
+            mobileMenuBtn.setAttribute('aria-expanded', 'false');
+          });
+        });
+      }
+
+      const jumpMacosBtn = document.getElementById('jump-macos-guide');
+      const macosDetails = document.getElementById('macos-guide');
+      if (jumpMacosBtn && macosDetails) {
+        jumpMacosBtn.addEventListener('click', function () {
+          macosDetails.open = true;
+        });
+      }
+
+      /* ------------------------------------------------------------------------
+         1. 首屏系统自动识别 + GitHub 最新版本与安装包同步
+         ------------------------------------------------------------------------ */
+      function detectVisitorOS() {
+        const ua = navigator.userAgent || '';
+        const platform = (navigator.userAgentData && navigator.userAgentData.platform) || navigator.platform || '';
+        if (/android/i.test(ua)) return 'android';
+        if (/mac/i.test(platform) || (/macintosh|mac os x/i.test(ua) && !/iphone|ipad|ipod/i.test(ua))) return 'mac';
+        if (/win/i.test(platform) || /win/i.test(ua)) return 'win';
+        return 'win';
+      }
+
+      function applyOSHighlight(osKey) {
+        const osNames = { win: 'Windows', mac: 'macOS', android: 'Android' };
+        const hintEl = document.getElementById('detected-os-hint');
+        if (hintEl && osNames[osKey]) {
+          hintEl.textContent = '已识别当前访问设备：' + osNames[osKey] + '（其余平台安装包并列可选）';
+        }
+
+        document.querySelectorAll('.js-dl-btn').forEach(function (btn) {
+          btn.classList.toggle('is-primary-os', btn.getAttribute('data-os') === osKey);
+        });
+
+        document.querySelectorAll('.js-bottom-card').forEach(function (card) {
+          const isMatch = card.getAttribute('data-os') === osKey;
+          card.classList.toggle('is-recommended', isMatch);
+          const btn = card.querySelector('.js-bottom-dl-btn');
+          if (btn) {
+            btn.classList.toggle('btn-primary', isMatch);
+          }
+        });
+      }
+
+      applyOSHighlight(detectVisitorOS());
+
+      async function syncLatestGitHubRelease() {
+        const cacheKey = 'phonacq_latest_release_v1';
+        let releaseData = null;
+
+        try {
+          const cached = sessionStorage.getItem(cacheKey);
+          if (cached) {
+            releaseData = JSON.parse(cached);
+          } else {
+            const res = await fetch('https://api.github.com/repos/' + CONFIG.repo + '/releases/latest', {
+              headers: { 'Accept': 'application/vnd.github+json' }
+            });
+            if (res.ok) {
+              releaseData = await res.json();
+              sessionStorage.setItem(cacheKey, JSON.stringify(releaseData));
+            }
+          }
+        } catch (_) {
+          // 离线或受限网络下静默回退至默认版本号与 releases/latest 链接
+        }
+
+        if (!releaseData || !releaseData.tag_name) return;
+
+        const rawTag = String(releaseData.tag_name).trim();
+        const ver = rawTag.startsWith('v') ? rawTag : 'v' + rawTag;
+
+        document.querySelectorAll('.js-version-badge').forEach(function (el) {
+          el.textContent = ver;
+        });
+        document.querySelectorAll('.js-version-text').forEach(function (el) {
+          el.textContent = '最新开源发布 ' + ver;
+        });
+
+        if (Array.isArray(releaseData.assets)) {
+          let winUrl = '';
+          let macUrl = '';
+          let androidUrl = '';
+
+          releaseData.assets.forEach(function (asset) {
+            const name = (asset.name || '').toLowerCase();
+            const url = asset.browser_download_url;
+            if (!url) return;
+            if (!winUrl && (name.endsWith('.msi') || name.endsWith('.exe'))) winUrl = url;
+            if (!macUrl && name.endsWith('.dmg')) macUrl = url;
+            if (!androidUrl && name.endsWith('.apk')) androidUrl = url;
+          });
+
+          if (winUrl) {
+            document.querySelectorAll('.js-dl-win').forEach(function (a) { a.href = winUrl; });
+          }
+          if (macUrl) {
+            document.querySelectorAll('.js-dl-mac').forEach(function (a) { a.href = macUrl; });
+          }
+          if (androidUrl) {
+            document.querySelectorAll('.js-dl-android').forEach(function (a) { a.href = androidUrl; });
+          }
+        }
+      }
+
+      syncLatestGitHubRelease();
+
+      /* ------------------------------------------------------------------------
+         2. 贯穿全页的「边缘声学标尺」（弹簧阻尼游标 + 章节序号实时翻动）
+         ------------------------------------------------------------------------ */
+      const rulerTicksContainer = document.getElementById('ruler-ticks');
+      const rulerTrack = document.getElementById('ruler-track');
+      const rulerCursor = document.getElementById('ruler-cursor');
+      const rulerIdxEl = document.getElementById('ruler-current-idx');
+      const rulerPctEl = document.getElementById('ruler-scroll-pct');
+      const stationBtns = document.querySelectorAll('.ruler-station-btn');
+      const navLinks = document.querySelectorAll('.site-nav .nav-link');
+      const sections = Array.from(document.querySelectorAll('main > section[id]'));
+
+      if (rulerTicksContainer) {
+        const tickCount = 46;
+        const frag = document.createDocumentFragment();
+        for (let i = 0; i <= tickCount; i++) {
+          const span = document.createElement('span');
+          span.className = 'ruler-tick' + (i % 5 === 0 ? ' major' : '');
+          frag.appendChild(span);
+        }
+        rulerTicksContainer.appendChild(frag);
+      }
+
+      stationBtns.forEach(function (btn) {
+        btn.addEventListener('click', function () {
+          const target = document.querySelector(btn.getAttribute('data-target'));
+          if (target) target.scrollIntoView({ behavior: 'smooth' });
+        });
+      });
+
+      let targetRatio = 0;
+      let currentRatio = 0;
+
+      function updateScrollMetrics() {
+        const maxScroll = Math.max(1, document.documentElement.scrollHeight - window.innerHeight);
+        targetRatio = Math.min(1, Math.max(0, window.scrollY / maxScroll));
+
+        if (rulerPctEl) {
+          const pct = Math.round(targetRatio * 100);
+          rulerPctEl.textContent = String(pct).padStart(3, '0') + '%';
+        }
+
+        const probeY = window.scrollY + window.innerHeight * 0.36;
+        let activeSec = sections[0];
+        for (let i = 0; i < sections.length; i++) {
+          if (sections[i].offsetTop <= probeY) {
+            activeSec = sections[i];
+          }
+        }
+
+        if (activeSec) {
+          const idxLabel = activeSec.getAttribute('data-index') || '01 / 06';
+          if (rulerIdxEl) rulerIdxEl.textContent = idxLabel;
+
+          const activeId = activeSec.id;
+          stationBtns.forEach(function (btn) {
+            btn.classList.toggle('is-active', btn.getAttribute('data-target') === '#' + activeId);
+          });
+          navLinks.forEach(function (link) {
+            link.classList.toggle('is-active', link.getAttribute('data-sec') === activeId);
+          });
+        }
+      }
+
+      function animateRulerCursor() {
+        currentRatio += (targetRatio - currentRatio) * 0.16;
+        if (rulerTrack && rulerCursor) {
+          const h = rulerTrack.clientHeight;
+          rulerCursor.style.transform = 'translateY(' + (currentRatio * h).toFixed(2) + 'px)';
+        }
+        requestAnimationFrame(animateRulerCursor);
+      }
+
+      window.addEventListener('scroll', updateScrollMetrics, { passive: true });
+      window.addEventListener('resize', updateScrollMetrics);
+      updateScrollMetrics();
+      requestAnimationFrame(animateRulerCursor);
+
+      /* ------------------------------------------------------------------------
+         3. 首屏「声波柱物理琴弦起伏 + 五度标调曲线一笔绘出」
+         ------------------------------------------------------------------------ */
+      const waveSvg = document.getElementById('tone-wave-svg');
+      const barsGroup = document.getElementById('spring-wave-bars');
+      const toneCurvePath = document.getElementById('tone-curve-path');
+      const toneCurveEnd = document.getElementById('tone-curve-end');
+      const tonePresetBtns = document.querySelectorAll('.tone-preset-btn');
+
+      const TONE_PATHS = {
+        '214': { d: 'M 304 51.5 C 338 66, 366 67, 392 56 C 414 46, 432 33, 448 24.5', endY: 24.5 },
+        '55':  { d: 'M 304 11.5 C 344 10.5, 404 11.5, 448 11.5', endY: 11.5 },
+        '35':  { d: 'M 304 38 C 346 33, 402 19, 448 11', endY: 11 },
+        '51':  { d: 'M 304 11 C 348 20, 402 49, 448 65', endY: 65 }
+      };
+
+      const barsState = [];
+      const BAR_COUNT = 26;
+      const baseHeights = [6, 10, 15, 22, 16, 11, 18, 26, 20, 12, 8, 15, 24, 28, 19, 13, 9, 17, 23, 16, 11, 14, 19, 12, 8, 5];
+
+      if (barsGroup) {
+        for (let i = 0; i < BAR_COUNT; i++) {
+          const x = 12 + i * 9.6;
+          const restH = baseHeights[i % baseHeights.length];
+          const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+          line.setAttribute('x1', String(x));
+          line.setAttribute('x2', String(x));
+          line.setAttribute('y1', String(38 - restH));
+          line.setAttribute('y2', String(38 + restH));
+          line.setAttribute('stroke', i % 4 === 1 ? '#D97706' : '#00899B');
+          line.setAttribute('stroke-width', '2.4');
+          line.setAttribute('stroke-linecap', 'round');
+          barsGroup.appendChild(line);
+
+          barsState.push({
+            el: line,
+            x: x,
+            rest: restH,
+            offset: 0,
+            vel: 0
+          });
+        }
+      }
+
+      let springRunning = false;
+      function stepWaveSprings() {
+        let active = false;
+        for (let i = 0; i < barsState.length; i++) {
+          const b = barsState[i];
+          const force = -0.18 * b.offset;
+          b.vel = (b.vel + force) * 0.84;
+          b.offset += b.vel;
+
+          if (Math.abs(b.offset) > 0.08 || Math.abs(b.vel) > 0.08) {
+            active = true;
+          } else {
+            b.offset = 0;
+            b.vel = 0;
+          }
+
+          const h = Math.max(3, Math.min(34, b.rest + b.offset));
+          b.el.setAttribute('y1', (38 - h).toFixed(2));
+          b.el.setAttribute('y2', (38 + h).toFixed(2));
+        }
+
+        if (active) {
+          requestAnimationFrame(stepWaveSprings);
+        } else {
+          springRunning = false;
+        }
+      }
+
+      function pluckAtSvgX(svgX, strength) {
+        for (let i = 0; i < barsState.length; i++) {
+          const dist = Math.abs(barsState[i].x - svgX);
+          if (dist < 42) {
+            const factor = (1 - dist / 42);
+            barsState[i].vel += strength * factor;
+          }
+        }
+        if (!springRunning) {
+          springRunning = true;
+          requestAnimationFrame(stepWaveSprings);
+        }
+      }
+
+      function triggerRippleWave() {
+        barsState.forEach(function (b, idx) {
+          setTimeout(function () {
+            b.vel += 4.2;
+            if (!springRunning) {
+              springRunning = true;
+              requestAnimationFrame(stepWaveSprings);
+            }
+          }, idx * 18);
+        });
+      }
+
+      if (waveSvg) {
+        waveSvg.addEventListener('pointermove', function (e) {
+          const rect = waveSvg.getBoundingClientRect();
+          if (!rect.width) return;
+          const svgX = ((e.clientX - rect.left) / rect.width) * 480;
+          if (svgX <= 268) {
+            pluckAtSvgX(svgX, 3.6);
+          }
+        });
+      }
+
+      function drawToneContour(toneKey) {
+        const cfg = TONE_PATHS[toneKey];
+        if (!cfg || !toneCurvePath || !toneCurveEnd) return;
+        toneCurvePath.classList.remove('is-drawn');
+        toneCurvePath.setAttribute('d', cfg.d);
+        toneCurveEnd.setAttribute('cy', String(cfg.endY));
+        void toneCurvePath.getBoundingClientRect();
+        toneCurvePath.classList.add('is-drawn');
+        triggerRippleWave();
+      }
+
+      // 页面载入时一笔画出默认五度曲线
+      setTimeout(function () {
+        if (toneCurvePath) toneCurvePath.classList.add('is-drawn');
+        triggerRippleWave();
+      }, 180);
+
+      tonePresetBtns.forEach(function (btn) {
+        btn.addEventListener('click', function () {
+          tonePresetBtns.forEach(function (b) { b.classList.remove('is-active'); });
+          btn.classList.add('is-active');
+          drawToneContour(btn.getAttribute('data-tone'));
+        });
+      });
+
+      /* ------------------------------------------------------------------------
+         4. 「简洁 / 进阶」双模式拉帘对比器
+         ------------------------------------------------------------------------ */
+      const compareScreen = document.getElementById('mode-compare-screen');
+      const compareDivider = document.getElementById('compare-divider');
+      const compareReadout = document.getElementById('compare-pct-readout');
+      const modeCards = document.querySelectorAll('.mode-detail-card[data-split-target]');
+
+      let currentSplit = 50;
+      let isDraggingCompare = false;
+
+      function setCompareSplit(pct) {
+        currentSplit = Math.min(94, Math.max(6, pct));
+        if (compareScreen) {
+          compareScreen.style.setProperty('--split', currentSplit.toFixed(1) + '%');
+          compareScreen.setAttribute('aria-valuenow', String(Math.round(currentSplit)));
+        }
+        if (compareReadout) {
+          const leftVal = Math.round(currentSplit);
+          compareReadout.textContent = leftVal + ' : ' + (100 - leftVal);
+        }
+      }
+
+      function updateSplitFromClientX(clientX) {
+        if (!compareScreen) return;
+        const rect = compareScreen.getBoundingClientRect();
+        if (!rect.width) return;
+        const pct = ((clientX - rect.left) / rect.width) * 100;
+        setCompareSplit(pct);
+      }
+
+      if (compareScreen && compareDivider) {
+        compareScreen.addEventListener('pointerdown', function (e) {
+          isDraggingCompare = true;
+          compareDivider.classList.add('is-dragging');
+          if (compareScreen.setPointerCapture) {
+            compareScreen.setPointerCapture(e.pointerId);
+          }
+          updateSplitFromClientX(e.clientX);
+        });
+
+        compareScreen.addEventListener('pointermove', function (e) {
+          if (!isDraggingCompare) return;
+          updateSplitFromClientX(e.clientX);
+        });
+
+        const stopDrag = function () {
+          isDraggingCompare = false;
+          compareDivider.classList.remove('is-dragging');
+        };
+        compareScreen.addEventListener('pointerup', stopDrag);
+        compareScreen.addEventListener('pointercancel', stopDrag);
+
+        compareScreen.addEventListener('keydown', function (e) {
+          if (e.key === 'ArrowLeft') {
+            e.preventDefault();
+            setCompareSplit(currentSplit - 5);
+          } else if (e.key === 'ArrowRight') {
+            e.preventDefault();
+            setCompareSplit(currentSplit + 5);
+          }
+        });
+      }
+
+      modeCards.forEach(function (card) {
+        card.addEventListener('click', function () {
+          const target = Number(card.getAttribute('data-split-target') || 50);
+          modeCards.forEach(function (c) { c.classList.remove('is-focused'); });
+          card.classList.add('is-focused');
+
+          const start = currentSplit;
+          const startTime = performance.now();
+          const duration = 360;
+
+          function animateSplit(now) {
+            const t = Math.min(1, (now - startTime) / duration);
+            const eased = 1 - Math.pow(1 - t, 3);
+            setCompareSplit(start + (target - start) * eased);
+            if (t < 1) requestAnimationFrame(animateSplit);
+          }
+          requestAnimationFrame(animateSplit);
+        });
+      });
+
+      /* ------------------------------------------------------------------------
+         5. 四步采录流程「固定画框 + 滚动几何裁切翻页」
+         ------------------------------------------------------------------------ */
+      const wfStepCards = Array.from(document.querySelectorAll('.workflow-step-card'));
+      const wfSlides = Array.from(document.querySelectorAll('.workflow-slide'));
+      const wfTabs = Array.from(document.querySelectorAll('.stage-tab-btn'));
+      const wfSegs = Array.from(document.querySelectorAll('.wf-prog-seg'));
+      const wfStageCode = document.getElementById('wf-stage-code');
+      let currentWfStep = 0;
+
+      function activateWorkflowStep(stepIdx) {
+        if (stepIdx === currentWfStep) return;
+        currentWfStep = stepIdx;
+
+        wfStepCards.forEach(function (card, idx) {
+          card.classList.toggle('is-active', idx === stepIdx);
+        });
+
+        wfSlides.forEach(function (slide, idx) {
+          slide.classList.toggle('is-active', idx === stepIdx);
+          slide.classList.toggle('is-visited', idx < stepIdx);
+        });
+
+        wfTabs.forEach(function (tab, idx) {
+          tab.classList.toggle('is-active', idx === stepIdx);
+        });
+
+        wfSegs.forEach(function (seg, idx) {
+          seg.classList.toggle('is-done', idx < stepIdx);
+          seg.classList.toggle('is-current', idx === stepIdx);
+        });
+
+        if (wfStageCode) {
+          wfStageCode.textContent = 'SCENE 0' + (stepIdx + 1) + ' / 04';
+        }
+      }
+
+      function checkWorkflowScroll() {
+        if (!wfStepCards.length) return;
+        const anchorY = window.innerHeight * 0.44;
+        let bestIdx = 0;
+        let bestDist = Infinity;
+
+        wfStepCards.forEach(function (card, idx) {
+          const rect = card.getBoundingClientRect();
+          const mid = (rect.top + rect.bottom) / 2;
+          const dist = Math.abs(mid - anchorY);
+          if (dist < bestDist) {
+            bestDist = dist;
+            bestIdx = idx;
+          }
+        });
+
+        activateWorkflowStep(bestIdx);
+      }
+
+      window.addEventListener('scroll', checkWorkflowScroll, { passive: true });
+
+      wfTabs.forEach(function (tab) {
+        tab.addEventListener('click', function () {
+          const idx = Number(tab.getAttribute('data-step-jump') || 0);
+          if (wfStepCards[idx]) {
+            wfStepCards[idx].scrollIntoView({ behavior: 'smooth', block: 'center' });
+          }
+          activateWorkflowStep(idx);
+        });
+      });
+
+      /* ------------------------------------------------------------------------
+         6. 双机无线联动「信号往返」交互示意 + 多遍录音择优微互动
+         ------------------------------------------------------------------------ */
+      const wirelessWords = [
+        { word: '日头', ipa: '[ȵiʔ⁵ dɤ²¹]', gloss: '词条 #042 · 太阳' },
+        { word: '落雨', ipa: '[loʔ² hɦy³¹]', gloss: '词条 #043 · 下雨' },
+        { word: '月光', ipa: '[ȵyɛʔ⁵ kuɑŋ⁵⁵]', gloss: '词条 #044 · 月亮' },
+        { word: '灶披间', ipa: '[tsɔ⁵¹ pʰi⁵⁵ kɛ²¹]', gloss: '词条 #045 · 厨房' },
+        { word: '太阳', ipa: '[tʰæ⁵¹ iɑŋ²¹]', gloss: '词条 #041 · 对照词' }
+      ];
+      let wirelessCursor = 0;
+
+      const wirelessNextBtn = document.getElementById('wireless-next-btn');
+      const signalDot = document.getElementById('wireless-signal-dot');
+      const remoteWordEl = document.getElementById('remote-pad-word');
+      const remoteIpaEl = document.getElementById('remote-pad-ipa');
+      const readerWordEl = document.getElementById('reader-pad-word');
+      const readerGlossEl = document.getElementById('reader-pad-gloss');
+      const wirelessAckEl = document.getElementById('wireless-ack-status');
+
+      if (wirelessNextBtn) {
+        wirelessNextBtn.addEventListener('click', function () {
+          const item = wirelessWords[wirelessCursor];
+          wirelessCursor = (wirelessCursor + 1) % wirelessWords.length;
+          const nextItem = wirelessWords[wirelessCursor];
+
+          if (signalDot) {
+            signalDot.classList.remove('is-sending');
+            void signalDot.offsetWidth;
+            signalDot.classList.add('is-sending');
+          }
+
+          if (wirelessAckEl) {
+            wirelessAckEl.textContent = '状态：局域网指令发送中...';
+          }
+
+          setTimeout(function () {
+            if (remoteWordEl) {
+              remoteWordEl.textContent = item.word;
+              remoteWordEl.classList.add('is-flipping');
+            }
+            if (readerWordEl) {
+              readerWordEl.textContent = item.word;
+              readerWordEl.classList.add('is-flipping');
+            }
+            if (remoteIpaEl) remoteIpaEl.textContent = item.ipa;
+            if (readerGlossEl) readerGlossEl.textContent = item.gloss;
+
+            // 同步左侧画幅示意图（若处于纯线条占位模式）
+            document.querySelectorAll('.js-sync-svg-word').forEach(function (el) { el.textContent = item.word; });
+            document.querySelectorAll('.js-sync-svg-ipa').forEach(function (el) { el.textContent = '随手记音：' + item.ipa; });
+            document.querySelectorAll('.js-sync-svg-gloss').forEach(function (el) { el.textContent = item.gloss; });
+
+            if (wirelessAckEl) {
+              wirelessAckEl.textContent = '状态：双端已同步翻至「' + item.word + '」';
+            }
+            wirelessNextBtn.textContent = '下一词：' + nextItem.word;
+
+            setTimeout(function () {
+              if (remoteWordEl) remoteWordEl.classList.remove('is-flipping');
+              if (readerWordEl) readerWordEl.classList.remove('is-flipping');
+            }, 280);
+          }, 260);
+        });
+      }
+
+      // 多遍录音点选微交互
+      const takePills = document.querySelectorAll('#demo-take-pills .take-pill');
+      const takeStatus = document.getElementById('demo-take-status');
+      takePills.forEach(function (pill) {
+        pill.addEventListener('click', function () {
+          takePills.forEach(function (p) { p.classList.remove('is-picked'); });
+          pill.classList.add('is-picked');
+          if (takeStatus) {
+            takeStatus.textContent = pill.getAttribute('data-take-msg') || '';
+          }
+        });
+      });
+
+      /* ------------------------------------------------------------------------
+         7. 导出成果「档案目录点选预览」
+         ------------------------------------------------------------------------ */
+      const EXPORT_INFO = {
+        xlsx: {
+          tag: '省去手工活：免除 CSV 转码与音标乱码修复',
+          title: '原生 .xlsx 汇总表格（含标准归档压缩包 .zip）',
+          desc: '标准归档压缩包 (.zip) 内含无损 .wav 录音、同名 Praat .TextGrid 标注文件与原生 .xlsx 汇总表格。双击即可在 Excel、WPS 或 Numbers 中清晰打开，汉字、方言俗字与国际音标绝不乱码，每位发音人进度与记音一目了然。'
+        },
+        wav: {
+          tag: '省去手工活：告别长达数小时的切音频与手工改名',
+          title: '按规则自动重命名的无损 .wav 音频目录',
+          desc: '每一条正式采用的录音在录制完成时即独立成档，支持按「方言点 + 发音人代号 + 序号 + 词条名」自由组合命名规则批量导出，直接满足语料库归档与课程作业提交要求。'
+        },
+        praat: {
+          tag: '省去手工活：无需逐对寻找音频与标注文件手动打开',
+          title: '同名 .TextGrid 标注与 Praat .Collection 集合文件',
+          desc: '自动为每条有效录音生成预填词目与记音层级的同名 .TextGrid 文件，并额外打包 .Collection 集合文件——只需将该文件拖入 Praat 窗口，即可一次性成对载入全部声音与标注对象。'
+        },
+        teproj: {
+          tag: '省去手工活：免写脚本直接衔接声学参数批量提取',
+          title: 'PhonTracer 工程包 (.teproj)',
+          desc: '完整保留词表分组信息、发音人标签与有效发音起止边界，直接用同作者开源工具 PhonTracer 打开即可批量精修声调基频与元音共振峰，形成从田野现场到论文图表的完整闭环。'
+        }
+      };
+
+      const archiveRows = document.querySelectorAll('.archive-row[data-export-key]');
+      const exportSaveTag = document.getElementById('export-save-tag');
+      const exportTitle = document.getElementById('export-preview-title');
+      const exportDesc = document.getElementById('export-preview-desc');
+
+      function selectExportItem(row) {
+        const key = row.getAttribute('data-export-key');
+        const info = EXPORT_INFO[key];
+        if (!info) return;
+
+        archiveRows.forEach(function (r) { r.classList.remove('is-active'); });
+        row.classList.add('is-active');
+
+        if (exportSaveTag) exportSaveTag.textContent = info.tag;
+        if (exportTitle) exportTitle.textContent = info.title;
+        if (exportDesc) exportDesc.textContent = info.desc;
+      }
+
+      archiveRows.forEach(function (row) {
+        row.addEventListener('mouseenter', function () { selectExportItem(row); });
+        row.addEventListener('click', function () { selectExportItem(row); });
+        row.addEventListener('focus', function () { selectExportItem(row); });
+      });
+    })();
+  </script>
 </body>
 </html>
