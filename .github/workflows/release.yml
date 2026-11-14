@@ -64,11 +64,19 @@ jobs:
           distribution: 'temurin'
           java-version: '21'
 
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
-
-      - name: Accept Android SDK Licenses
-        run: yes | sdkmanager --licenses > /dev/null 2>&1 || true
+      - name: Configure Android SDK & Accept Licenses
+        run: |
+          SDK_ROOT="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-/usr/local/lib/android/sdk}}"
+          sudo chown -R "$USER" "$SDK_ROOT" || true
+          echo "ANDROID_HOME=${SDK_ROOT}" >> "$GITHUB_ENV"
+          echo "ANDROID_SDK_ROOT=${SDK_ROOT}" >> "$GITHUB_ENV"
+          SDKMANAGER="$(find "$SDK_ROOT/cmdline-tools" -name sdkmanager -type f | sort -V | tail -n 1)"
+          if [ -z "$SDKMANAGER" ]; then
+            echo "::error::未在 ${SDK_ROOT}/cmdline-tools 下找到 sdkmanager"
+            exit 1
+          fi
+          echo "Using sdkmanager: $SDKMANAGER"
+          yes | "$SDKMANAGER" --sdk_root="$SDK_ROOT" --licenses > /dev/null 2>&1 || true
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
@@ -173,7 +181,7 @@ jobs:
   build-macos:
     name: Build macOS Apple Silicon (.dmg)
     needs: prepare
-    runs-on: macos-14
+    runs-on: macos-latest
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
@@ -190,16 +198,51 @@ jobs:
         with:
           gradle-version: '8.10.2'
 
-      - name: Package macOS Apple Silicon Installer (.dmg)
+      - name: Build, Sign Entitlements & Package macOS Apple Silicon (.dmg)
         env:
           RAW_VERSION: ${{ needs.prepare.outputs.raw_version }}
         run: |
-          gradle -p desktop-windows packageDmg -PappVersion="${RAW_VERSION}" --no-daemon
-          mkdir -p dist
-          DMG_SRC="$(ls desktop-windows/build/compose/binaries/main/dmg/*.dmg | head -n 1)"
+          gradle -p desktop-windows createDistributable -PappVersion="${RAW_VERSION}" --no-daemon
+
+          APP_BUNDLE="$(find desktop-windows/build/compose/binaries/main/app -maxdepth 1 -name '*.app' | head -n 1)"
+          if [ -z "$APP_BUNDLE" ] || [ ! -d "$APP_BUNDLE" ]; then
+            echo "::error::未找到生成的 macOS .app 应用包"
+            exit 1
+          fi
+          echo "Built app bundle: $APP_BUNDLE"
+
+          # Ad-hoc sign Mach-O binaries inside bundled JVM runtime with runtime entitlements,
+          # then sign the runtime bundle and outer PhonAcq.app bundle with microphone & network entitlements
+          if [ -d "$APP_BUNDLE/Contents/runtime" ]; then
+            while IFS= read -r -d '' f; do
+              if file "$f" | grep -q "Mach-O"; then
+                codesign --force --sign - --entitlements desktop-windows/runtime-entitlements.plist "$f"
+              fi
+            done < <(find "$APP_BUNDLE/Contents/runtime" -type f -print0)
+            codesign --force --sign - --entitlements desktop-windows/runtime-entitlements.plist "$APP_BUNDLE/Contents/runtime"
+          fi
+          while IFS= read -r -d '' f; do
+            if file "$f" | grep -q "Mach-O"; then
+              codesign --force --sign - --entitlements desktop-windows/entitlements.plist "$f"
+            fi
+          done < <(find "$APP_BUNDLE/Contents/MacOS" -type f -print0)
+          codesign --force --sign - --entitlements desktop-windows/entitlements.plist "$APP_BUNDLE"
+          codesign --verify --verbose=2 "$APP_BUNDLE"
+
+          STAGING_DIR="${RUNNER_TEMP}/dmg-staging"
+          rm -rf "$STAGING_DIR"
+          mkdir -p "$STAGING_DIR" dist
+          cp -R "$APP_BUNDLE" "$STAGING_DIR/PhonAcq.app"
+          ln -s /Applications "$STAGING_DIR/Applications"
+
           DEST="dist/PhonAcq-v${RAW_VERSION}-macos-arm64.dmg"
-          cp "$DMG_SRC" "$DEST"
-          echo "Prepared macOS arm64 DMG: $DEST"
+          hdiutil create \
+            -volname "PhonAcq v${RAW_VERSION}" \
+            -srcfolder "$STAGING_DIR" \
+            -ov \
+            -format UDZO \
+            "$DEST"
+          ls -lh "$DEST"
 
       - name: Upload macOS DMG Artifact
         uses: actions/upload-artifact@v4
