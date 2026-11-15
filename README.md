@@ -17,7 +17,7 @@
 >
 > - **官方主页与交互导览 (GitHub Pages)**：[https://kasumikitsune.github.io/PhonAcq/](https://kasumikitsune.github.io/PhonAcq/)
 > - **全部历史版本与校验文件 (Releases)**：[https://github.com/KasumiKitsune/PhonAcq/releases](https://github.com/KasumiKitsune/PhonAcq/releases)
-> - **音频与存储架构**：44.1 / 48 kHz 16-bit 无损 PCM WAV · 纯本地离线存储 · 原生衔接 Praat 与 PhonTracer
+> - **音频与存储架构**：44.1 / 48 kHz 16-bit 无损 PCM WAV · 纯本地离线存储 · 原生衔接 [PhonTracer](https://github.com/KasumiKitsune/PhonTracer) 与 [Praat](https://github.com/KasumiKitsune/praat-simplified-chinese)
 
 | 桌面端三栏主录音台界面 |
 | :---: |
@@ -38,7 +38,7 @@
 - **同一字表，多人独立建档**：一份调查字表可关联多位发音人，各自的录音文件、进度统计与记音备注独立存储，互不覆盖。
 - **兼顾文字与图片引导**：支持常规文字字表与「看图发音」图片词卡混合编排，便于面对不识字或高龄发音人开展田野调查。
 - **现场实时把关与声学参考**：录音同时监测输入电平与环境信噪比，自动提示音量过低、削波失真或起止截断；录毕即可查看基频走势、五度参考调值、宽带语图及全表元音分布格局。
-- **原生衔接下游分析工具**：可按统一命名规范一键导出 `.zip` 归档包、Praat `.Collection` 集合文件或 PhonTracer `.teproj` 工程包，省去繁琐的手工整理步骤。
+- **原生衔接下游分析工具**：可按统一命名规范一键导出 `.zip` 归档包、Praat `.Collection` 集合文件或 [PhonTracer](https://github.com/KasumiKitsune/PhonTracer) `.teproj` 工程包，省去繁琐的手工整理步骤，直接进入下游边界精修与出版级声学制图。
 
 ---
 
@@ -53,7 +53,7 @@
 > | **字表编排与看图诱导** | • 内置汉语方言单字声韵调摸底表、古音清浊声调对照表、普通话连读变调表等模板；支持导入 `.xlsx`、`.docx`、`.csv`、`.tsv`（自动识别 UTF-8 / GBK）、`.txt` 及剪贴板粘贴。<br>• 开启「图片词卡」后支持单条配图、现场拍照，或批量选图按文件名（如 `01_日头_太阳.jpg`）自动建词。<br>• 采用「上图下字」大字排印，支持独立隐去汉字与双指无级缩放图片。 |
 > | **田野采录控制与质检** | • 支持音量键 / 键盘盲操控制录音与切词；内置防吞字预录缓冲，降低起音截断风险。<br>• 同一词条支持多遍留存择优与文白异读紧邻派生；开录前可进行环境底噪自检、蓝牙窄带麦提醒与发音人音域校准。<br>• 按发音人独立保存四栏国际音标随手记与自定义音标库。 |
 > | **局域网双设备无线联动** | • 无需外网，两台设备处于同一局域网 Wi-Fi 或手机热点即可通过六位配对码配对。<br>• **看读端**（宣纸 / 墨水屏 / 黑板预设）置于发音人面前；**遥控端**由调查人控制切词、切换发音人、起止录音、快捷记音及低延迟耳返监听，会话胶囊支持原生 `录音核对清单.xlsx` 归档。 |
-> | **多格式规范导出** | • **标准归档压缩包 (`.zip`)**：无损 `.wav`、同名 `.TextGrid`、原生 `.xlsx`（含表头冻结与自适应列宽，兼容 Excel / WPS / Numbers）、字表清单与备份数据。<br>• **Praat 集合文件 (`.Collection`)**：Sound + TextGrid + Table 打包为单个集合文件，拖入 Praat 一次载入。<br>• **PhonTracer 工程包 (`.teproj`)**：封装音频与切分边界，在 PhonTracer 中直接边界精修与批量提参。 |
+> | **多格式规范导出** | • **标准归档压缩包 (`.zip`)**：无损 `.wav`、同名 `.TextGrid`、原生 `.xlsx`（含表头冻结与自适应列宽，兼容 Excel / WPS / Numbers）、字表清单与备份数据。<br>• **Praat 集合文件 (`.Collection`)**：Sound + TextGrid + Table 打包为单个集合文件，拖入 Praat 一次载入。<br>• **[PhonTracer](https://github.com/KasumiKitsune/PhonTracer) 工程包 (`.teproj`)**：封装音频、分组字表与切分边界，双击即可在 PhonTracer 中继续红线边界微调、橡皮擦散点修整、多发音人统计与出版级图表导出。 |
 
 ### 标准导出归档目录结构
 
@@ -72,15 +72,15 @@
 
 ---
 
-## 相关项目（同作者工具链）
+## 相关项目与工具链联动
 
-PhonAcq 由 [KasumiKitsune](https://github.com/KasumiKitsune) 开发维护，可与以下两个同作者开源项目配合组成从「现场采录」到「边界精修与特征提取」再到「声学分析制图」的完整工作流：
+PhonAcq 由 [KasumiKitsune](https://github.com/KasumiKitsune) 开发维护，可与以下两个同系列开源工具无缝接力，组成**「现场规范采录 → 声谱精修与批量提参 → 出版制图与深度审校」**的完整语音实验工具链：
 
-- **[PhonTracer](https://github.com/KasumiKitsune/PhonTracer)**  
-  基于 Python 与 Praat (Parselmouth) 构建的语音声调（基频）与共振峰特征批量提取工具，支持长音频自动切分与独立音频匹配、声谱图可视化边界微调及标准化声学数据导出。PhonAcq 导出的 `.teproj` 工程包与四层兼容标注可直接由 PhonTracer 读取。
+- **[PhonTracer — 语音学标注与声学分析桌面套件](https://github.com/KasumiKitsune/PhonTracer)**（[安装包下载](https://github.com/KasumiKitsune/PhonTracer/releases)）  
+  基于 Python 与 Praat (Parselmouth) 构建的下游声学精修与制图套件（含 `PhonTracer` 主程序、`Toolkit` 独立工具箱与 `PhonTracerCLI` 命令行工作台），支持声调 `F0` 与元音共振峰 `F1/F2` 双模式分析、声谱图红线边界拖拽与橡皮擦异常散点剔除、多发音人参数隔离、`.ptwl` 高级字表多维重组上色、出版级声学图表（五度图、连读变调全景网、Lobanov 元音空间、Pillai 合并度矩阵等）及研究方法报告导出。**PhonAcq 导出的 `.teproj` 工程包或标准 `.zip` 归档包可直接载入 PhonTracer 接力分析**。
 
 - **[Praat 简体中文汉化版 (praat-simplified-chinese)](https://github.com/KasumiKitsune/praat-simplified-chinese)**  
-  语音学标准分析软件 Praat 的简体中文本地化与交互优化维护版本。除提供完整中文界面外，还针对音频播放/暂停切换、按住录音模式、暂存列表自动递增编号等日常操作体验进行了改进，可直接载入 PhonAcq 导出的 `.wav` + `.TextGrid` 或 `.Collection` 文件。
+  语音学标准分析软件 Praat 的简体中文本地化与交互优化维护版本。除提供完整中文界面外，还针对音频播放/暂停切换、按住录音模式、暂存列表自动递增编号等日常操作体验进行了改进，可直接载入 PhonAcq 或 PhonTracer 导出的 `.wav` + `.TextGrid` 及 `.Collection` 集合文件。
 
 ---
 
