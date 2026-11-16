@@ -3540,13 +3540,28 @@ class RecordingViewModel(
                 repository = repository,
                 capsuleDir = capsuleDir
             )
+            var createdProject: Project? = null
+            var createdSpeaker: Speaker? = null
+            if (res.isSuccess) {
+                val newProjId = res.getOrThrow()
+                createdProject = repository.getProjectById(newProjId)
+                createdSpeaker = createdProject?.let { proj ->
+                    repository.allSpeakers.firstOrNull()?.find { it.id == proj.speakerId }
+                }
+                // Remove the temporary backup capsule once safely imported into permanent local projects
+                WirelessSessionArchiveManager.deleteCapsule(capsuleDir)
+                wirelessLink.notifyCapsulesChanged()
+            }
             forceRefreshCounts()
             withContext(Dispatchers.Main) {
                 res.fold(
-                    onSuccess = { newProjId ->
-                        val created = allProjects.value.find { it.id == newProjId }
-                        if (created != null) {
-                            selectProject(created)
+                    onSuccess = {
+                        val proj = createdProject
+                        val spk = createdSpeaker
+                        if (proj != null && spk != null) {
+                            selectProjectAndSpeaker(proj, spk)
+                        } else if (proj != null) {
+                            selectProject(proj)
                         }
                         onComplete(true, S.recording.importedToProjectListToast)
                     },

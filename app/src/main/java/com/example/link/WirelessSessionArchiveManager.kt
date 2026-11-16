@@ -419,19 +419,53 @@ object WirelessSessionArchiveManager {
     ): Result<Long> = withContext(Dispatchers.IO) {
         runCatching {
             val mf = File(capsuleDir, MANIFEST_FILE_NAME)
-            if (!mf.exists()) error(S.wireless.capsuleIncompleteError)
+            val wavDir = File(capsuleDir, "wav")
+            val wavFiles = wavDir.listFiles { f -> f.isFile && f.name.endsWith(".wav", true) }
+                ?.sortedBy { it.name }
+                .orEmpty()
+            if (!mf.exists() && wavFiles.isEmpty()) error(S.wireless.capsuleIncompleteError)
 
-            val json = JSONObject(mf.readText(Charsets.UTF_8))
-            val origProjName = json.optString("projectName", S.wireless.linkedWordlistFallback).trim().ifEmpty { S.wireless.linkedWordlistFallback }
+            val json = if (mf.exists()) {
+                runCatching { JSONObject(mf.readText(Charsets.UTF_8)) }.getOrNull() ?: JSONObject()
+            } else {
+                JSONObject()
+            }
+            val origProjName = json.optString("projectName", capsuleDir.name).trim().ifEmpty { S.wireless.linkedWordlistFallback }
             val origSpkName = json.optString("speakerName", S.wireless.linkedSpeakerFallback).trim().ifEmpty { S.wireless.linkedSpeakerFallback }
             val spkGender = json.optString("speakerGender", "男").ifBlank { "男" }
             val spkAge = json.optInt("speakerAge", 30).takeIf { it > 0 } ?: 30
             val spkDialect = json.optString("speakerDialect", "")
-            val updatedAt = json.optLong("updatedAtMs", System.currentTimeMillis())
+            val updatedAt = json.optLong("updatedAtMs", capsuleDir.lastModified().takeIf { it > 0L } ?: System.currentTimeMillis())
 
-            val arr = json.optJSONArray("words") ?: JSONArray()
-            val entries = List(arr.length()) { i -> CapsuleWordEntry.fromJson(arr.getJSONObject(i)) }
-                .sortedBy { it.seqPos }
+            val arr = json.optJSONArray("words")
+            val manifestEntries = if (arr != null && arr.length() > 0) {
+                List(arr.length()) { i -> CapsuleWordEntry.fromJson(arr.getJSONObject(i)) }
+                    .sortedBy { it.seqPos }
+            } else {
+                emptyList()
+            }
+            val entries = manifestEntries.ifEmpty {
+                wavFiles.mapIndexed { idx, wf ->
+                    val stem = wf.nameWithoutExtension
+                    val parts = stem.split("_")
+                    val parsedSeq = parts.firstOrNull()?.toIntOrNull()?.let { (it - 1).coerceAtLeast(0) } ?: idx
+                    val wordText = parts.getOrNull(1)?.takeIf { it.isNotBlank() }
+                        ?: S.wireless.capsuleWordFallback.withArgs("index" to (parsedSeq + 1))
+                    val remark = if (parts.size >= 4) parts.subList(2, parts.size - 1).joinToString("_") else ""
+                    val eval = SpeechQualityEvaluator.evaluate(wf, 250f)
+                    CapsuleWordEntry(
+                        seqPos = parsedSeq,
+                        text = wordText,
+                        remark = remark,
+                        wavFileName = wf.name,
+                        durationMs = eval.totalDurationMs.toLong().coerceAtLeast(100L),
+                        qualityStatus = eval.primaryStatus,
+                        avgRms = eval.avgSpeechRms,
+                        peakAmplitude = eval.peakAmplitude,
+                        recordedAtMs = wf.lastModified()
+                    )
+                }.sortedBy { it.seqPos }
+            }
             if (entries.isEmpty()) error(S.wireless.capsuleNoEntriesError)
 
             // Reuse exact matching local speaker if present, otherwise create an independent speaker profile
@@ -467,7 +501,6 @@ object WirelessSessionArchiveManager {
 
             val createdWords = repository.getWordsForProjectSync(newProjectId).sortedBy { it.originalIndex }
             val projectAudioDir = File(context.getExternalFilesDir(null), "project_$newProjectId").apply { mkdirs() }
-            val wavDir = File(capsuleDir, "wav")
 
             entries.forEachIndexed { idx, entry ->
                 val wordEntity = createdWords.getOrNull(idx) ?: return@forEachIndexed

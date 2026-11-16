@@ -2,6 +2,7 @@ package com.example
 
 import android.app.Application
 import android.content.Context
+import androidx.lifecycle.viewModelScope
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import com.example.audio.NaturalAudioCoach
@@ -10,6 +11,7 @@ import com.example.data.AppDatabase
 import com.example.data.ProjectRepository
 import com.example.link.RemoteWordItem
 import com.example.link.WirelessSessionArchiveManager
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -491,4 +493,85 @@ class SpeechQualityAndWirelessArchiveTest {
             db.close()
         }
     }
+
+    @Test
+    fun `importWirelessCapsuleAsProject selects imported project and removes consumed capsule from home banner`(): Unit = runBlocking {
+        val app = ApplicationProvider.getApplicationContext<Application>()
+        val db = Room.inMemoryDatabaseBuilder(app, AppDatabase::class.java)
+            .allowMainThreadQueries()
+            .build()
+        val repo = ProjectRepository(db)
+        val vm = com.example.viewmodel.RecordingViewModel(app, repo)
+        val createdProjectAudioDirs = mutableListOf<File>()
+        try {
+            val cleanPcm = generateRoomTone(120) + generatePeriodicVowel(320, peakAmp = 8500) + generateRoomTone(130)
+            val wavFile = File(tempDir, "take_vowel.wav").also { writePcmWav(it, cleanPcm) }
+            val destWav = WirelessSessionArchiveManager.archiveTakeIntoCapsule(
+                context = app,
+                sessionCode = "VOWEL02",
+                projectName = "基本元音舌位字表",
+                speakerName = "发音人02",
+                allSnapshotWords = listOf(
+                    RemoteWordItem(seqPos = 0, wordId = 1L, text = "衣", remark = "[i]", originalIndex = 0)
+                ),
+                seqPos = 0,
+                wordText = "衣",
+                wordRemark = "[i]",
+                wordGroup = "",
+                speakerNote = "",
+                sourceWavFile = wavFile,
+                deleteSourceAfterCopy = false
+            )
+            assertNotNull(destWav)
+            val capsuleDir = destWav!!.parentFile!!.parentFile!!
+            assertEquals(1, vm.listWirelessSessionCapsules().size)
+            val initialRefreshVer = vm.wirelessLink.capsulesRefreshVersion.value
+
+            var callbackResult: Pair<Boolean, String>? = null
+            vm.importWirelessCapsuleAsProject(capsuleDir) { ok, msg ->
+                callbackResult = ok to msg
+            }
+
+            val deadline = System.currentTimeMillis() + 5_000L
+            while (callbackResult == null && System.currentTimeMillis() < deadline) {
+                org.robolectric.shadows.ShadowLooper.idleMainLooper()
+                Thread.sleep(20)
+            }
+            org.robolectric.shadows.ShadowLooper.idleMainLooper()
+
+            assertNotNull("Expected importWirelessCapsuleAsProject callback to complete", callbackResult)
+            assertTrue("Import callback failed: ${callbackResult?.second}", callbackResult!!.first)
+            assertFalse("Consumed capsule directory must be removed after import", capsuleDir.exists())
+            assertTrue("Expected wirelessCapsules list to become empty after import", vm.listWirelessSessionCapsules().isEmpty())
+            assertTrue(
+                "Expected capsulesRefreshVersion to increment so home banner updates immediately",
+                vm.wirelessLink.capsulesRefreshVersion.value > initialRefreshVer
+            )
+
+            val selectedProj = vm.currentProject.value
+            assertNotNull("Expected imported project to be selected immediately", selectedProj)
+            createdProjectAudioDirs.add(File(app.getExternalFilesDir(null), "project_${selectedProj!!.id}"))
+            assertTrue(selectedProj.name.startsWith("基本元音舌位字表"))
+            assertEquals("发音人02", vm.currentSpeaker.value?.name)
+
+            // Also verify manifest-less wav-only backup folder still imports cleanly
+            val orphanCapsuleDir = File(WirelessSessionArchiveManager.archivesRootDir(app), "基本元音舌位字表_发音人02_orphan")
+            val orphanWav = File(File(orphanCapsuleDir, "wav"), "0001_乌_u_120000.wav")
+            writePcmWav(orphanWav, cleanPcm)
+            assertEquals(1, vm.listWirelessSessionCapsules().size)
+
+            val fallbackRes = WirelessSessionArchiveManager.importCapsuleAsLocalProject(app, repo, orphanCapsuleDir)
+            assertTrue("Expected manifest-less wav backup to import cleanly: ${fallbackRes.exceptionOrNull()}", fallbackRes.isSuccess)
+            createdProjectAudioDirs.add(File(app.getExternalFilesDir(null), "project_${fallbackRes.getOrThrow()}"))
+        } finally {
+            vm.wirelessLink.cancelOrDisconnect()
+            vm.viewModelScope.cancel()
+            org.robolectric.shadows.ShadowLooper.idleMainLooper()
+            Thread.sleep(50)
+            org.robolectric.shadows.ShadowLooper.idleMainLooper()
+            createdProjectAudioDirs.forEach { it.deleteRecursively() }
+            db.close()
+        }
+    }
 }
+

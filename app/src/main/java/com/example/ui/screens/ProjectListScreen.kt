@@ -115,6 +115,7 @@ fun ProjectListScreen(
     var homeCapsuleReloadTick by remember { mutableIntStateOf(0) }
     var wirelessCapsules by remember { mutableStateOf<List<com.example.link.WirelessSessionCapsuleSummary>>(emptyList()) }
     var homeCapsulePendingExport by remember { mutableStateOf<com.example.link.WirelessSessionCapsuleSummary?>(null) }
+    var homeCapsulePendingDelete by remember { mutableStateOf<com.example.link.WirelessSessionCapsuleSummary?>(null) }
 
     LaunchedEffect(capsulesRefreshVersion, homeCapsuleReloadTick, pendingSyncCount, isLinkConnected) {
         wirelessCapsules = viewModel.listWirelessSessionCapsules()
@@ -318,9 +319,12 @@ fun ProjectListScreen(
                                         }
                                     },
                                     onImportCapsule = { cap ->
-                                        viewModel.importWirelessCapsuleAsProject(cap.capsuleDir) { _, msg ->
+                                        viewModel.importWirelessCapsuleAsProject(cap.capsuleDir) { ok, msg ->
                                             homeCapsuleReloadTick++
                                             Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
+                                            if (ok) {
+                                                onProjectOpened()
+                                            }
                                         }
                                     },
                                     onExportCapsuleZip = { cap ->
@@ -329,6 +333,9 @@ fun ProjectListScreen(
                                             .withArgs("project" to cap.projectName, "speaker" to cap.speakerName)
                                             .replace(Regex("[\\\\/:*?\"<>|]"), "_")
                                         exportHomeCapsuleZipLauncher.launch(safeName)
+                                    },
+                                    onDeleteCapsule = { cap ->
+                                        homeCapsulePendingDelete = cap
                                     }
                                 )
                                 Spacer(modifier = Modifier.height(20.dp))
@@ -409,9 +416,12 @@ fun ProjectListScreen(
                                             }
                                         },
                                         onImportCapsule = { cap ->
-                                            viewModel.importWirelessCapsuleAsProject(cap.capsuleDir) { _, msg ->
+                                            viewModel.importWirelessCapsuleAsProject(cap.capsuleDir) { ok, msg ->
                                                 homeCapsuleReloadTick++
                                                 Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
+                                                if (ok) {
+                                                    onProjectOpened()
+                                                }
                                             }
                                         },
                                         onExportCapsuleZip = { cap ->
@@ -420,6 +430,9 @@ fun ProjectListScreen(
                                                 .withArgs("project" to cap.projectName, "speaker" to cap.speakerName)
                                                 .replace(Regex("[\\\\/:*?\"<>|]"), "_")
                                             exportHomeCapsuleZipLauncher.launch(safeName)
+                                        },
+                                        onDeleteCapsule = { cap ->
+                                            homeCapsulePendingDelete = cap
                                         }
                                     )
                                 }
@@ -682,6 +695,42 @@ fun ProjectListScreen(
                 onBack = {
                     showSpeakerManagerScreen = false
                     initialSpeakerGroupFilter = null
+                }
+            )
+        }
+
+        homeCapsulePendingDelete?.let { targetCap ->
+            AlertDialog(
+                onDismissRequest = { homeCapsulePendingDelete = null },
+                title = { Text(S.wireless.deleteCapsuleDialogTitle, fontWeight = FontWeight.Bold) },
+                text = {
+                    Text(
+                        S.wireless.deleteCapsuleDialogBody.withArgs(
+                            "project" to targetCap.projectName,
+                            "speaker" to targetCap.speakerName,
+                            "count" to targetCap.recordedTakeCount
+                        )
+                    )
+                },
+                confirmButton = {
+                    Button(
+                        onClick = {
+                            val dir = targetCap.capsuleDir
+                            homeCapsulePendingDelete = null
+                            viewModel.deleteWirelessCapsule(dir) {
+                                homeCapsuleReloadTick++
+                                Toast.makeText(context, S.wireless.deletedToast, Toast.LENGTH_SHORT).show()
+                            }
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+                    ) {
+                        Text(S.common.delete)
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { homeCapsulePendingDelete = null }) {
+                        Text(S.common.cancel)
+                    }
                 }
             )
         }
@@ -2255,7 +2304,8 @@ private fun WirelessHomeBackupBanner(
     capsules: List<com.example.link.WirelessSessionCapsuleSummary>,
     onRescuePending: () -> Unit,
     onImportCapsule: (com.example.link.WirelessSessionCapsuleSummary) -> Unit,
-    onExportCapsuleZip: (com.example.link.WirelessSessionCapsuleSummary) -> Unit
+    onExportCapsuleZip: (com.example.link.WirelessSessionCapsuleSummary) -> Unit,
+    onDeleteCapsule: (com.example.link.WirelessSessionCapsuleSummary) -> Unit
 ) {
     Surface(
         shape = RoundedCornerShape(20.dp),
@@ -2295,7 +2345,7 @@ private fun WirelessHomeBackupBanner(
                         color = MaterialTheme.colorScheme.onSurface
                     )
                     Text(
-                        text = "可直接归入本机项目列表试听整理，或导出为压缩包",
+                        text = "归入本机项目后将自动移入字表列表；也可导出压缩包或清除备份",
                         fontSize = 12.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -2344,12 +2394,32 @@ private fun WirelessHomeBackupBanner(
                         modifier = Modifier.padding(12.dp),
                         verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        Text(
-                            text = "《${cap.projectName}》 · ${cap.speakerName}（${cap.recordedTakeCount} 条录音）",
-                            fontSize = 13.5.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onSurface
-                        )
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text(
+                                text = "《${cap.projectName}》 · ${cap.speakerName}（${cap.recordedTakeCount} 条录音）",
+                                fontSize = 13.5.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSurface,
+                                modifier = Modifier.weight(1f)
+                            )
+                            IconButton(
+                                onClick = { onDeleteCapsule(cap) },
+                                modifier = Modifier
+                                    .size(48.dp)
+                                    .testTag("wireless_home_backup_delete_${cap.folderName}")
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.DeleteOutline,
+                                    contentDescription = S.common.delete,
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
+                        }
                         FlowRow(
                             horizontalArrangement = Arrangement.spacedBy(8.dp),
                             verticalArrangement = Arrangement.spacedBy(6.dp)
@@ -2358,7 +2428,9 @@ private fun WirelessHomeBackupBanner(
                                 onClick = { onImportCapsule(cap) },
                                 shape = RoundedCornerShape(10.dp),
                                 contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp),
-                                modifier = Modifier.defaultMinSize(minHeight = 36.dp)
+                                modifier = Modifier
+                                    .defaultMinSize(minHeight = 36.dp)
+                                    .testTag("wireless_home_backup_import_${cap.folderName}")
                             ) {
                                 Icon(Icons.Default.DownloadDone, contentDescription = null, modifier = Modifier.size(16.dp))
                                 Spacer(modifier = Modifier.width(6.dp))
