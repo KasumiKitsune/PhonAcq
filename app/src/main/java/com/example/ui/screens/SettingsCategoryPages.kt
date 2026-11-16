@@ -120,7 +120,7 @@ enum class SettingsCategory(
         id = "praat_textgrid",
         group = SettingsMenuGroup.ACOUSTICS_AND_FORMAT,
         icon = Icons.Default.AccountTree,
-        availableInSimpleMode = true
+        availableInSimpleMode = false
     ),
     AUDIO_HARDWARE(
         id = "audio_hardware",
@@ -291,13 +291,88 @@ internal fun RecordingControlCategoryContent(
     val autoAdvanceOnHoldRelease by viewModel.autoAdvanceOnHoldRelease.collectAsState()
     val holdOnQualityIssue by viewModel.holdOnQualityIssue.collectAsState()
 
+    val currentHabitIndex = when {
+        isPushToTalk -> 1
+        isAutoNext -> 2
+        else -> 0
+    }
+    var showFineSwitchDetails by remember { mutableStateOf(!isSimpleMode) }
+
     SettingsGroupCard(title = S.settings.cardRhythmPlaybackTitle) {
-        SettingsSwitchRow(
-            title = S.settings.autoNextTitle,
-            subtitle = S.settings.autoNextSub,
-            checked = isAutoNext,
-            onCheckedChange = { viewModel.setAutoNextEnabled(it) }
-        )
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(
+                text = "常用操作习惯（一键切换）",
+                fontSize = 13.5.sp,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                StudioFilterChip(
+                    selected = currentHabitIndex == 0,
+                    onClick = {
+                        viewModel.setAutoNextEnabled(false)
+                        viewModel.setPushToTalkEnabled(false)
+                        viewModel.setAutoAdvanceOnHoldRelease(false)
+                    },
+                    labelText = "点按开始/结束"
+                )
+                StudioFilterChip(
+                    selected = currentHabitIndex == 1,
+                    onClick = {
+                        viewModel.setPushToTalkEnabled(true)
+                        viewModel.setAutoAdvanceOnHoldRelease(true)
+                    },
+                    labelText = "按住说话，松手下一词"
+                )
+                StudioFilterChip(
+                    selected = currentHabitIndex == 2,
+                    onClick = {
+                        viewModel.setAutoNextEnabled(true)
+                        viewModel.setAutoAdvanceOnHoldRelease(false)
+                    },
+                    labelText = "读完停顿自动下一词"
+                )
+            }
+        }
+
+        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+
+        if (isSimpleMode) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(10.dp))
+                    .clickable { showFineSwitchDetails = !showFineSwitchDetails }
+                    .padding(vertical = 4.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "展开细分操控开关",
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Medium,
+                    color = MaterialTheme.colorScheme.primary
+                )
+                Icon(
+                    imageVector = if (showFineSwitchDetails) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(18.dp)
+                )
+            }
+        }
+
+        AnimatedVisibility(visible = !isSimpleMode || showFineSwitchDetails) {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                SettingsSwitchRow(
+                    title = S.settings.autoNextTitle,
+                    subtitle = S.settings.autoNextSub,
+                    checked = isAutoNext,
+                    onCheckedChange = { viewModel.setAutoNextEnabled(it) }
+                )
 
         if (!isSimpleMode) {
             AnimatedVisibility(
@@ -371,6 +446,8 @@ internal fun RecordingControlCategoryContent(
                 checked = holdOnQualityIssue,
                 onCheckedChange = { viewModel.setHoldOnQualityIssue(it) }
             )
+        }
+            }
         }
 
         HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
@@ -1043,6 +1120,11 @@ internal fun AudioHardwareCategoryContent(
 ) {
     SettingsGroupCard(title = S.settings.cardVadQualityTitle) {
         // 自动翻页收音灵敏度
+        val activePreset = when {
+            vadThreshold <= 850f -> "高灵敏"
+            vadThreshold >= 1650f -> "抗噪"
+            else -> "标准"
+        }
         Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -1055,7 +1137,7 @@ internal fun AudioHardwareCategoryContent(
                     color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.7f)
                 ) {
                     Text(
-                        "${vadThreshold.toInt()}",
+                        S.settings.displayVadPreset(activePreset),
                         fontSize = 12.sp,
                         color = MaterialTheme.colorScheme.onPrimaryContainer,
                         fontWeight = FontWeight.Bold,
@@ -1067,11 +1149,6 @@ internal fun AudioHardwareCategoryContent(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalArrangement = Arrangement.spacedBy(6.dp)
             ) {
-                val activePreset = when {
-                    vadThreshold <= 850f -> "高灵敏"
-                    vadThreshold >= 1650f -> "抗噪"
-                    else -> "标准"
-                }
                 listOf("高灵敏", "标准", "抗噪").forEach { preset ->
                     StudioFilterChip(
                         selected = activePreset == preset,
@@ -1097,6 +1174,11 @@ internal fun AudioHardwareCategoryContent(
         HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
 
         // 声音偏小提醒门槛
+        val lowVolLevelLabel = when {
+            lowVolumeThreshold < 400f -> "宽松"
+            lowVolumeThreshold > 950f -> "严格"
+            else -> "适中"
+        }
         Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -1109,7 +1191,7 @@ internal fun AudioHardwareCategoryContent(
                     color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.7f)
                 ) {
                     Text(
-                        "${lowVolumeThreshold.toInt()}",
+                        lowVolLevelLabel,
                         fontSize = 12.sp,
                         color = MaterialTheme.colorScheme.onPrimaryContainer,
                         fontWeight = FontWeight.Bold,

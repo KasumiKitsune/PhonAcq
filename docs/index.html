@@ -4,8 +4,8 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>PhonAcq — 田野语音与方言字表采录软件（支持 Windows / macOS / Android）</title>
-  <meta name="description" content="PhonAcq 是一款开源、纯本地离线运行的田野语音与方言字表采录软件，面向汉语方言调查、民族语记音与语音学课堂训练。支持看图诱导、双机无线联动、基频五度调值与元音格局参考，以及 Praat .Collection 与 PhonTracer 一键导出。" />
-  <meta name="keywords" content="PhonAcq, 田野语音采录, 方言字表采录, 方言调查软件, 语音学软件, 民族语记音, Praat TextGrid 导出, PhonTracer, 五度标调, 元音共振峰, 离线录音软件" />
+  <meta name="description" content="PhonAcq 是一款面向汉语方言调查、民族语记音与语音学课堂训练的田野语音与方言字表采录软件。支持看图诱导、双机无线联动、基频五度调值与元音格局参考，以及 Praat .Collection 与 PhonTracer 一键导出。" />
+  <meta name="keywords" content="PhonAcq, 田野语音采录, 方言字表采录, 方言调查软件, 语音学软件, 民族语记音, Praat TextGrid 导出, PhonTracer, 五度标调, 元音共振峰" />
   <meta name="author" content="KasumiKitsune" />
   <meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1" />
   <meta name="theme-color" content="#F1F5F9" />
@@ -16,7 +16,7 @@
   <meta property="og:locale" content="zh_CN" />
   <meta property="og:site_name" content="PhonAcq" />
   <meta property="og:title" content="PhonAcq — 田野语音与方言字表采录软件" />
-  <meta property="og:description" content="免费开源、纯本地离线运行的汉语方言与民族语田野语音采录系统，支持 Windows / macOS / Android 三端与 Praat / PhonTracer 规范导出。" />
+  <meta property="og:description" content="面向汉语方言调查与民族语记音的跨平台田野语音采录软件，支持 Windows / macOS / Android 三端与 Praat / PhonTracer 规范导出。" />
   <meta property="og:url" content="https://kasumikitsune.github.io/PhonAcq/" />
   <meta property="og:image" content="https://kasumikitsune.github.io/PhonAcq/images/hero-desktop-studio.png" />
   <meta property="og:image:alt" content="PhonAcq 桌面端主录音台全景界面" />
@@ -24,12 +24,12 @@
   <!-- Twitter / X 卡片 -->
   <meta name="twitter:card" content="summary_large_image" />
   <meta name="twitter:title" content="PhonAcq — 田野语音与方言字表采录软件" />
-  <meta name="twitter:description" content="面向方言调查与实验语音学的跨平台纯本地采录工具：看图诱导、双机无线遥控、声学质检与 Praat / PhonTracer 归档导出。" />
+  <meta name="twitter:description" content="面向方言调查与实验语音学的跨平台采录工具：看图诱导、双机无线遥控、声学质检与 Praat / PhonTracer 归档导出。" />
   <meta name="twitter:image" content="https://kasumikitsune.github.io/PhonAcq/images/hero-desktop-studio.png" />
 
   <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%20108%20108'%3E%3Cpath%20d='M54%204.32C89.27%204.32%20103.68%2018.73%20103.68%2054C103.68%2089.27%2089.27%20103.68%2054%20103.68C18.73%20103.68%204.32%2089.27%204.32%2054C4.32%2018.73%2018.73%204.32%2054%204.32Z'%20fill='%23FFFFFF'%20stroke='%23CBD5E1'%20stroke-width='2.4'/%3E%3Cg%20transform='translate%2814.15,14.15%29%20scale%280.074%29%20translate%28-1661,-699%29'%3E%3Cpath%20d='M2232.85%201072.89C2238.46%201053.67%202258.59%201042.63%202277.81%201048.24C2297.04%201053.84%202308.07%201073.97%202302.47%201093.2L2195.77%201458.95C2190.17%201478.18%202170.04%201489.21%202150.81%201483.61C2131.59%201478%202120.55%201457.87%202126.16%201438.64Z'%20fill='%23F59E0B'%20fill-rule='evenodd'/%3E%3Cpath%20d='M2221.49%201172.62C2215.37%201153.15%202226.2%201132.41%202245.67%201126.29C2265.14%201120.17%202285.89%201131%202292.01%201150.47L2357.6%201359.22C2363.72%201378.69%202352.89%201399.44%202333.42%201405.55C2313.95%201411.67%202293.2%201400.85%202287.08%201381.38Z'%20fill='%23F59E0B'%20fill-rule='evenodd'/%3E%3Cpath%20d='M2437%201193%20l290%2043%20l-263.09%2061%20Z'%20fill='%23F59E0B'%20fill-rule='evenodd'/%3E%3Cpath%20d='M2367.78%201187.87C2355.61%201171.48%202359.03%201148.33%202375.42%201136.16C2391.81%201123.99%202414.95%201127.41%202427.12%201143.8L2499.19%201240.84C2511.36%201257.23%202507.94%201280.38%202491.55%201292.55C2475.17%201304.72%202452.02%201301.3%202439.85%201284.91Z'%20fill='%23F59E0B'%20fill-rule='evenodd'/%3E%3Cpath%20d='M2356.18%201149.5C2362.09%201129.97%202382.72%201118.92%202402.25%201124.83C2421.79%201130.74%202432.83%201151.37%202426.92%201170.91L2359.8%201392.72C2353.89%201412.26%202333.26%201423.31%202313.73%201417.39C2294.19%201411.48%202283.15%201390.85%202289.06%201371.32Z'%20fill='%23F59E0B'%20fill-rule='evenodd'/%3E%3Cpath%20d='M2095.06%201089.57C2100.65%201070.4%202120.72%201059.39%202139.89%201064.98C2159.06%201070.58%202170.07%201090.65%202164.48%201109.82L2099.08%201334.02C2093.49%201353.19%202073.41%201364.2%202054.24%201358.6C2035.07%201353.01%202024.07%201332.94%202029.66%201313.77Z'%20fill='%23F59E0B'%20fill-rule='evenodd'/%3E%3Cpath%20d='M1938.48%201191.69C1950.53%201175.47%201973.44%201172.09%201989.66%201184.14C2005.89%201196.18%202009.27%201219.1%201997.22%201235.32L1958.39%201287.6C1946.34%201303.82%201923.42%201307.2%201907.2%201295.16C1890.98%201283.11%201887.6%201260.19%201899.65%201243.97Z'%20fill='%23F59E0B'%20fill-rule='evenodd'/%3E%3Cpath%20d='M1944.59%201230.24C1932.13%201214.33%201934.92%201191.34%201950.83%201178.87C1966.73%201166.41%201989.73%201169.2%202002.19%201185.11L2093.48%201301.61C2105.94%201317.51%202103.15%201340.51%202087.24%201352.97C2071.34%201365.43%202048.34%201362.64%202035.88%201346.74Z'%20fill='%23F59E0B'%20fill-rule='evenodd'/%3E%3Cg%20transform='translate%281962,1186%29%20scale%28-1,1%29'%3E%3Cpath%20d='M0%200%20L290%2054.747%20L26.907%20108%20Z'%20fill='%23F59E0B'%20fill-rule='evenodd'/%3E%3C/g%3E%3Cpath%20d='M1663.2%201278.4%20l216.2%2052.69%20l1.47%205.71%20C1923.18%201472.74%202050.07%201571.43%202200.02%201571.43%20C2349.98%201571.43%202476.86%201472.74%202519.17%201336.8%20L2520.42%201331.97%20L2736.8%201279.23%20L2736.13%201292.56%20C2708.53%201564.1%202479.04%201776%202200.02%201776%20C1921%201776%201691.51%201564.1%201663.92%201292.56%20Z%20M2200.02%20699%20C2479.04%20699%202708.53%20910.899%202736.13%201182.44%20L2737%201199.72%20L2521.38%201146.77%20L2519.17%201138.2%20C2476.86%201002.26%202349.98%20903.565%202200.02%20903.565%20C2050.07%20903.565%201923.18%201002.26%201880.87%201138.2%20L1878.44%201147.66%20L1663%201200.56%20L1663.92%201182.44%20C1691.51%20910.899%201921%20699%202200.02%20699%20Z'%20fill='%2300ACC1'%20fill-rule='evenodd'/%3E%3C/g%3E%3C/svg%3E" />
 
-  <!-- 结构化数据：SoftwareApplication（帮助 Google / Bing 识别开源软件信息） -->
+  <!-- 结构化数据：SoftwareApplication -->
   <script type="application/ld+json">
   {
     "@context": "https://schema.org",
@@ -49,7 +49,7 @@
         "alternateName": "PhonAcq 田野语音与方言字表采录系统",
         "url": "https://kasumikitsune.github.io/PhonAcq/",
         "downloadUrl": "https://github.com/KasumiKitsune/PhonAcq/releases/latest",
-        "softwareVersion": "2.0.1",
+        "softwareVersion": "2.0.2",
         "applicationCategory": "MultimediaApplication",
         "operatingSystem": "Windows 10, Windows 11, macOS (Apple Silicon), Android 7.0+",
         "inLanguage": "zh-CN",
@@ -72,7 +72,7 @@
           "https://kasumikitsune.github.io/PhonAcq/images/mode-simple.png",
           "https://kasumikitsune.github.io/PhonAcq/images/mode-advanced.png"
         ],
-        "description": "面向汉语方言调查、民族语田野记音与实验语音学课堂的开源纯本地采录软件，支持看图发音引导、局域网双机联动、实时录音质检、声调与元音格局参考，以及 Praat .Collection 与 PhonTracer .teproj 一键导出。"
+        "description": "面向汉语方言调查、民族语田野记音与实验语音学课堂的跨平台采录软件，支持看图发音引导、局域网双机联动、实时录音质检、声调与元音格局参考，以及 Praat .Collection 与 PhonTracer .teproj 一键导出。"
       }
     ]
   }
@@ -2356,7 +2356,7 @@
           </g>
         </svg>
         <span class="brand-name">PhonAcq</span>
-        <span class="version-tag js-version-badge">v2.0.1</span>
+        <span class="version-tag js-version-badge">v2.0.2</span>
       </a>
 
       <nav class="site-nav" aria-label="主导航">
@@ -2372,7 +2372,7 @@
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
             <path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22" />
           </svg>
-          <span>GitHub 开源主页</span>
+          <span>GitHub 版本与动态</span>
         </a>
         <a href="#sec-06" class="btn btn-primary">立即下载</a>
         <button type="button" class="mobile-menu-btn" id="mobile-menu-btn" aria-label="展开菜单" aria-expanded="false">
@@ -2393,7 +2393,7 @@
         <a href="#sec-05" class="nav-link">配套工具</a>
         <a href="#sec-06" class="nav-link">下载安装</a>
       </div>
-      <a href="https://github.com/KasumiKitsune/PhonAcq" target="_blank" rel="noopener" class="btn" style="width: 100%;">GitHub 开源主页</a>
+      <a href="https://github.com/KasumiKitsune/PhonAcq" target="_blank" rel="noopener" class="btn" style="width: 100%;">GitHub 版本与动态</a>
     </div>
   </header>
 
@@ -2408,7 +2408,7 @@
           <div>
             <div class="eyebrow">
               <span class="eyebrow-dot"></span>
-              <span>开源 · 纯本地运行 · 田野语音与方言字表采录软件</span>
+              <span>Windows · macOS · Android · 田野语音与方言字表采录软件</span>
             </div>
 
             <div class="hero-title-row">
@@ -2467,7 +2467,7 @@
             <!-- 首屏系统自动识别下载组 -->
             <div class="dl-status-line">
               <span id="detected-os-hint">已根据当前访问环境高亮推荐安装包</span>
-              <span class="js-version-text">当前稳定版 v2.0.1</span>
+              <span class="js-version-text">当前稳定版 v2.0.2</span>
             </div>
 
             <div class="dl-grid-hero">
@@ -4580,13 +4580,13 @@
               </div>
               <h3 class="wf-step-title">两台设备无线配合，长辈看大字，你在对面从容操控</h3>
               <p class="wf-step-desc">
-                在没有外网的乡村田野，只需打开手机热点让两台设备连入同一局域网，输入六位数字即可配对。把平板或手机放在长辈面前充当柔和的宣纸大字看读牌，调查人在对面用另一台手机或电脑安静地翻页、控制起止录音、戴耳机实时监听并随手记音，避免频繁探身点按屏幕打断发音人状态。
+                在没有外网的乡村田野，只需打开手机热点让两台设备连入同一局域网，打开「无线互联」选好角色即可自动发现、点一下直连。把平板或手机放在长辈面前充当柔和的宣纸大字看读牌，调查人在对面用另一台手机或电脑安静地翻页、控制起止录音、戴耳机实时监听并随手记音，避免频繁探身点按屏幕打断发音人状态。
               </p>
 
               <!-- 双机无线联动「信号往返」可点击交互示意 -->
               <div class="wireless-demo-box" aria-label="双机无线联动交互演示">
                 <div class="wireless-demo-top">
-                  <span>局域网热点直连示意 · 配对码 842-916</span>
+                  <span>局域网 / 手机热点自动发现直连示意</span>
                   <span id="wireless-ack-status">状态：已同步就绪</span>
                 </div>
 
@@ -5297,9 +5297,9 @@
           </div>
         </div>
 
-        <!-- 同作者配套开源工具链闭环 -->
+        <!-- 同作者配套工具链闭环 -->
         <div class="toolchain-block">
-          <div class="pipeline-bar" aria-label="开源语音学工具链闭环">
+          <div class="pipeline-bar" aria-label="语音学工具链闭环">
             <span class="pipeline-node current">
               <span class="eyebrow-dot"></span>
               <span>现场采录：PhonAcq</span>
@@ -5319,11 +5319,11 @@
                   <span class="companion-role">下游声学提取</span>
                 </div>
                 <p class="companion-desc">
-                  同作者开源的语音声学边界精修与参数批量提取工具。可直接载入 PhonAcq 导出的 <code class="mono">.teproj</code> 工程包，继承分组信息与初始起止边界，快速完成全表声调基频、元音共振峰与时长的可视化核校及汇总导出。
+                  同作者开发的语音声学边界精修与参数批量提取工具。可直接载入 PhonAcq 导出的 <code class="mono">.teproj</code> 工程包，继承分组信息与初始起止边界，快速完成全表声调基频、元音共振峰与时长的可视化核校及汇总导出。
                 </p>
               </div>
               <div class="companion-links">
-                <a href="https://github.com/KasumiKitsune/PhonTracer" target="_blank" rel="noopener">访问 PhonTracer 开源仓库 →</a>
+                <a href="https://github.com/KasumiKitsune/PhonTracer/releases" target="_blank" rel="noopener">前往下载 PhonTracer →</a>
               </div>
             </article>
 
@@ -5335,12 +5335,12 @@
                   <span class="companion-role">审校与声学制图</span>
                 </div>
                 <p class="companion-desc">
-                  基于官方源码持续维护的简体中文本地化版本，汉化主界面菜单、对话框与内置入门教程。将 PhonAcq 导出的 <code class="mono">.Collection</code> 集合文件直接拖入窗口，即可成对展开全部声音与 TextGrid 标注对象进行精细审校。
+                  基于官方版本持续维护的简体中文本地化版本，汉化主界面菜单、对话框与内置入门教程。将 PhonAcq 导出的 <code class="mono">.Collection</code> 集合文件直接拖入窗口，即可成对展开全部声音与 TextGrid 标注对象进行精细审校。
                 </p>
               </div>
               <div class="companion-links">
-                <a href="https://kasumikitsune.github.io/praat-simplified-chinese/" target="_blank" rel="noopener">项目门户主页 →</a>
-                <a href="https://github.com/KasumiKitsune/praat-simplified-chinese" target="_blank" rel="noopener">GitHub 仓库 →</a>
+                <a href="https://kasumikitsune.github.io/praat-simplified-chinese/" target="_blank" rel="noopener">项目主页与下载 →</a>
+                <a href="https://github.com/KasumiKitsune/praat-simplified-chinese" target="_blank" rel="noopener">GitHub 页面 →</a>
               </div>
             </article>
           </div>
@@ -5349,35 +5349,34 @@
     </section>
 
     <!-- ========================================================================
-         06 底部安心承诺与下载收尾区（浅暖灰 #F1F5F9 纯色通栏）
+         06 底部多平台下载收尾区（浅暖灰 #F1F5F9 纯色通栏）
          ======================================================================== -->
     <section id="sec-06" class="section-wrap bg-subtle" data-index="06 / 06">
       <div class="container">
-        <!-- 纯本地离线承诺 -->
         <div class="privacy-banner">
           <div>
             <div class="eyebrow">
               <span class="section-index">06</span>
-              <span>LOCAL-FIRST &amp; OFFLINE PRIVACY</span>
+              <span>READY FOR FIELDWORK</span>
             </div>
-            <h2 class="section-title">你的田野语料，只留在你自己的设备里。</h2>
+            <h2 class="section-title">下载即用，带着设备直接出发调查。</h2>
             <p class="section-lead">
-              PhonAcq 采用纯本地离线架构，不设账号体系，不接入任何云端服务器。所有录音原声、词表配图、发音人背景资料均保存在你的手机或电脑本地；双机联动仅通过现场局域网直连传输。
+              免注册登录，乡村田野无信号环境同样顺畅录音、分析与导出；导出的标准音频、Excel 汇总表与 Praat 标注文件可直接带走备份或跨设备迁移。
             </p>
           </div>
 
           <div class="privacy-badges">
             <div class="privacy-badge-item">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#0F766E" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg>
-              <span>100% 纯本地离线存储，无云端上传</span>
+              <span>免注册登录，装好打开即可开始采录</span>
             </div>
             <div class="privacy-badge-item">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#0F766E" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg>
-              <span>免注册登录，深山乡村无外网照常工作</span>
+              <span>深山乡村无网络信号，照常双机互联与分析</span>
             </div>
             <div class="privacy-badge-item">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#0F766E" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg>
-              <span>开源透明，导出开放标准格式不绑架数据</span>
+              <span>导出通用 WAV / Excel / TextGrid，方便长期保存</span>
             </div>
           </div>
         </div>
@@ -5414,7 +5413,7 @@
                 <span class="rec-pill">当前设备推荐</span>
               </div>
               <p style="font-size: 13.5px; color: var(--ink-secondary);">
-                适用于 Apple M 系列芯片 Mac，标准 <code class="mono">.dmg</code> 磁盘映像，拖入「应用程序」即可离线运行。
+                适用于 Apple M 系列芯片 Mac，标准 <code class="mono">.dmg</code> 磁盘映像，拖入「应用程序」即可直接使用。
               </p>
             </div>
             <div class="bottom-dl-actions">
@@ -5463,7 +5462,7 @@
             </svg>
           </summary>
           <div class="macos-details-body">
-            由于软件为免费开源发布，未附加苹果商业付费公证，macOS 用户首次拖入「应用程序」打开若提示无法验证开发者，前往「系统设置 → 隐私与安全性」底部点击「仍要打开」即可正常使用。
+            macOS 用户首次将应用拖入「应用程序」并打开时，若系统弹出安全确认提示，前往「系统设置 → 隐私与安全性」底部点击「仍要打开」即可正常使用。
           </div>
         </details>
       </div>
@@ -5475,7 +5474,7 @@
     <div class="footer-inner">
       <div>
         <strong class="mono">PhonAcq</strong>
-        <span> · 由 KasumiKitsune 开发并开源</span>
+        <span> · 由 KasumiKitsune 开发维护</span>
       </div>
       <div class="footer-links">
         <a href="https://github.com/KasumiKitsune/PhonAcq" target="_blank" rel="noopener">GitHub 仓库</a>
@@ -5496,7 +5495,7 @@
 
       const CONFIG = {
         repo: 'KasumiKitsune/PhonAcq',
-        fallbackVersion: 'v2.0.1',
+        fallbackVersion: 'v2.0.2',
         latestReleasePage: 'https://github.com/KasumiKitsune/PhonAcq/releases/latest'
       };
 
@@ -5619,7 +5618,7 @@
           el.textContent = ver;
         });
         document.querySelectorAll('.js-version-text').forEach(function (el) {
-          el.textContent = '最新开源发布 ' + ver;
+          el.textContent = '最新版本 ' + ver;
         });
 
         if (Array.isArray(releaseData.assets)) {
@@ -6660,7 +6659,7 @@
         teproj: {
           tag: '省去手工活：免写脚本直接衔接声学参数批量提取',
           title: 'PhonTracer 工程包 (.teproj)',
-          desc: '完整保留词表分组信息、发音人标签与有效发音起止边界，直接用同作者开源工具 PhonTracer 打开即可批量精修声调基频与元音共振峰，形成从田野现场到论文图表的完整闭环。'
+          desc: '完整保留词表分组信息、发音人标签与有效发音起止边界，直接用配套工具 PhonTracer 打开即可批量精修声调基频与元音共振峰，形成从田野现场到论文图表的完整闭环。'
         }
       };
 

@@ -142,7 +142,6 @@ fun MainScreen(
             showSettingsOverlay ||
             showGlobalManagement ||
             showPhoneticWord != null ||
-            !hasSelectedUiMode ||
             showRecordingTips ||
             !hasSeenRecordingTips ||
             showAboutDialog ||
@@ -1287,13 +1286,7 @@ fun MainScreen(
             )
         }
 
-        if (!hasSelectedUiMode) {
-            ModeSelectionOnboardingDialog(
-                onSelectMode = { simple ->
-                    viewModel.completeInitialModeSelection(simple)
-                }
-            )
-        } else if (showRecordingTips || !hasSeenRecordingTips) {
+        if (showRecordingTips || !hasSeenRecordingTips) {
             RecordingTipsDialog(
                 isFirstLaunch = !hasSeenRecordingTips,
                 isSimpleMode = isSimpleMode,

@@ -647,7 +647,7 @@ private fun ControllerTopBar(
                             Text(
                                 text = when {
                                     isConnected -> S.wireless.topStatusConnected.withArgs("peer" to peerName)
-                                    isHostingWaiting -> S.wireless.topStatusWaiting.withArgs("pin" to pairingPin)
+                                    isHostingWaiting -> S.wireless.topStatusWaiting
                                     else -> S.wireless.topStatusDisconnected
                                 },
                                 fontSize = 12.sp,
@@ -771,17 +771,6 @@ private fun ControllerTopBar(
                         )
                     },
                     modifier = Modifier.testTag("controller_mic_switch_chip")
-                )
-
-                StudioFilterChip(
-                    selected = snapshot.policy.storageMode != com.example.link.WirelessStorageMode.HOST_ONLY,
-                    onClick = onOpenPolicySheet,
-                    labelText = S.wireless.chipStoragePrefix.withArgs("badge" to snapshot.policy.storageMode.shortBadge),
-                    showCheckmark = false,
-                    leadingIcon = {
-                        Icon(Icons.Default.Save, contentDescription = null, modifier = Modifier.size(15.dp))
-                    },
-                    modifier = Modifier.testTag("controller_storage_mode_chip")
                 )
 
                 StudioFilterChip(
@@ -2304,11 +2293,22 @@ private fun ControllerLiveMeterBox(
                     modifier = Modifier.weight(1f)
                 )
                 Spacer(modifier = Modifier.width(8.dp))
+                val friendlyLevelLabel = when {
+                    isClipping -> "声音过响"
+                    !isRecording -> "待机"
+                    dbfs < -38f -> "声音偏轻"
+                    else -> "音量适中"
+                }
                 Text(
-                    text = S.wireless.dbfsValueFormat.withArgs("db" to String.format(Locale.US, "%.1f", dbfs)),
+                    text = friendlyLevelLabel,
                     fontSize = 12.sp,
                     fontWeight = FontWeight.Bold,
-                    color = if (isClipping) cs.error else cs.primary,
+                    color = when {
+                        isClipping -> cs.error
+                        !isRecording -> cs.onSurfaceVariant
+                        dbfs < -38f -> cs.tertiary
+                        else -> cs.primary
+                    },
                     maxLines = 1,
                     softWrap = false
                 )

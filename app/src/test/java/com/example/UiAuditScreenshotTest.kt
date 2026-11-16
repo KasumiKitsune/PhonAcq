@@ -29,9 +29,11 @@ import com.example.ui.screens.RecordingTipsDialog
 import com.example.ui.screens.SettingsScreen
 import com.example.ui.screens.WordListEditorScreen
 import com.example.ui.theme.MyApplicationTheme
+import androidx.lifecycle.viewModelScope
 import com.example.viewmodel.RecordingViewModel
 import com.github.takahirom.roborazzi.captureRoboImage
 import java.io.File
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import org.junit.After
@@ -130,12 +132,16 @@ class UiAuditScreenshotTest {
 
     private fun clearViewModel(target: RecordingViewModel) {
         target.wirelessLink.cancelOrDisconnect()
+        target.viewModelScope.cancel()
         runCatching {
             androidx.lifecycle.ViewModel::class.java.declaredMethods
-                .firstOrNull { it.name == "clear" || it.name.startsWith("clear$") }
+                .firstOrNull { (it.name == "clear" || it.name.startsWith("clear$")) && it.parameterCount == 0 }
                 ?.apply { isAccessible = true }
                 ?.invoke(target)
         }
+        org.robolectric.shadows.ShadowLooper.idleMainLooper()
+        Thread.sleep(40)
+        org.robolectric.shadows.ShadowLooper.idleMainLooper()
     }
 
     @After

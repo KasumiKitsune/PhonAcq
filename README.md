@@ -4,11 +4,11 @@
   <p>田野语音与方言字表采录系统 · 面向方言调查、民族语记音与语音学实验</p>
 
   <p>
-    <a href="https://github.com/KasumiKitsune/PhonAcq/releases/download/v2.0.1/PhonAcq-v2.0.1-windows-x64-setup.msi" title="下载 PhonAcq Windows 桌面版 (64 位 .msi)"><img src="docs/images/download-windows.svg" alt="Windows 桌面版" height="44" /></a>
+    <a href="https://github.com/KasumiKitsune/PhonAcq/releases/download/v2.0.2/PhonAcq-v2.0.2-windows-x64-setup.msi" title="下载 PhonAcq Windows 桌面版 (64 位 .msi)"><img src="docs/images/download-windows.svg" alt="Windows 桌面版" height="44" /></a>
     &nbsp;&nbsp;
-    <a href="https://github.com/KasumiKitsune/PhonAcq/releases/download/v2.0.1/PhonAcq-v2.0.1-macos-arm64.dmg" title="下载 PhonAcq macOS 桌面版 (Apple Silicon .dmg)"><img src="docs/images/download-macos.svg" alt="macOS 桌面版" height="44" /></a>
+    <a href="https://github.com/KasumiKitsune/PhonAcq/releases/download/v2.0.2/PhonAcq-v2.0.2-macos-arm64.dmg" title="下载 PhonAcq macOS 桌面版 (Apple Silicon .dmg)"><img src="docs/images/download-macos.svg" alt="macOS 桌面版" height="44" /></a>
     &nbsp;&nbsp;
-    <a href="https://github.com/KasumiKitsune/PhonAcq/releases/download/v2.0.1/PhonAcq-v2.0.1-android.apk" title="下载 PhonAcq Android 移动版 (Android 7.0+ .apk)"><img src="docs/images/download-android.svg" alt="Android 移动版" height="44" /></a>
+    <a href="https://github.com/KasumiKitsune/PhonAcq/releases/download/v2.0.2/PhonAcq-v2.0.2-android.apk" title="下载 PhonAcq Android 移动版 (Android 7.0+ .apk)"><img src="docs/images/download-android.svg" alt="Android 移动版" height="44" /></a>
   </p>
 </div>
 
@@ -17,7 +17,7 @@
 >
 > - **官方主页与交互导览 (GitHub Pages)**：[https://kasumikitsune.github.io/PhonAcq/](https://kasumikitsune.github.io/PhonAcq/)
 > - **全部历史版本与校验文件 (Releases)**：[https://github.com/KasumiKitsune/PhonAcq/releases](https://github.com/KasumiKitsune/PhonAcq/releases)
-> - **音频与存储架构**：44.1 / 48 kHz 16-bit 无损 PCM WAV · 纯本地离线存储 · 原生衔接 [PhonTracer](https://github.com/KasumiKitsune/PhonTracer) 与 [Praat](https://github.com/KasumiKitsune/praat-simplified-chinese)
+> - **音频与导出规格**：44.1 / 48 kHz 16-bit 无损 PCM WAV · 标准 ZIP / TextGrid / Excel 归档 · 原生衔接 [PhonTracer](https://github.com/KasumiKitsune/PhonTracer) 与 [Praat](https://github.com/KasumiKitsune/praat-simplified-chinese)
 
 | 桌面端三栏主录音台界面 |
 | :---: |
@@ -52,7 +52,7 @@
 > | **双界面模式随心切换** | • **简洁模式**：聚焦字表录音、回放试听与归档导出，隐去声学参数细节，支持「点按录 / 读完自动翻页 / 按住录」与纯净「看读」模式。<br>• **进阶模式**：开放单字宽带语图与共振峰轨迹、全表声调轮廓聚类与调域图、单元音椭圆与复元音动程图（Bark / Hz、多发音人 Lobanov 归一化与宏观报告导出 `.xlsx` + `.png`）、四栏国际音标速记与文白异读派生。<br>• 两种模式可在设置中随时切换，已录音频与元数据完全互通。 |
 > | **字表编排与看图诱导** | • 内置汉语方言单字声韵调摸底表、古音清浊声调对照表、普通话连读变调表等模板；支持导入 `.xlsx`、`.docx`、`.csv`、`.tsv`（自动识别 UTF-8 / GBK）、`.txt` 及剪贴板粘贴。<br>• 开启「图片词卡」后支持单条配图、现场拍照，或批量选图按文件名（如 `01_日头_太阳.jpg`）自动建词。<br>• 采用「上图下字」大字排印，支持独立隐去汉字与双指无级缩放图片。 |
 > | **田野采录控制与质检** | • 支持音量键 / 键盘盲操控制录音与切词；内置防吞字预录缓冲，降低起音截断风险。<br>• 同一词条支持多遍留存择优与文白异读紧邻派生；开录前可进行环境底噪自检、蓝牙窄带麦提醒与发音人音域校准。<br>• 按发音人独立保存四栏国际音标随手记与自定义音标库。 |
-> | **局域网双设备无线联动** | • 无需外网，两台设备处于同一局域网 Wi-Fi 或手机热点即可通过六位配对码配对。<br>• **看读端**（宣纸 / 墨水屏 / 黑板预设）置于发音人面前；**遥控端**由调查人控制切词、切换发音人、起止录音、快捷记音及低延迟耳返监听，会话胶囊支持原生 `录音核对清单.xlsx` 归档。 |
+> | **局域网双设备无线联动** | • 无需外网，两台设备处于同一局域网 Wi-Fi 或手机热点即可自动发现、一键连接（无需输入配对码）。<br>• **看读端**（宣纸 / 墨水屏 / 黑板预设）置于发音人面前；**遥控端**由调查人控制切词、切换发音人、起止录音、快捷记音及低延迟耳返监听，并支持开启双设备同步备份与 `录音核对清单.xlsx` 归档。 |
 > | **多格式规范导出** | • **标准归档压缩包 (`.zip`)**：无损 `.wav`、同名 `.TextGrid`、原生 `.xlsx`（含表头冻结与自适应列宽，兼容 Excel / WPS / Numbers）、字表清单与备份数据。<br>• **Praat 集合文件 (`.Collection`)**：Sound + TextGrid + Table 打包为单个集合文件，拖入 Praat 一次载入。<br>• **[PhonTracer](https://github.com/KasumiKitsune/PhonTracer) 工程包 (`.teproj`)**：封装音频、分组字表与切分边界，双击即可在 PhonTracer 中继续红线边界微调、橡皮擦散点修整、多发音人统计与出版级图表导出。 |
 
 ### 标准导出归档目录结构
@@ -74,7 +74,7 @@
 
 ## 相关项目与工具链联动
 
-PhonAcq 由 [KasumiKitsune](https://github.com/KasumiKitsune) 开发维护，可与以下两个同系列开源工具无缝接力，组成**「现场规范采录 → 声谱精修与批量提参 → 出版制图与深度审校」**的完整语音实验工具链：
+PhonAcq 由 [KasumiKitsune](https://github.com/KasumiKitsune) 开发维护，可与以下两个同系列配套工具无缝接力，组成**「现场规范采录 → 声谱精修与批量提参 → 出版制图与深度审校」**的完整语音实验工具链：
 
 - **[PhonTracer — 语音学标注与声学分析桌面套件](https://github.com/KasumiKitsune/PhonTracer)**（[安装包下载](https://github.com/KasumiKitsune/PhonTracer/releases)）  
   基于 Python 与 Praat (Parselmouth) 构建的下游声学精修与制图套件（含 `PhonTracer` 主程序、`Toolkit` 独立工具箱与 `PhonTracerCLI` 命令行工作台），支持声调 `F0` 与元音共振峰 `F1/F2` 双模式分析、声谱图红线边界拖拽与橡皮擦异常散点剔除、多发音人参数隔离、`.ptwl` 高级字表多维重组上色、出版级声学图表（五度图、连读变调全景网、Lobanov 元音空间、Pillai 合并度矩阵等）及研究方法报告导出。**PhonAcq 导出的 `.teproj` 工程包或标准 `.zip` 归档包可直接载入 PhonTracer 接力分析**。
@@ -88,17 +88,14 @@ PhonAcq 由 [KasumiKitsune](https://github.com/KasumiKitsune) 开发维护，可
 
 普通用户可直接点击页面顶部的平台下载卡片，或前往本仓库 **[Releases](https://github.com/KasumiKitsune/PhonAcq/releases)** 页面下载对应平台安装包：
 
-- **Windows（64 位）**：`PhonAcq-v2.0.1-windows-x64-setup.msi`（Windows 10 / 11，内置运行环境，无需额外配置 Java）
-- **macOS（Apple Silicon）**：`PhonAcq-v2.0.1-macos-arm64.dmg`（适用于 M1 / M2 / M3 / M4 系列芯片 Mac）
-- **Android（手机 / 平板）**：`PhonAcq-v2.0.1-android.apk`（Android 7.0+ 通用）
+- **Windows（64 位）**：`PhonAcq-v2.0.2-windows-x64-setup.msi`（Windows 10 / 11，内置运行环境，无需额外配置 Java）
+- **macOS（Apple Silicon）**：`PhonAcq-v2.0.2-macos-arm64.dmg`（适用于 M1 / M2 / M3 / M4 系列芯片 Mac）
+- **Android（手机 / 平板）**：`PhonAcq-v2.0.2-android.apk`（Android 7.0+ 通用）
 
 > [!TIP]
 > **macOS 首次打开提示说明**
 >
-> 由于免费开源构建未附加苹果商业付费公证，首次将应用拖入「应用程序」并双击打开时，若系统提示「无法验证开发者」，只需前往 **系统设置 → 隐私与安全性** 底部点击 **「仍要打开」**，或在终端执行：
-> ```bash
-> xattr -cr /Applications/PhonAcq.app
-> ```
+> 首次将应用拖入「应用程序」并双击打开时，若系统弹出安全确认提示，前往 **系统设置 → 隐私与安全性** 底部点击 **「仍要打开」** 即可正常使用（也可在终端执行 `xattr -cr /Applications/PhonAcq.app`）。
 
 ### 从源码编译：Android 端
 1. 克隆本仓库，使用 **Android Studio (Ladybug 或更新版本)** 打开项目根目录。
@@ -109,12 +106,12 @@ PhonAcq 由 [KasumiKitsune](https://github.com/KasumiKitsune) 开发维护，可
 1. 确保本地已安装 **JDK 17 或更高版本** 及 **Gradle 8.7+**。
 2. 在仓库根目录执行以下命令：
    - 直接启动桌面端：`gradle -p desktop-windows run`
-   - 打包 Windows 安装程序 (`.msi`)：`gradle -p desktop-windows packageMsi -PappVersion=2.0.1`
-   - 打包 macOS Apple Silicon 镜像 (`.dmg`)：`gradle -p desktop-windows packageDmg -PappVersion=2.0.1`
+   - 打包 Windows 安装程序 (`.msi`)：`gradle -p desktop-windows packageMsi -PappVersion=2.0.2`
+   - 打包 macOS Apple Silicon 镜像 (`.dmg`)：`gradle -p desktop-windows packageDmg -PappVersion=2.0.2`
 
 ### 手动触发多端自动发版（GitHub Actions）
 仓库内置手动发版工作流 `.github/workflows/release.yml`（不会在日常 `git push` 时自动运行）：
-1. 在 GitHub 仓库顶部进入 **Actions → Release PhonAcq (Android APK · Windows MSI · macOS DMG)**，点击 **Run workflow**，填写版本号（如 `2.0.1`）与更新说明即可一键并行构建并发布 Release。
+1. 在 GitHub 仓库顶部进入 **Actions → Release PhonAcq (Android APK · Windows MSI · macOS DMG)**，点击 **Run workflow**，填写版本号（如 `2.0.2`）与更新说明即可一键并行构建并发布 Release。
 2. **可选 Android 正式签名配置**：在仓库 **Settings → Secrets and variables → Actions** 中添加以下三个 Secret，工作流即会自动产出正式签名版 `PhonAcq-vX.Y.Z-android.apk`（未配置时自动回退生成可安装的测试签名版）：
    - `ANDROID_KEYSTORE_BASE64`：别名为 `upload` 的 `.jks` 签名文件经 Base64 编码后的单行文本（可通过 `keytool -genkeypair -v -keystore upload-key.jks -alias upload -keyalg RSA -keysize 2048 -validity 10000` 生成后执行 `base64 -w 0 upload-key.jks` 获取）
    - `STORE_PASSWORD`：Keystore 密码
@@ -122,6 +119,7 @@ PhonAcq 由 [KasumiKitsune](https://github.com/KasumiKitsune) 开发维护，可
 
 ---
 
-## 数据与隐私说明
+## 数据存储与跨设备迁移
 
-PhonAcq 采用纯本地离线架构。所有录音音频、词条配图、调查字表、发音人背景资料及声学计算均在本地设备完成并保存在本地存储空间中；双机无线联动仅通过本地局域网直连传输，应用不会向任何外部服务器上传语料或个人信息。
+所有录音原声、词条配图、调查字表与发音人资料均直接保存在当前设备中，在无网络的乡村田野也可正常录音、分析与导出。如需备份或迁移至其他电脑/手机，导出标准 `.zip` 项目压缩包并在目标设备导入即可完整恢复。
+

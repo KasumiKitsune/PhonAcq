@@ -34,7 +34,7 @@
     </g>
     <text x="72" y="45" class="f-sans" font-size="15" font-weight="800" fill="#0F172A">PhonAcq</text>
     <rect x="142" y="31" width="44" height="19" rx="6" fill="#DBEAFE" />
-    <text x="164" y="44" text-anchor="middle" class="f-mono" font-size="10.5" font-weight="700" fill="#1E3A8A">v2.0.1</text>
+    <text x="164" y="44" text-anchor="middle" class="f-mono" font-size="10.5" font-weight="700" fill="#1E3A8A">v2.0.2</text>
 
     <!-- Soundcard Selector Pill -->
     <rect x="202" y="26" width="214" height="28" rx="9" fill="#F8FAFC" stroke="#CBD5E1" />

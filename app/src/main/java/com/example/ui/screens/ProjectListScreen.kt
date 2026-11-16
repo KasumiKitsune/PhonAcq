@@ -108,6 +108,30 @@ fun ProjectListScreen(
         }
     }
 
+    val wireless = viewModel.wirelessLink
+    val isLinkConnected by wireless.isConnected.collectAsState()
+    val pendingSyncCount by wireless.pendingSyncCount.collectAsState()
+    val capsulesRefreshVersion by wireless.capsulesRefreshVersion.collectAsState()
+    var homeCapsuleReloadTick by remember { mutableIntStateOf(0) }
+    var wirelessCapsules by remember { mutableStateOf<List<com.example.link.WirelessSessionCapsuleSummary>>(emptyList()) }
+    var homeCapsulePendingExport by remember { mutableStateOf<com.example.link.WirelessSessionCapsuleSummary?>(null) }
+
+    LaunchedEffect(capsulesRefreshVersion, homeCapsuleReloadTick, pendingSyncCount, isLinkConnected) {
+        wirelessCapsules = viewModel.listWirelessSessionCapsules()
+    }
+
+    val exportHomeCapsuleZipLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CreateDocument("application/zip")
+    ) { targetUri ->
+        val targetCapsule = homeCapsulePendingExport
+        homeCapsulePendingExport = null
+        if (targetUri != null && targetCapsule != null) {
+            viewModel.exportWirelessCapsuleToUri(targetCapsule.capsuleDir, targetUri) { _, msg ->
+                Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
     LaunchedEffect(openSpeakerManagerTrigger) {
         if (openSpeakerManagerTrigger > 0) {
             initialSpeakerGroupFilter = null
@@ -264,14 +288,51 @@ fun ProjectListScreen(
                         .fillMaxSize()
                         .padding(innerPadding)
                 ) {
+                    val showWirelessHomeRescue = !isLinkConnected && (pendingSyncCount > 0 || wirelessCapsules.isNotEmpty())
+
                     if (projects.isEmpty() && speakers.isEmpty()) {
                         Column(
                             modifier = Modifier
                                 .fillMaxSize()
+                                .verticalScroll(rememberScrollState())
                                 .padding(24.dp),
                             verticalArrangement = Arrangement.Center,
                             horizontalAlignment = Alignment.CenterHorizontally
                         ) {
+                            if (showWirelessHomeRescue) {
+                                WirelessHomeBackupBanner(
+                                    pendingSyncCount = pendingSyncCount,
+                                    capsules = wirelessCapsules,
+                                    onRescuePending = {
+                                        viewModel.rescueWirelessPendingToCapsule { count ->
+                                            homeCapsuleReloadTick++
+                                            Toast.makeText(
+                                                context,
+                                                if (count > 0) {
+                                                    S.wireless.savedCountToLocalToast.withArgs("count" to count)
+                                                } else {
+                                                    S.wireless.noPendingToSaveToast
+                                                },
+                                                Toast.LENGTH_SHORT
+                                            ).show()
+                                        }
+                                    },
+                                    onImportCapsule = { cap ->
+                                        viewModel.importWirelessCapsuleAsProject(cap.capsuleDir) { _, msg ->
+                                            homeCapsuleReloadTick++
+                                            Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
+                                        }
+                                    },
+                                    onExportCapsuleZip = { cap ->
+                                        homeCapsulePendingExport = cap
+                                        val safeName = S.wireless.capsuleZipFilename
+                                            .withArgs("project" to cap.projectName, "speaker" to cap.speakerName)
+                                            .replace(Regex("[\\\\/:*?\"<>|]"), "_")
+                                        exportHomeCapsuleZipLauncher.launch(safeName)
+                                    }
+                                )
+                                Spacer(modifier = Modifier.height(20.dp))
+                            }
                             Icon(
                                 imageVector = Icons.AutoMirrored.Filled.List,
                                 contentDescription = S.project.emptyIllustrationDesc,
@@ -328,6 +389,41 @@ fun ProjectListScreen(
                             contentPadding = PaddingValues(16.dp, 8.dp, 16.dp, 96.dp),
                             verticalArrangement = Arrangement.spacedBy(14.dp)
                         ) {
+                            if (showWirelessHomeRescue) {
+                                item(key = "wireless_home_backup_banner") {
+                                    WirelessHomeBackupBanner(
+                                        pendingSyncCount = pendingSyncCount,
+                                        capsules = wirelessCapsules,
+                                        onRescuePending = {
+                                            viewModel.rescueWirelessPendingToCapsule { count ->
+                                                homeCapsuleReloadTick++
+                                                Toast.makeText(
+                                                    context,
+                                                    if (count > 0) {
+                                                        S.wireless.savedCountToLocalToast.withArgs("count" to count)
+                                                    } else {
+                                                        S.wireless.noPendingToSaveToast
+                                                    },
+                                                    Toast.LENGTH_SHORT
+                                                ).show()
+                                            }
+                                        },
+                                        onImportCapsule = { cap ->
+                                            viewModel.importWirelessCapsuleAsProject(cap.capsuleDir) { _, msg ->
+                                                homeCapsuleReloadTick++
+                                                Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
+                                            }
+                                        },
+                                        onExportCapsuleZip = { cap ->
+                                            homeCapsulePendingExport = cap
+                                            val safeName = S.wireless.capsuleZipFilename
+                                                .withArgs("project" to cap.projectName, "speaker" to cap.speakerName)
+                                                .replace(Regex("[\\\\/:*?\"<>|]"), "_")
+                                            exportHomeCapsuleZipLauncher.launch(safeName)
+                                        }
+                                    )
+                                }
+                            }
                             // Material You Top Action Console (Speaker Roster & Groups + Corpus Storage)
                             item {
                                 BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
@@ -2151,3 +2247,138 @@ fun ProjectDetailEditDialog(
         )
     }
 }
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun WirelessHomeBackupBanner(
+    pendingSyncCount: Int,
+    capsules: List<com.example.link.WirelessSessionCapsuleSummary>,
+    onRescuePending: () -> Unit,
+    onImportCapsule: (com.example.link.WirelessSessionCapsuleSummary) -> Unit,
+    onExportCapsuleZip: (com.example.link.WirelessSessionCapsuleSummary) -> Unit
+) {
+    Surface(
+        shape = RoundedCornerShape(20.dp),
+        color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.55f),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.secondary.copy(alpha = 0.3f)),
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag("wireless_home_backup_banner")
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Surface(
+                    shape = CircleShape,
+                    color = MaterialTheme.colorScheme.secondary,
+                    modifier = Modifier.size(32.dp)
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(
+                            imageVector = Icons.Default.Devices,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onSecondary,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+                }
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "本机存有双机互联录音备份",
+                        fontWeight = FontWeight.ExtraBold,
+                        fontSize = 14.5.sp,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    Text(
+                        text = "可直接归入本机项目列表试听整理，或导出为压缩包",
+                        fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+
+            if (pendingSyncCount > 0) {
+                Surface(
+                    shape = RoundedCornerShape(14.dp),
+                    color = MaterialTheme.colorScheme.surface.copy(alpha = 0.9f),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 12.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text(
+                            text = "有 $pendingSyncCount 条互联录音暂存在本机",
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            modifier = Modifier.weight(1f)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        FilledTonalButton(
+                            onClick = onRescuePending,
+                            shape = RoundedCornerShape(10.dp),
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                        ) {
+                            Text("整理到本机备份", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+            }
+
+            capsules.forEach { cap ->
+                Surface(
+                    shape = RoundedCornerShape(14.dp),
+                    color = MaterialTheme.colorScheme.surface.copy(alpha = 0.92f),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(
+                        modifier = Modifier.padding(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Text(
+                            text = "《${cap.projectName}》 · ${cap.speakerName}（${cap.recordedTakeCount} 条录音）",
+                            fontSize = 13.5.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        FlowRow(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Button(
+                                onClick = { onImportCapsule(cap) },
+                                shape = RoundedCornerShape(10.dp),
+                                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp),
+                                modifier = Modifier.defaultMinSize(minHeight = 36.dp)
+                            ) {
+                                Icon(Icons.Default.DownloadDone, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("归入本机项目", fontSize = 12.5.sp, fontWeight = FontWeight.Bold)
+                            }
+                            OutlinedButton(
+                                onClick = { onExportCapsuleZip(cap) },
+                                shape = RoundedCornerShape(10.dp),
+                                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp),
+                                modifier = Modifier.defaultMinSize(minHeight = 36.dp)
+                            ) {
+                                Icon(Icons.Default.FolderZip, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("导出压缩包", fontSize = 12.5.sp, fontWeight = FontWeight.SemiBold)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+

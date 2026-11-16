@@ -209,11 +209,11 @@ private fun buildManualChapters(
             ManualChapterMeta(
                 id = 8,
                 number = "八",
-                title = "防误触保护、空间清理与离线运行",
+                title = "防误触保护与存储空间管理",
                 subtitle = if (isDesktop) {
-                    "重录前确认、打开本地语料目录、按发音人清理与纯离线运行"
+                    "重录前确认、打开本地语料目录、按发音人清理与跨设备备份"
                 } else {
-                    "重录前确认、按发音人清理录音、清理缓存与纯离线运行"
+                    "重录前确认、按发音人清理录音、清理缓存与跨设备备份"
                 },
                 groupLabel = "看图分析与导出",
                 icon = Icons.AutoMirrored.Filled.HelpOutline

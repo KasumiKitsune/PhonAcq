@@ -285,11 +285,14 @@ data class PromptDisplayPolicy(
                     json.optString("recordingIndicatorStyle", PromptRecordingIndicatorStyle.SOFT_HALO.name)
                 )
             }.getOrDefault(PromptRecordingIndicatorStyle.SOFT_HALO)
-            val storage = runCatching {
-                WirelessStorageMode.valueOf(
-                    json.optString("storageMode", WirelessStorageMode.HOST_ONLY.name)
-                )
-            }.getOrDefault(WirelessStorageMode.HOST_ONLY)
+            val rawStorage = json.optString("storageMode", WirelessStorageMode.HOST_ONLY.name)
+            val storage = if (rawStorage == WirelessStorageMode.HOST_AND_CAPTURE_BACKUP.name) {
+                WirelessStorageMode.DUAL_FULL_MIRROR
+            } else {
+                runCatching {
+                    WirelessStorageMode.valueOf(rawStorage)
+                }.getOrDefault(WirelessStorageMode.HOST_ONLY)
+            }
             val coaching = runCatching {
                 PromptAudioCoachingMode.valueOf(
                     json.optString("audioCoachingMode", PromptAudioCoachingMode.OFF.name)
@@ -623,6 +626,7 @@ data class DiscoveredPeer(
     val tcpPort: Int,
     val hostRole: LinkRole,
     val projectName: String,
+    val hasActiveProject: Boolean = true,
     val lastSeenMs: Long = System.currentTimeMillis()
 ) {
     val peerExpectedRole: LinkRole

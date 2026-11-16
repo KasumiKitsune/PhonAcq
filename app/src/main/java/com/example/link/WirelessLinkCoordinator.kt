@@ -177,14 +177,19 @@ class WirelessLinkCoordinator(
         File(context.filesDir, "link_pending_sync").apply { mkdirs() }
     }
 
-    val transport = WirelessLinkTransport(
+    val transport: WirelessLinkTransport = WirelessLinkTransport(
         scope = scope,
         onJsonMessage = ::handleIncomingJson,
         onBinaryWavReceived = ::handleIncomingWav,
         onUdpAudioTelemetry = ::handleIncomingUdpTelemetry,
         onPeerConnected = ::handlePeerConnected,
         onPeerDisconnected = ::handlePeerDisconnected,
-        onRttUpdated = { ms -> _rttMs.value = ms }
+        onRttUpdated = { ms -> _rttMs.value = ms },
+        onReverseJoinInvited = { inviterIp, inviterPort ->
+            scope.launch {
+                joinPeerSession(ip = inviterIp, port = inviterPort, pin = "")
+            }
+        }
     )
 
     val discoveredPeers = transport.discoveredPeers
@@ -327,7 +332,16 @@ class WirelessLinkCoordinator(
                     latestCoaching = latestCoachingState
                 ).projectName
             },
-            preferredPort = preferredPort
+            preferredPort = preferredPort,
+            hasActiveProjectProvider = {
+                val cur = bridge.buildCurrentSessionSnapshot(
+                    activeMicOwner = _activeMicOwner.value,
+                    policy = _promptPolicy.value,
+                    sessionCode = currentSessionCode,
+                    latestCoaching = latestCoachingState
+                )
+                cur.projectId > 0L || cur.availableProjects.isNotEmpty()
+            }
         )
         _hostingTcpPort.value = port
         // Enter role preview once peer connects; keep waiting state visible in Pairing Dialog
@@ -336,9 +350,9 @@ class WirelessLinkCoordinator(
     }
 
     /**
-     * Joins an existing session hosted by another device at [ip]:[port] using [pin].
+     * Joins an existing session hosted by another device at [ip]:[port] using [pin] (empty string for 1-tap LAN pair).
      */
-    suspend fun joinPeerSession(ip: String, port: Int, pin: String): Result<LinkRole> {
+    suspend fun joinPeerSession(ip: String, port: Int, pin: String = ""): Result<LinkRole> {
         _statusBanner.value = null
         latestCoachingState = null
         val res = transport.connectToHost(
@@ -356,6 +370,41 @@ class WirelessLinkCoordinator(
             flushPendingSyncQueue()
             assignedRole
         }
+    }
+
+    /**
+     * Symmetric 1-tap connection to an auto-discovered peer.
+     * If this device holds the wordlists while the waiting peer (e.g. a blank tablet in Prompt Display mode)
+     * has no projects, automatically hosts on this device and invites the peer to join seamlessly.
+     */
+    suspend fun connectToDiscoveredPeer(
+        peer: DiscoveredPeer,
+        localHasProjects: Boolean,
+        preferredLocalRole: LinkRole? = null
+    ): Result<LinkRole> {
+        if (localHasProjects && !peer.hasActiveProject) {
+            val hostRole = preferredLocalRole?.takeIf { it != LinkRole.STANDALONE } ?: peer.peerExpectedRole
+            val myPort = startHostingSession(
+                hostRole = hostRole,
+                initialMicOwner = _activeMicOwner.value
+            )
+            val acked = transport.sendReverseJoinInvite(
+                targetIp = peer.ipAddress,
+                targetPort = peer.tcpPort,
+                myHostingPort = myPort
+            )
+            if (acked) {
+                var elapsed = 0L
+                while (elapsed < 3500L && !_isConnected.value) {
+                    delay(80L)
+                    elapsed += 80L
+                }
+                if (_isConnected.value) {
+                    return Result.success(_activeRole.value)
+                }
+            }
+        }
+        return joinPeerSession(ip = peer.ipAddress, port = peer.tcpPort, pin = "")
     }
 
     fun cancelOrDisconnect() {

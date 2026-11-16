@@ -85,9 +85,6 @@ fun PromptDisplayLinkScreen(
     val connectionEpoch by wireless.connectionEpoch.collectAsState()
     val activeMicOwner by wireless.activeMicOwner.collectAsState()
     val isHostingWaiting by wireless.isHostingWaiting.collectAsState()
-    val pairingPin by wireless.pairingPin.collectAsState()
-    val localIps by wireless.localIpAddresses.collectAsState()
-    val hostingPort by wireless.hostingTcpPort.collectAsState()
     val isAuditionPlaying by wireless.isRemoteAuditionPlaying.collectAsState()
     val imageCacheVersion by wireless.imageCacheVersion.collectAsState()
 
@@ -359,35 +356,27 @@ fun PromptDisplayLinkScreen(
                                 .testTag("prompt_waiting_pin_card")
                         ) {
                             Column(
-                                modifier = Modifier.padding(horizontal = 28.dp, vertical = 36.dp),
+                                modifier = Modifier.padding(horizontal = 28.dp, vertical = 40.dp),
                                 horizontalAlignment = Alignment.CenterHorizontally,
-                                verticalArrangement = Arrangement.spacedBy(12.dp)
+                                verticalArrangement = Arrangement.spacedBy(14.dp)
                             ) {
                                 Text(
                                     text = S.wireless.waitingControllerTitle,
-                                    fontSize = 18.sp,
-                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 22.sp,
+                                    fontWeight = FontWeight.ExtraBold,
                                     color = colors.primaryText
                                 )
                                 Text(
-                                    text = pairingPin.chunked(3).joinToString(" "),
-                                    fontSize = 44.sp,
-                                    fontWeight = FontWeight.Black,
-                                    fontFamily = FontFamily.Monospace,
-                                    letterSpacing = 4.sp,
-                                    color = colors.accent
+                                    text = S.wireless.waitingControllerPinHint,
+                                    fontSize = 15.sp,
+                                    lineHeight = 22.sp,
+                                    color = colors.secondaryText,
+                                    textAlign = TextAlign.Center
                                 )
                                 Text(
-                                    text = if (localIps.isNotEmpty()) {
-                                        S.wireless.waitingControllerPinHint.withArgs(
-                                            "ip" to localIps.first(),
-                                            "port" to hostingPort
-                                        )
-                                    } else {
-                                        S.wireless.waitingControllerWifiHint
-                                    },
-                                    fontSize = 13.5.sp,
-                                    color = colors.secondaryText,
+                                    text = S.wireless.waitingControllerWifiHint,
+                                    fontSize = 13.sp,
+                                    color = colors.secondaryText.copy(alpha = 0.78f),
                                     textAlign = TextAlign.Center
                                 )
                             }

@@ -68,6 +68,11 @@ def sync_portal(root: Path, version: str, release_date: str) -> None:
             rf"\g<1>{version}\2",
             html,
         )
+        html = re.sub(
+            r"(fallbackVersion:\s*')v[^']+(')",
+            rf"\g<1>{tag}\2",
+            html,
+        )
         index_path.write_text(html, encoding="utf-8")
 
     sitemap_path = root / "docs/sitemap.xml"

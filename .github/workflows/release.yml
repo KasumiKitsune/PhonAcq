@@ -4,9 +4,9 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: '发布版本号（如 2.0.1 或 v2.0.1）'
+        description: '发布版本号（如 2.0.2 或 v2.0.2）'
         required: true
-        default: '2.0.1'
+        default: '2.0.2'
         type: string
       release_notes:
         description: '本次版本更新说明（支持 Markdown；留空则自动生成变更记录）'
@@ -40,7 +40,7 @@ jobs:
         run: |
           CLEAN_VER="$(echo "$INPUT_VERSION" | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//; s/^[vV]//')"
           if [ -z "$CLEAN_VER" ] || ! echo "$CLEAN_VER" | grep -qE '^[0-9]+(\.[0-9]+)*([.-][0-9A-Za-z._-]+)?$'; then
-            echo "::error::版本号格式无效：'$INPUT_VERSION'（示例：2.0.1 或 v2.0.1）"
+            echo "::error::版本号格式无效：'$INPUT_VERSION'（示例：2.0.2 或 v2.0.2）"
             exit 1
           fi
           echo "raw_version=${CLEAN_VER}" >> "$GITHUB_OUTPUT"

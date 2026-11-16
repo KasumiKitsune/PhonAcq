@@ -31,7 +31,8 @@ class WirelessLinkTransport(
     private val onUdpAudioTelemetry: (dbfs: Float, isClipping: Boolean, pcm16k: ShortArray) -> Unit,
     private val onPeerConnected: (peerName: String, peerRole: LinkRole) -> Unit,
     private val onPeerDisconnected: (reason: String) -> Unit,
-    private val onRttUpdated: (rttMs: Int) -> Unit
+    private val onRttUpdated: (rttMs: Int) -> Unit,
+    private val onReverseJoinInvited: ((inviterIp: String, inviterPort: Int) -> Unit)? = null
 ) {
     companion object {
         const val DISCOVERY_UDP_PORT = 41728
@@ -165,6 +166,7 @@ class WirelessLinkTransport(
                             tcpPort = json.optInt("tcpPort", DEFAULT_TCP_PORT),
                             hostRole = role,
                             projectName = json.optString("projectName", S.wireless.transportProjectFallback),
+                            hasActiveProject = json.optBoolean("hasActiveProject", true),
                             lastSeenMs = System.currentTimeMillis()
                         )
                         updateDiscoveredPeer(peer)
@@ -218,7 +220,8 @@ class WirelessLinkTransport(
         role: LinkRole,
         pin: String,
         projectNameProvider: () -> String,
-        preferredPort: Int = 0
+        preferredPort: Int = 0,
+        hasActiveProjectProvider: () -> Boolean = { true }
     ): Int {
         closeSessionSilently()
         localDeviceName = deviceName
@@ -256,6 +259,7 @@ class WirelessLinkTransport(
                         put("tcpPort", boundTcpPort)
                         put("hostRole", localRole.name)
                         put("projectName", projectNameProvider())
+                        put("hasActiveProject", hasActiveProjectProvider())
                     }.toString().toByteArray(Charsets.UTF_8)
 
                     for (target in listBroadcastTargets()) {
@@ -306,10 +310,27 @@ class WirelessLinkTransport(
             val bytes = ByteArray(len)
             dis.readFully(bytes)
             val hello = JSONObject(String(bytes, Charsets.UTF_8))
-            if (hello.optString("type") != "HELLO_AUTH") return false
+            val msgType = hello.optString("type")
+            if (msgType == "HELLO_INVITE_JOIN") {
+                val inviterPort = hello.optInt("inviterPort", 0)
+                val inviterIp = hello.optString("inviterIp", "").trim()
+                    .ifBlank { client.inetAddress?.hostAddress.orEmpty() }
+                if (inviterPort > 0 && inviterIp.isNotBlank()) {
+                    val ackBytes = JSONObject().apply {
+                        put("type", "INVITE_ACK")
+                    }.toString().toByteArray(Charsets.UTF_8)
+                    dos.writeByte(FRAME_JSON.toInt())
+                    dos.writeInt(ackBytes.size)
+                    dos.write(ackBytes)
+                    dos.flush()
+                    onReverseJoinInvited?.invoke(inviterIp, inviterPort)
+                }
+                return false
+            }
+            if (msgType != "HELLO_AUTH") return false
 
-            val submittedPin = hello.optString("pin", "")
-            if (submittedPin != expectedPin) {
+            val submittedPin = hello.optString("pin", "").trim()
+            if (submittedPin.isNotEmpty() && submittedPin != expectedPin) {
                 val rejectBytes = JSONObject().apply {
                     put("type", "HELLO_REJECT")
                     put("reason", S.wireless.pinMismatchReason)
@@ -436,6 +457,51 @@ class WirelessLinkTransport(
                 sock.close()
             } catch (_: Exception) {}
             Result.failure(e)
+        }
+    }
+
+    /**
+     * Invites a waiting peer (e.g., an empty Prompt Display tablet) to reverse-join this device
+     * when this device holds the authoritative wordlist projects.
+     */
+    suspend fun sendReverseJoinInvite(
+        targetIp: String,
+        targetPort: Int,
+        myHostingPort: Int
+    ): Boolean = withContext(Dispatchers.IO) {
+        val sock = Socket()
+        try {
+            sock.connect(InetSocketAddress(targetIp.trim(), targetPort), 3500)
+            sock.tcpNoDelay = true
+            sock.soTimeout = 3500
+            val dis = DataInputStream(BufferedInputStream(sock.getInputStream()))
+            val dos = DataOutputStream(BufferedOutputStream(sock.getOutputStream()))
+            val localIp = sock.localAddress?.hostAddress?.takeIf { it != "0.0.0.0" }.orEmpty()
+            val reqBytes = JSONObject().apply {
+                put("type", "HELLO_INVITE_JOIN")
+                put("inviterIp", localIp)
+                put("inviterPort", myHostingPort)
+                put("deviceName", localDeviceName)
+            }.toString().toByteArray(Charsets.UTF_8)
+            dos.writeByte(FRAME_JSON.toInt())
+            dos.writeInt(reqBytes.size)
+            dos.write(reqBytes)
+            dos.flush()
+
+            val respType = dis.readByte()
+            if (respType != FRAME_JSON) return@withContext false
+            val respLen = dis.readInt()
+            if (respLen <= 0 || respLen > 65536) return@withContext false
+            val respBytes = ByteArray(respLen)
+            dis.readFully(respBytes)
+            val resp = JSONObject(String(respBytes, Charsets.UTF_8))
+            resp.optString("type") == "INVITE_ACK"
+        } catch (_: Exception) {
+            false
+        } finally {
+            try {
+                sock.close()
+            } catch (_: Exception) {}
         }
     }
 

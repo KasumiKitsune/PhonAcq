@@ -130,20 +130,22 @@ fun MultiDeviceLinkCategoryContent(
         )
     }
 
-    // 1. Recording Save Location & Local Backups
+    // 1. Recording Backup Switch & Local Backups
     SettingsGroupCard(title = S.wireless.sectionStorageLocation) {
-        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            WirelessStorageMode.entries.forEach { mode ->
-                StudioRadioRow(
-                    selected = policy.storageMode == mode,
-                    label = "${mode.title} · ${mode.subtitle}",
-                    onClick = {
-                        wireless.updatePromptPolicy { it.copy(storageMode = mode) }
-                    },
-                    modifier = Modifier.testTag("policy_storage_${mode.name}")
-                )
+        val isDualBackup = policy.storageMode == WirelessStorageMode.DUAL_FULL_MIRROR
+        SettingsSwitchRow(
+            title = S.wireless.storageBothFullTitle,
+            subtitle = if (isDualBackup) S.wireless.storageBothFullSub else S.wireless.storageHostOnlySub,
+            checked = isDualBackup,
+            onCheckedChange = { enabled ->
+                val nextMode = if (enabled) {
+                    WirelessStorageMode.DUAL_FULL_MIRROR
+                } else {
+                    WirelessStorageMode.HOST_ONLY
+                }
+                wireless.updatePromptPolicy { it.copy(storageMode = nextMode) }
             }
-        }
+        )
 
         if (!isConnected && pendingSyncCount > 0) {
             Surface(
@@ -333,59 +335,45 @@ fun MultiDeviceLinkCategoryContent(
         )
     }
 
-    // 4. Speaker Interaction Permissions on 看读端
+    // 4. Speaker Interaction Mode & Display Size (2 clear choices + collapsible details)
+    var showMorePromptDetails by remember { mutableStateOf(false) }
+    val isControllerOnlyMode = policy.pageTurnPolicy == PromptPageTurnPolicy.LOCKED_BY_CONTROLLER &&
+        !policy.allowPromptStartStopRecord &&
+        !policy.allowPromptReplayAndRetake
+
     SettingsGroupCard(title = S.wireless.sectionPromptPermissions) {
-        Text(
-            text = S.wireless.pageTurnPermissionsTitle,
-            fontSize = 13.sp,
-            fontWeight = FontWeight.Bold,
-            color = MaterialTheme.colorScheme.onSurface
-        )
-        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            PromptPageTurnPolicy.entries.forEach { option ->
-                StudioRadioRow(
-                    selected = policy.pageTurnPolicy == option,
-                    label = "${option.label} · ${option.subtitle}",
-                    onClick = {
-                        wireless.updatePromptPolicy { it.copy(pageTurnPolicy = option) }
-                    },
-                    modifier = Modifier.testTag("policy_turn_${option.name}")
-                )
-            }
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            StudioRadioRow(
+                selected = isControllerOnlyMode,
+                label = "发音人只看字，由我统一遥控（推荐，防误触）",
+                onClick = {
+                    wireless.updatePromptPolicy {
+                        it.copy(
+                            pageTurnPolicy = PromptPageTurnPolicy.LOCKED_BY_CONTROLLER,
+                            allowPromptStartStopRecord = false,
+                            allowPromptReplayAndRetake = false,
+                            immersiveExitLock = true
+                        )
+                    }
+                },
+                modifier = Modifier.testTag("policy_turn_LOCKED_BY_CONTROLLER")
+            )
+            StudioRadioRow(
+                selected = !isControllerOnlyMode,
+                label = "允许发音人自己在屏幕上翻页",
+                onClick = {
+                    wireless.updatePromptPolicy {
+                        it.copy(
+                            pageTurnPolicy = PromptPageTurnPolicy.FREE_PREV_NEXT
+                        )
+                    }
+                },
+                modifier = Modifier.testTag("policy_turn_FREE_PREV_NEXT")
+            )
         }
 
         HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
 
-        SettingsSwitchRow(
-            title = S.wireless.allowPromptRecordTitle,
-            subtitle = S.wireless.allowPromptRecordSub,
-            checked = policy.allowPromptStartStopRecord,
-            onCheckedChange = { enabled ->
-                wireless.updatePromptPolicy { it.copy(allowPromptStartStopRecord = enabled) }
-            }
-        )
-
-        SettingsSwitchRow(
-            title = S.wireless.allowPromptPlaybackTitle,
-            subtitle = S.wireless.allowPromptPlaybackSub,
-            checked = policy.allowPromptReplayAndRetake,
-            onCheckedChange = { enabled ->
-                wireless.updatePromptPolicy { it.copy(allowPromptReplayAndRetake = enabled) }
-            }
-        )
-
-        SettingsSwitchRow(
-            title = S.wireless.longPressExitTitle,
-            subtitle = S.wireless.longPressExitSub,
-            checked = policy.immersiveExitLock,
-            onCheckedChange = { enabled ->
-                wireless.updatePromptPolicy { it.copy(immersiveExitLock = enabled) }
-            }
-        )
-    }
-
-    // 5. Content Visibility & Optional Natural-Language Coaching on 看读端
-    SettingsGroupCard(title = S.wireless.sectionPromptDisplayHints) {
         Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -425,24 +413,6 @@ fun MultiDeviceLinkCategoryContent(
         }
 
         SettingsSwitchRow(
-            title = S.wireless.showCarrierTitle,
-            subtitle = S.wireless.showCarrierSub,
-            checked = policy.showCarrierSentence,
-            onCheckedChange = { enabled ->
-                wireless.updatePromptPolicy { it.copy(showCarrierSentence = enabled) }
-            }
-        )
-
-        SettingsSwitchRow(
-            title = S.wireless.alwaysShowRemarkTitle,
-            subtitle = S.wireless.alwaysShowRemarkSub,
-            checked = policy.showRemarkGlobally,
-            onCheckedChange = { enabled ->
-                wireless.updatePromptPolicy { it.copy(showRemarkGlobally = enabled) }
-            }
-        )
-
-        SettingsSwitchRow(
             title = S.wireless.hideTextWithImageTitle,
             subtitle = S.wireless.hideTextWithImageSub,
             checked = policy.hideTextWhenImagePresent,
@@ -456,54 +426,116 @@ fun MultiDeviceLinkCategoryContent(
             }
         )
 
-        SettingsSwitchRow(
-            title = S.wireless.showProgressNumberTitle,
-            subtitle = S.wireless.showProgressNumberSub,
-            checked = policy.showProgressCounter,
-            onCheckedChange = { enabled ->
-                wireless.updatePromptPolicy { it.copy(showProgressCounter = enabled) }
-            }
-        )
-
-        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
-
-        Text(
-            text = S.wireless.audioCoachingHeader,
-            fontSize = 13.sp,
-            fontWeight = FontWeight.Bold,
-            color = MaterialTheme.colorScheme.onSurface
-        )
-        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            PromptAudioCoachingMode.entries.forEach { mode ->
-                StudioRadioRow(
-                    selected = policy.audioCoachingMode == mode,
-                    label = "${mode.title} · ${mode.subtitle}",
-                    onClick = {
-                        wireless.updatePromptPolicy { it.copy(audioCoachingMode = mode) }
-                    },
-                    modifier = Modifier.testTag("policy_coaching_${mode.name}")
-                )
-            }
+        TextButton(
+            onClick = { showMorePromptDetails = !showMorePromptDetails },
+            modifier = Modifier.testTag("toggle_more_prompt_details_button")
+        ) {
+            Text(
+                text = if (showMorePromptDetails) "收起更多看读细节设置" else "展开更多看读细节设置（释义 / 进度 / 自助录音）",
+                fontSize = 12.5.sp,
+                fontWeight = FontWeight.SemiBold
+            )
         }
 
-        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+        AnimatedVisibility(
+            visible = showMorePromptDetails,
+            enter = expandVertically(tween(180)) + fadeIn(tween(150)),
+            exit = shrinkVertically(tween(150)) + fadeOut(tween(120))
+        ) {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
 
-        Text(
-            text = S.wireless.recordingIndicatorHeader,
-            fontSize = 13.sp,
-            fontWeight = FontWeight.Bold,
-            color = MaterialTheme.colorScheme.onSurface
-        )
-        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            PromptRecordingIndicatorStyle.entries.forEach { style ->
-                StudioRadioRow(
-                    selected = policy.recordingIndicatorStyle == style,
-                    label = "${style.title} · ${style.subtitle}",
-                    onClick = {
-                        wireless.updatePromptPolicy { it.copy(recordingIndicatorStyle = style) }
-                    },
-                    modifier = Modifier.testTag("policy_rec_style_${style.name}")
+                SettingsSwitchRow(
+                    title = S.wireless.allowPromptRecordTitle,
+                    subtitle = S.wireless.allowPromptRecordSub,
+                    checked = policy.allowPromptStartStopRecord,
+                    onCheckedChange = { enabled ->
+                        wireless.updatePromptPolicy { it.copy(allowPromptStartStopRecord = enabled) }
+                    }
                 )
+
+                SettingsSwitchRow(
+                    title = S.wireless.allowPromptPlaybackTitle,
+                    subtitle = S.wireless.allowPromptPlaybackSub,
+                    checked = policy.allowPromptReplayAndRetake,
+                    onCheckedChange = { enabled ->
+                        wireless.updatePromptPolicy { it.copy(allowPromptReplayAndRetake = enabled) }
+                    }
+                )
+
+                SettingsSwitchRow(
+                    title = S.wireless.longPressExitTitle,
+                    subtitle = S.wireless.longPressExitSub,
+                    checked = policy.immersiveExitLock,
+                    onCheckedChange = { enabled ->
+                        wireless.updatePromptPolicy { it.copy(immersiveExitLock = enabled) }
+                    }
+                )
+
+                SettingsSwitchRow(
+                    title = S.wireless.showCarrierTitle,
+                    subtitle = S.wireless.showCarrierSub,
+                    checked = policy.showCarrierSentence,
+                    onCheckedChange = { enabled ->
+                        wireless.updatePromptPolicy { it.copy(showCarrierSentence = enabled) }
+                    }
+                )
+
+                SettingsSwitchRow(
+                    title = S.wireless.alwaysShowRemarkTitle,
+                    subtitle = S.wireless.alwaysShowRemarkSub,
+                    checked = policy.showRemarkGlobally,
+                    onCheckedChange = { enabled ->
+                        wireless.updatePromptPolicy { it.copy(showRemarkGlobally = enabled) }
+                    }
+                )
+
+                SettingsSwitchRow(
+                    title = S.wireless.showProgressNumberTitle,
+                    subtitle = S.wireless.showProgressNumberSub,
+                    checked = policy.showProgressCounter,
+                    onCheckedChange = { enabled ->
+                        wireless.updatePromptPolicy { it.copy(showProgressCounter = enabled) }
+                    }
+                )
+
+                Text(
+                    text = S.wireless.audioCoachingHeader,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    PromptAudioCoachingMode.entries.forEach { mode ->
+                        StudioRadioRow(
+                            selected = policy.audioCoachingMode == mode,
+                            label = "${mode.title} · ${mode.subtitle}",
+                            onClick = {
+                                wireless.updatePromptPolicy { it.copy(audioCoachingMode = mode) }
+                            },
+                            modifier = Modifier.testTag("policy_coaching_${mode.name}")
+                        )
+                    }
+                }
+
+                Text(
+                    text = S.wireless.recordingIndicatorHeader,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    PromptRecordingIndicatorStyle.entries.forEach { style ->
+                        StudioRadioRow(
+                            selected = policy.recordingIndicatorStyle == style,
+                            label = "${style.title} · ${style.subtitle}",
+                            onClick = {
+                                wireless.updatePromptPolicy { it.copy(recordingIndicatorStyle = style) }
+                            },
+                            modifier = Modifier.testTag("policy_rec_style_${style.name}")
+                        )
+                    }
+                }
             }
         }
     }

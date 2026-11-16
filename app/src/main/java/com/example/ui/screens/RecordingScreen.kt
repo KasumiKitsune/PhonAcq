@@ -4436,12 +4436,51 @@ internal fun RecordingSettingsSheetContent(
             verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
 
+        val currentHabitIndex = when {
+            isPushToTalk -> 1
+            isAutoNext -> 2
+            else -> 0
+        }
+
         if (isSimpleMode) {
             Card(
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
                 shape = RoundedCornerShape(16.dp)
             ) {
                 Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        StudioFilterChip(
+                            selected = currentHabitIndex == 0,
+                            onClick = {
+                                onAutoNextChange(false)
+                                onPushToTalkChange(false)
+                                onAutoAdvanceOnHoldReleaseChange(false)
+                            },
+                            labelText = "点按录"
+                        )
+                        StudioFilterChip(
+                            selected = currentHabitIndex == 1,
+                            onClick = {
+                                onPushToTalkChange(true)
+                                onAutoAdvanceOnHoldReleaseChange(true)
+                            },
+                            labelText = "按住松手跳词"
+                        )
+                        StudioFilterChip(
+                            selected = currentHabitIndex == 2,
+                            onClick = {
+                                onAutoNextChange(true)
+                                onAutoAdvanceOnHoldReleaseChange(false)
+                            },
+                            labelText = "读完自动跳词"
+                        )
+                    }
+
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+
                     StudioSwitchRow(
                         title = S.recording.autoNextTitle,
                         subtitle = S.recording.autoNextSubtitle,
@@ -4534,6 +4573,39 @@ internal fun RecordingSettingsSheetContent(
                 shape = RoundedCornerShape(16.dp)
             ) {
                 Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        StudioFilterChip(
+                            selected = currentHabitIndex == 0,
+                            onClick = {
+                                onAutoNextChange(false)
+                                onPushToTalkChange(false)
+                                onAutoAdvanceOnHoldReleaseChange(false)
+                            },
+                            labelText = "点按录"
+                        )
+                        StudioFilterChip(
+                            selected = currentHabitIndex == 1,
+                            onClick = {
+                                onPushToTalkChange(true)
+                                onAutoAdvanceOnHoldReleaseChange(true)
+                            },
+                            labelText = "按住松手跳词"
+                        )
+                        StudioFilterChip(
+                            selected = currentHabitIndex == 2,
+                            onClick = {
+                                onAutoNextChange(true)
+                                onAutoAdvanceOnHoldReleaseChange(false)
+                            },
+                            labelText = "读完自动跳词"
+                        )
+                    }
+
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+
                     StudioSwitchRow(
                         title = S.recording.desktopAutoNextTitle,
                         subtitle = S.recording.desktopAutoNextSubtitle,
@@ -4606,13 +4678,18 @@ internal fun RecordingSettingsSheetContent(
                     shape = RoundedCornerShape(16.dp)
                 ) {
                     Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        val activePreset = when {
+                            vadThreshold <= 850f -> "高灵敏"
+                            vadThreshold >= 1650f -> "抗噪"
+                            else -> "标准"
+                        }
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Text(
-                                text = S.recording.vadSensitivityValue.withArgs("value" to vadThreshold.toInt()),
+                                text = S.recording.vadSensitivityValue.withArgs("value" to S.settings.displayVadPreset(activePreset)),
                                 style = MaterialTheme.typography.labelLarge
                             )
                             Text(
@@ -4625,11 +4702,6 @@ internal fun RecordingSettingsSheetContent(
                             horizontalArrangement = Arrangement.spacedBy(6.dp),
                             verticalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
-                            val activePreset = when {
-                                vadThreshold <= 850f -> "高灵敏"
-                                vadThreshold >= 1650f -> "抗噪"
-                                else -> "标准"
-                            }
                             listOf("高灵敏", "标准", "抗噪").forEach { preset ->
                                 StudioFilterChip(
                                     selected = activePreset == preset,
@@ -4739,9 +4811,14 @@ internal fun RecordingSettingsSheetContent(
                 shape = RoundedCornerShape(16.dp)
             ) {
                 Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    val lowVolLevelLabel = when {
+                        lowVolumeThreshold < 400f -> "宽松"
+                        lowVolumeThreshold > 950f -> "严格"
+                        else -> "适中"
+                    }
                     Text(S.recording.qualityReminderHeader, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
                     Text(
-                        text = S.recording.lowVolThresholdValue.withArgs("value" to lowVolumeThreshold.toInt()),
+                        text = S.recording.lowVolThresholdValue.withArgs("value" to lowVolLevelLabel),
                         style = MaterialTheme.typography.bodySmall
                     )
                     Slider(
