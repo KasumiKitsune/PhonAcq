@@ -112,7 +112,7 @@ PhonAcq 由 [KasumiKitsune](https://github.com/KasumiKitsune) 开发维护，可
 ### 手动触发多端自动发版（GitHub Actions）
 仓库内置手动发版工作流 `.github/workflows/release.yml`（不会在日常 `git push` 时自动运行）：
 1. 在 GitHub 仓库顶部进入 **Actions → Release PhonAcq (Android APK · Windows MSI · macOS DMG)**，点击 **Run workflow**，填写版本号（如 `2.0.2`）与更新说明即可一键并行构建并发布 Release。
-2. **可选 Android 正式签名配置**：在仓库 **Settings → Secrets and variables → Actions** 中添加以下三个 Secret，工作流即会自动产出正式签名版 `PhonAcq-vX.Y.Z-android.apk`（未配置时自动回退生成可安装的测试签名版）：
+2. **可选 Android 正式签名配置**：在仓库 **Settings → Secrets and variables → Actions** 中添加以下三个 Secret，工作流即会自动产出正式签名版 `PhonAcq-v2.0.2-android.apk`（未配置时自动回退生成可安装的测试签名版）：
    - `ANDROID_KEYSTORE_BASE64`：别名为 `upload` 的 `.jks` 签名文件经 Base64 编码后的单行文本（可通过 `keytool -genkeypair -v -keystore upload-key.jks -alias upload -keyalg RSA -keysize 2048 -validity 10000` 生成后执行 `base64 -w 0 upload-key.jks` 获取）
    - `STORE_PASSWORD`：Keystore 密码
    - `KEY_PASSWORD`：`upload` 密钥密码
