@@ -38,6 +38,13 @@ object CorpusPhonologyAnalyzer {
         return report.wordIdToCanonicalMember[wordId]
     }
 
+    fun lookupCachedSpeakerReport(
+        projectId: Long,
+        speakerId: Long
+    ): SpeakerCorpusPhonologyReport? {
+        return latestReportByProjectSpeaker["${projectId}_${speakerId}"]
+    }
+
     /**
      * Builds (or retrieves from cache) the complete corpus-level phonology report for one speaker:
      * - Robust speaker pitch range & median duration calibration

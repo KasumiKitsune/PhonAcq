@@ -91,8 +91,10 @@ import com.example.utils.PraatCollectionExporter
 import com.example.utils.ZipUtility
 import com.example.viewmodel.RecordingViewModel
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -133,7 +135,48 @@ fun ArchiveExplorerScreen(
         }
     }
 
-    val filteredWords = remember(words, searchText, selectedFilter) {
+    val projectSummaries by viewModel.projectSummaries.collectAsState()
+    val currentProjectSummary = project?.id?.let { projectSummaries[it] }
+    val currentRecordedCount = remember(words) { words.count { it.isRecorded && !it.recordingFile.isNullOrEmpty() } }
+    val totalProjectRecordings = currentProjectSummary?.totalRecordingsCount ?: currentRecordedCount
+    val startedSpeakersCount = currentProjectSummary?.startedSpeakerCount ?: (if (currentRecordedCount > 0) 1 else 0)
+
+    val multiSpeakerWordCounts by produceState<Map<Long, Int>>(
+        initialValue = emptyMap(),
+        key1 = project?.id,
+        key2 = startedSpeakersCount,
+        key3 = totalProjectRecordings
+    ) {
+        val pid = project?.id
+        if (pid == null || startedSpeakersCount < 2) {
+            value = emptyMap()
+        } else {
+            value = withContext(Dispatchers.IO) {
+                val pairs = viewModel.getProjectMultiSpeakerWordPairs(pid)
+                val counts = HashMap<Long, Int>()
+                for ((_, wList) in pairs) {
+                    for (w in wList) {
+                        if (w.isRecorded && !w.recordingFile.isNullOrEmpty()) {
+                            counts[w.id] = (counts[w.id] ?: 0) + 1
+                        }
+                    }
+                }
+                counts
+            }
+        }
+    }
+
+    val multiComparableWordCount = remember(words, multiSpeakerWordCounts) {
+        if (multiSpeakerWordCounts.isEmpty()) 0 else words.count { (multiSpeakerWordCounts[it.id] ?: 0) >= 2 }
+    }
+
+    LaunchedEffect(startedSpeakersCount, multiComparableWordCount) {
+        if (selectedFilter == 4 && (startedSpeakersCount < 2 || multiComparableWordCount == 0)) {
+            selectedFilter = 0
+        }
+    }
+
+    val filteredWords = remember(words, searchText, selectedFilter, multiSpeakerWordCounts) {
         words.filter { word ->
             val matchesSearch = word.text.contains(searchText, ignoreCase = true) ||
                 word.remark.contains(searchText, ignoreCase = true) ||
@@ -142,6 +185,7 @@ fun ArchiveExplorerScreen(
                 1 -> word.isRecorded
                 2 -> !word.isRecorded
                 3 -> word.isRecorded && word.qualityStatus != null && word.qualityStatus != "正常"
+                4 -> (multiSpeakerWordCounts[word.id] ?: 0) >= 2
                 else -> true
             }
             matchesSearch && matchesFilter
@@ -157,12 +201,6 @@ fun ArchiveExplorerScreen(
             }
         }
     }
-
-    val projectSummaries by viewModel.projectSummaries.collectAsState()
-    val currentProjectSummary = project?.id?.let { projectSummaries[it] }
-    val currentRecordedCount = remember(words) { words.count { it.isRecorded && !it.recordingFile.isNullOrEmpty() } }
-    val totalProjectRecordings = currentProjectSummary?.totalRecordingsCount ?: currentRecordedCount
-    val startedSpeakersCount = currentProjectSummary?.startedSpeakerCount ?: (if (currentRecordedCount > 0) 1 else 0)
 
     var showExportPage by remember { mutableStateOf(false) }
     var wordPendingDelete by remember { mutableStateOf<Word?>(null) }
@@ -714,12 +752,15 @@ fun ArchiveExplorerScreen(
                         val isCompactFilters = maxWidth < 360.dp
                         val (recCount, unrecCount, flagCount) = filterCounts
                         val sep = if (isCompactFilters) "" else " "
-                        val filterLabels = listOf(
-                            S.archive.filterAll.withArgs("sep" to sep, "count" to words.size),
-                            S.archive.filterRecorded.withArgs("sep" to sep, "count" to recCount),
-                            S.archive.filterUnrecorded.withArgs("sep" to sep, "count" to unrecCount),
-                            S.archive.filterFlagged.withArgs("sep" to sep, "count" to flagCount)
-                        )
+                        val filterLabels = buildList {
+                            add(S.archive.filterAll.withArgs("sep" to sep, "count" to words.size))
+                            add(S.archive.filterRecorded.withArgs("sep" to sep, "count" to recCount))
+                            add(S.archive.filterUnrecorded.withArgs("sep" to sep, "count" to unrecCount))
+                            add(S.archive.filterFlagged.withArgs("sep" to sep, "count" to flagCount))
+                            if (startedSpeakersCount >= 2 && multiComparableWordCount > 0) {
+                                add("多人已录${sep}(${multiComparableWordCount})")
+                            }
+                        }
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -832,7 +873,9 @@ fun ArchiveExplorerScreen(
                                         }
                                     },
                                     onShowPhoneticDetails = remember(word) { { viewModel.showPhoneticWordDetail(word) } },
-                                    showAcousticDetailsButton = !isSimpleMode
+                                    showAcousticDetailsButton = !isSimpleMode,
+                                    multiSpeakerRecordedCount = multiSpeakerWordCounts[word.id] ?: 0,
+                                    startedSpeakersCount = startedSpeakersCount
                                 )
                             }
                         }
@@ -913,6 +956,8 @@ fun ArchiveWordItemRow(
     onRowClicked: () -> Unit,
     onShowPhoneticDetails: () -> Unit,
     showAcousticDetailsButton: Boolean = true,
+    multiSpeakerRecordedCount: Int = 0,
+    startedSpeakersCount: Int = 1,
     modifier: Modifier = Modifier
 ) {
     val isDesktop = DesktopAdaptiveState.isDesktopPlatform
@@ -1103,16 +1148,50 @@ fun ArchiveWordItemRow(
                                         modifier = Modifier.weight(1f, fill = false)
                                     )
                                 }
+                                if (startedSpeakersCount >= 2 && multiSpeakerRecordedCount >= 2) {
+                                    Surface(
+                                        shape = RoundedCornerShape(4.dp),
+                                        color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.55f)
+                                    ) {
+                                        Text(
+                                            text = "${multiSpeakerRecordedCount}人已录",
+                                            fontSize = 10.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = MaterialTheme.colorScheme.primary,
+                                            modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp)
+                                        )
+                                    }
+                                }
                             }
                         } else {
-                            Text(
-                                text = S.archive.unrecordedJumpHint,
-                                fontSize = 11.sp,
-                                color = MaterialTheme.colorScheme.outline,
-                                fontWeight = FontWeight.Medium,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Text(
+                                    text = S.archive.unrecordedJumpHint,
+                                    fontSize = 11.sp,
+                                    color = MaterialTheme.colorScheme.outline,
+                                    fontWeight = FontWeight.Medium,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier.weight(1f, fill = false)
+                                )
+                                if (startedSpeakersCount >= 2 && multiSpeakerRecordedCount >= 1) {
+                                    Surface(
+                                        shape = RoundedCornerShape(4.dp),
+                                        color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.6f)
+                                    ) {
+                                        Text(
+                                            text = "他人已录(${multiSpeakerRecordedCount})",
+                                            fontSize = 10.sp,
+                                            fontWeight = FontWeight.SemiBold,
+                                            color = MaterialTheme.colorScheme.onSecondaryContainer,
+                                            modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp)
+                                        )
+                                    }
+                                }
+                            }
                         }
                     }
                 }
@@ -1367,6 +1446,23 @@ fun PhoneticDetailsContent(
     }
 
     var overlayOtherSpeakersOnToneChart by remember { mutableStateOf(true) }
+    var hiddenOtherSpeakerIds by remember(word.id) { mutableStateOf(emptySet<Long>()) }
+    var sequentialPlayJob by remember { mutableStateOf<Job?>(null) }
+    var isSequentialPlaying by remember { mutableStateOf(false) }
+
+    DisposableEffect(word.id) {
+        onDispose {
+            sequentialPlayJob?.cancel()
+        }
+    }
+
+    val toggleOtherSpeakerVisibility: (Long) -> Unit = { targetSpkId ->
+        hiddenOtherSpeakerIds = if (targetSpkId in hiddenOtherSpeakerIds) {
+            hiddenOtherSpeakerIds - targetSpkId
+        } else {
+            hiddenOtherSpeakerIds + targetSpkId
+        }
+    }
 
     // Available multi-takes for the active speaker
     val availableTakes by produceState<List<File>>(
@@ -2093,26 +2189,94 @@ fun PhoneticDetailsContent(
                                             }
                                         }
 
-                                        // Draw overlaid comparison curves from other speakers (dashed)
+                                        // Draw overlaid comparison curves from other speakers (syllable-column & checked-tone aligned!)
                                         if (overlayOtherSpeakersOnToneChart && otherSpeakersEntries.isNotEmpty()) {
+                                            val ptsPerSeg = 5
+                                            val refSegCount = analysis.segmentCount.coerceAtLeast(1)
                                             otherSpeakersEntries.forEachIndexed { idx, otherEntry ->
-                                                val otherPoints = otherEntry.analysis.contourPoints
+                                                if (otherEntry.speaker.id in hiddenOtherSpeakerIds) return@forEachIndexed
+                                                val otherAna = otherEntry.analysis
+                                                val otherPoints = otherAna.contourPoints
                                                 if (otherPoints.size >= 2) {
-                                                    val col = comparePalette[idx % comparePalette.size].copy(alpha = 0.72f)
-                                                    val path = Path()
-                                                    otherPoints.forEachIndexed { i, p ->
-                                                        val px = (i.toFloat() / (otherPoints.size - 1)) * size.width
-                                                        val py = (1f - p) * size.height * 0.84f + size.height * 0.08f
-                                                        if (i == 0) path.moveTo(px, py) else path.lineTo(px, py)
+                                                    val col = comparePalette[idx % comparePalette.size].copy(alpha = 0.78f)
+                                                    val otherSegCnt = minOf(refSegCount, otherAna.segmentCount.coerceAtLeast(1))
+                                                    var otherCursorX = 0f
+                                                    for (s in 0 until otherSegCnt) {
+                                                        val colW = if (refSegCount == 1) {
+                                                            if (otherAna.isCheckedTone) {
+                                                                size.width * otherAna.checkedToneRatio.coerceIn(0.40f, 0.62f)
+                                                            } else {
+                                                                size.width
+                                                            }
+                                                        } else {
+                                                            size.width * syllableWeights.getOrElse(s) { 1f / refSegCount }
+                                                        }
+                                                        val sStart = s * ptsPerSeg
+                                                        if (sStart + ptsPerSeg <= otherPoints.size) {
+                                                            val oNeutral = otherAna.syllableNeutralFlags.getOrElse(s) { false }
+                                                            val oChecked = if (otherAna.segmentCount <= 1) {
+                                                                otherAna.isCheckedTone
+                                                            } else {
+                                                                otherAna.syllableCheckedFlags.getOrElse(s) { false }
+                                                            }
+                                                            val innerPad = if (refSegCount > 1) (colW * 0.10f).coerceAtMost(10.dp.toPx()) else 0f
+                                                            val usableW = (colW - innerPad * 2f).coerceAtLeast(8f)
+                                                            val drawSpanW = when {
+                                                                oNeutral -> usableW * 0.45f
+                                                                oChecked && refSegCount > 1 -> usableW * 0.56f
+                                                                else -> usableW
+                                                            }
+                                                            val sx = otherCursorX + innerPad
+                                                            val stepX = drawSpanW / (ptsPerSeg - 1)
+                                                            val path = Path()
+                                                            var endPx = sx
+                                                            var endPy = 0f
+                                                            for (i in 0 until ptsPerSeg) {
+                                                                val p = otherPoints[sStart + i]
+                                                                val px = sx + i * stepX
+                                                                val py = (1f - p) * size.height * 0.84f + size.height * 0.08f
+                                                                if (i == 0) path.moveTo(px, py) else path.lineTo(px, py)
+                                                                endPx = px
+                                                                endPy = py
+                                                            }
+                                                            drawPath(
+                                                                path = path,
+                                                                color = col,
+                                                                style = Stroke(
+                                                                    width = 2.1.dp.toPx(),
+                                                                    cap = StrokeCap.Round,
+                                                                    pathEffect = PathEffect.dashPathEffect(floatArrayOf(10f, 6f), 0f)
+                                                                )
+                                                            )
+                                                            if (oChecked) {
+                                                                drawLine(
+                                                                    color = col,
+                                                                    start = Offset(endPx, (endPy - 6.dp.toPx()).coerceAtLeast(2f)),
+                                                                    end = Offset(endPx, (endPy + 6.dp.toPx()).coerceAtMost(size.height - 2f)),
+                                                                    strokeWidth = 2.dp.toPx(),
+                                                                    cap = StrokeCap.Round
+                                                                )
+                                                            }
+                                                        } else if (s == 0 && otherPoints.size in 2..4) {
+                                                            val path = Path()
+                                                            otherPoints.forEachIndexed { i, p ->
+                                                                val px = (i.toFloat() / (otherPoints.size - 1)) * colW
+                                                                val py = (1f - p) * size.height * 0.84f + size.height * 0.08f
+                                                                if (i == 0) path.moveTo(px, py) else path.lineTo(px, py)
+                                                            }
+                                                            drawPath(
+                                                                path = path,
+                                                                color = col,
+                                                                style = Stroke(
+                                                                    width = 2.dp.toPx(),
+                                                                    pathEffect = PathEffect.dashPathEffect(floatArrayOf(10f, 6f), 0f)
+                                                                )
+                                                            )
+                                                        }
+                                                        if (refSegCount > 1) {
+                                                            otherCursorX += size.width * syllableWeights.getOrElse(s) { 1f / refSegCount }
+                                                        }
                                                     }
-                                                    drawPath(
-                                                        path = path,
-                                                        color = col,
-                                                        style = Stroke(
-                                                            width = 2.dp.toPx(),
-                                                            pathEffect = PathEffect.dashPathEffect(floatArrayOf(10f, 6f), 0f)
-                                                        )
-                                                    )
                                                 }
                                             }
                                         }
@@ -2281,15 +2445,27 @@ fun PhoneticDetailsContent(
                                         if (overlayOtherSpeakersOnToneChart) {
                                             otherSpeakersEntries.forEachIndexed { idx, entry ->
                                                 val col = comparePalette[idx % comparePalette.size]
-                                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                                                    Box(modifier = Modifier.size(8.dp).background(col, CircleShape))
+                                                val isHidden = entry.speaker.id in hiddenOtherSpeakerIds
+                                                Row(
+                                                    verticalAlignment = Alignment.CenterVertically,
+                                                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                                    modifier = Modifier
+                                                        .clip(RoundedCornerShape(6.dp))
+                                                        .clickable { toggleOtherSpeakerVisibility(entry.speaker.id) }
+                                                        .padding(horizontal = 4.dp, vertical = 2.dp)
+                                                ) {
+                                                    Box(
+                                                        modifier = Modifier
+                                                            .size(8.dp)
+                                                            .background(if (isHidden) MaterialTheme.colorScheme.outline else col, CircleShape)
+                                                    )
                                                     Text(
                                                         text = S.archive.speakerChaoBracketItem.withArgs(
                                                             "name" to entry.speaker.name,
                                                             "chao" to entry.analysis.chaoToneNumbers
                                                         ),
                                                         fontSize = 11.sp,
-                                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                        color = if (isHidden) MaterialTheme.colorScheme.outline else MaterialTheme.colorScheme.onSurfaceVariant
                                                     )
                                                 }
                                             }
@@ -2313,7 +2489,7 @@ fun PhoneticDetailsContent(
                         }
                     }
 
-                    // Section 1B: Cross-Speaker Same-Word Comparison (Feature #5)
+                    // Section 1B: Cross-Speaker Same-Word Comparison (Upgraded with Formant/Glide Readout, Visibility Toggle & Cancellable Sequential Play)
                     if (crossSpeakerList.size >= 2 && viewModel != null) {
                         Spacer(modifier = Modifier.height(20.dp))
                         Row(
@@ -2336,21 +2512,45 @@ fun PhoneticDetailsContent(
                             }
                             FilledTonalButton(
                                 onClick = {
-                                    scope.launch {
-                                        for (item in crossSpeakerList) {
-                                            val tagId = -(word.id * 1000 + item.speaker.id)
-                                            viewModel.playSpecificAudioFile(item.audioFile, tagId)
-                                            val waitMs = item.recording.durationMs.coerceIn(450L, 4000L) + 420L
-                                            delay(waitMs)
+                                    if (isSequentialPlaying && sequentialPlayJob?.isActive == true) {
+                                        sequentialPlayJob?.cancel()
+                                        sequentialPlayJob = null
+                                        isSequentialPlaying = false
+                                        viewModel.stopPlayback()
+                                    } else {
+                                        sequentialPlayJob?.cancel()
+                                        isSequentialPlaying = true
+                                        sequentialPlayJob = scope.launch {
+                                            try {
+                                                for (item in crossSpeakerList) {
+                                                    if (!isActive) break
+                                                    val tagId = -(word.id * 1000 + item.speaker.id)
+                                                    viewModel.playSpecificAudioFile(item.audioFile, tagId)
+                                                    val waitMs = item.recording.durationMs.coerceIn(450L, 4000L) + 420L
+                                                    delay(waitMs)
+                                                }
+                                            } finally {
+                                                isSequentialPlaying = false
+                                            }
                                         }
                                     }
                                 },
                                 contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
                                 modifier = Modifier.height(32.dp)
                             ) {
-                                Icon(Icons.AutoMirrored.Filled.PlaylistPlay, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Icon(
+                                    imageVector = if (isSequentialPlaying) Icons.Default.Stop else Icons.AutoMirrored.Filled.PlaylistPlay,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(16.dp)
+                                )
                                 Spacer(Modifier.width(4.dp))
-                                Text(S.archive.playSequentialButton, fontSize = 11.sp, fontWeight = FontWeight.Bold, maxLines = 1, softWrap = false)
+                                Text(
+                                    text = if (isSequentialPlaying) "停止连播" else S.archive.playSequentialButton,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    maxLines = 1,
+                                    softWrap = false
+                                )
                             }
                         }
 
@@ -2366,8 +2566,18 @@ fun PhoneticDetailsContent(
                             ) {
                                 crossSpeakerList.forEach { item ->
                                     val isCurrentSpk = item.speaker.id == speaker?.id
+                                    val otherIdx = otherSpeakersEntries.indexOfFirst { it.speaker.id == item.speaker.id }
+                                    val spkDotCol = if (isCurrentSpk) {
+                                        MaterialTheme.colorScheme.primary
+                                    } else if (otherIdx >= 0) {
+                                        comparePalette[otherIdx % comparePalette.size]
+                                    } else {
+                                        MaterialTheme.colorScheme.secondary
+                                    }
+                                    val isChartHidden = !isCurrentSpk && item.speaker.id in hiddenOtherSpeakerIds
                                     val tagId = -(word.id * 1000 + item.speaker.id)
                                     val isPlayingThis = playingWordId == tagId
+                                    val primaryTraj = item.analysis.formantTrajectories.firstOrNull()
                                     Surface(
                                         shape = RoundedCornerShape(12.dp),
                                         color = if (isCurrentSpk) {
@@ -2389,11 +2599,19 @@ fun PhoneticDetailsContent(
                                             horizontalArrangement = Arrangement.SpaceBetween,
                                             verticalAlignment = Alignment.CenterVertically
                                         ) {
-                                            Column(modifier = Modifier.weight(1f)) {
+                                            Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
                                                 Row(
                                                     verticalAlignment = Alignment.CenterVertically,
                                                     horizontalArrangement = Arrangement.spacedBy(6.dp)
                                                 ) {
+                                                    Box(
+                                                        modifier = Modifier
+                                                            .size(8.dp)
+                                                            .background(
+                                                                if (isChartHidden) MaterialTheme.colorScheme.outline else spkDotCol,
+                                                                CircleShape
+                                                            )
+                                                    )
                                                     Text(
                                                         text = item.speaker.name,
                                                         fontWeight = FontWeight.Bold,
@@ -2431,16 +2649,55 @@ fun PhoneticDetailsContent(
                                                         )
                                                     }
                                                 }
+                                                if (primaryTraj != null && primaryTraj.nucleusF1 > 0) {
+                                                    Spacer(modifier = Modifier.height(2.dp))
+                                                    Text(
+                                                        text = String.format(
+                                                            java.util.Locale.US,
+                                                            "%s · F1/F2: %d/%d Hz · 动程 %.1f Bark",
+                                                            primaryTraj.vowelType.chineseLabel.substringBefore(' '),
+                                                            primaryTraj.nucleusF1,
+                                                            primaryTraj.nucleusF2,
+                                                            primaryTraj.barkGlideSpan
+                                                        ),
+                                                        fontSize = 11.sp,
+                                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                    )
+                                                }
                                             }
-                                            FilledTonalIconButton(
-                                                onClick = { viewModel.playSpecificAudioFile(item.audioFile, tagId) },
-                                                modifier = Modifier.size(34.dp)
+                                            Row(
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(4.dp)
                                             ) {
-                                                Icon(
-                                                    imageVector = if (isPlayingThis) Icons.Default.Stop else Icons.Default.PlayArrow,
-                                                    contentDescription = S.archive.listenSpeakerDesc.withArgs("name" to item.speaker.name),
-                                                    modifier = Modifier.size(18.dp)
-                                                )
+                                                if (!isCurrentSpk) {
+                                                    IconButton(
+                                                        onClick = { toggleOtherSpeakerVisibility(item.speaker.id) },
+                                                        modifier = Modifier.size(32.dp)
+                                                    ) {
+                                                        Icon(
+                                                            imageVector = if (isChartHidden) Icons.Default.VisibilityOff else Icons.Default.Visibility,
+                                                            contentDescription = if (isChartHidden) "显示叠绘曲线" else "隐藏叠绘曲线",
+                                                            tint = if (isChartHidden) MaterialTheme.colorScheme.outline else spkDotCol,
+                                                            modifier = Modifier.size(17.dp)
+                                                        )
+                                                    }
+                                                }
+                                                FilledTonalIconButton(
+                                                    onClick = {
+                                                        if (isSequentialPlaying) {
+                                                            sequentialPlayJob?.cancel()
+                                                            isSequentialPlaying = false
+                                                        }
+                                                        viewModel.playSpecificAudioFile(item.audioFile, tagId)
+                                                    },
+                                                    modifier = Modifier.size(34.dp)
+                                                ) {
+                                                    Icon(
+                                                        imageVector = if (isPlayingThis) Icons.Default.Stop else Icons.Default.PlayArrow,
+                                                        contentDescription = S.archive.listenSpeakerDesc.withArgs("name" to item.speaker.name),
+                                                        modifier = Modifier.size(18.dp)
+                                                    )
+                                                }
                                             }
                                         }
                                     }
@@ -2581,7 +2838,9 @@ fun PhoneticDetailsContent(
                         word = word,
                         speaker = speaker,
                         analysis = analysis,
-                        otherSpeakersEntries = otherSpeakersEntries
+                        otherSpeakersEntries = otherSpeakersEntries,
+                        hiddenOtherSpeakerIds = hiddenOtherSpeakerIds,
+                        onToggleOtherSpeakerVisibility = toggleOtherSpeakerVisibility
                     )
 
                     Spacer(modifier = Modifier.height(20.dp))

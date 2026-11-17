@@ -854,5 +854,211 @@ class SpeechQualityAndWirelessArchiveTest {
             iauTraj.vowelType
         )
     }
+
+    @Test
+    fun `multi speaker comparison engine calibrates partial-progress speaker via shared anchors, detects tone and glide splits, and exports cross-speaker excel matrices`() {
+        fun mkWord(id: Long, idx: Int, text: String, group: String) = com.example.data.Word(
+            id = id,
+            projectId = 1L,
+            originalIndex = idx,
+            text = text,
+            groupName = group,
+            isRecorded = true,
+            recordingFile = "w_${id}.wav",
+            durationMs = 420L
+        )
+
+        fun mkToken(
+            word: com.example.data.Word,
+            spkId: Long,
+            spkName: String,
+            gKey: String,
+            gLbl: String,
+            f1: Int,
+            f2: Int,
+            vType: com.example.audio.VowelGlideType = com.example.audio.VowelGlideType.MONOPHTHONG,
+            glideBark: Float = 0.35f,
+            naiveZ1: Float = 0f,
+            naiveZ2: Float = 0f
+        ) = com.example.audio.NormalizedVowelToken(
+            word = word,
+            speakerId = spkId,
+            speakerName = spkName,
+            groupKey = gKey,
+            groupLabel = gLbl,
+            displayLabel = word.text,
+            vowelType = vType,
+            onsetF1Hz = f1,
+            onsetF2Hz = f2,
+            nucleusF1Hz = f1,
+            nucleusF2Hz = f2,
+            nucleusF3Hz = 2550,
+            targetF1Hz = if (vType == com.example.audio.VowelGlideType.MONOPHTHONG) f1 else (f1 - 150),
+            targetF2Hz = if (vType == com.example.audio.VowelGlideType.MONOPHTHONG) f2 else (f2 + 380),
+            barkGlideSpan = glideBark,
+            trajectorySummary = "test",
+            anchorsHz = listOf(f1 to f2),
+            z1Onset = naiveZ1,
+            z2Onset = naiveZ2,
+            z1Nucleus = naiveZ1,
+            z2Nucleus = naiveZ2,
+            z1Target = naiveZ1,
+            z2Target = naiveZ2,
+            anchorsLobanov = listOf(naiveZ1 to naiveZ2)
+        )
+
+        fun mkTone(
+            word: com.example.data.Word,
+            chao: String,
+            pts: List<Float>,
+            checked: Boolean = false
+        ) = com.example.audio.CanonicalToneMember(
+            word = word,
+            rawChao = chao,
+            rawToneCode = chao,
+            canonicalChao = chao,
+            canonicalCategoryName = word.groupName,
+            contourPoints = pts,
+            meanF0Hz = 185f,
+            voicedDurationMs = 310,
+            isCheckedTone = checked,
+            deviationSigma = 0.2f,
+            isOutlier = false
+        )
+
+        val w1 = mkWord(1L, 0, "衣", "阴平")
+        val w2 = mkWord(2L, 1, "耶", "阳平")
+        val w3 = mkWord(3L, 2, "杯", "阴平")
+        val w4 = mkWord(4L, 3, "乌", "上声")
+        val w5 = mkWord(5L, 4, "波", "去声")
+        val w6 = mkWord(6L, 5, "巴", "阴平")
+        val w7 = mkWord(7L, 6, "妈", "阴平")
+
+        // Speaker 1 (Male): full 7-word vowel space spanning [i, e, ei, u, o, a]
+        val spk1 = com.example.data.Speaker(id = 10L, name = "男受试者A", gender = "男", age = 56, dialect = "老派", groupName = "老派")
+        val spk1Tokens = listOf(
+            mkToken(w1, 10L, spk1.name, "v_i", "前高[i]", 290, 2150),
+            mkToken(w2, 10L, spk1.name, "v_e", "前半高[e]", 430, 1920),
+            mkToken(w3, 10L, spk1.name, "v_ei", "前响[ei]", 445, 1890, com.example.audio.VowelGlideType.DIPHTHONG, 1.85f),
+            mkToken(w4, 10L, spk1.name, "v_u", "后高[u]", 320, 780),
+            mkToken(w5, 10L, spk1.name, "v_o", "后中[o]", 490, 880),
+            mkToken(w6, 10L, spk1.name, "v_a", "央低[a]", 750, 1260),
+            mkToken(w7, 10L, spk1.name, "v_a", "央低[a]", 735, 1290)
+        )
+        val spk1Tones = mapOf(
+            1L to mkTone(w1, "55", listOf(0.92f, 0.92f, 0.91f, 0.90f, 0.90f)),
+            2L to mkTone(w2, "35", listOf(0.45f, 0.56f, 0.68f, 0.82f, 0.94f)),
+            3L to mkTone(w3, "55", listOf(0.90f, 0.90f, 0.89f, 0.88f, 0.88f)),
+            4L to mkTone(w4, "214", listOf(0.32f, 0.14f, 0.10f, 0.36f, 0.68f))
+        )
+
+        // Speaker 2 (Female): ONLY recorded 4 words (predominantly front vowels w1, w2, w3 + w4 with divergent tone [51] and monophthongized [e:] on w3!)
+        // Without shared-anchor calibration, w2 (F1=500Hz female [e]) would be distorted to extreme +Z1 (low [a])!
+        val spk2 = com.example.data.Speaker(id = 20L, name = "女受试者B", gender = "女", age = 23, dialect = "新派", groupName = "新派")
+        val spk2Tokens = listOf(
+            mkToken(w1, 20L, spk2.name, "v_i", "前高[i]", 335, 2510, naiveZ1 = -1.2f, naiveZ2 = 0.8f),
+            mkToken(w2, 20L, spk2.name, "v_e", "前半高[e]", 495, 2230, naiveZ1 = 1.35f, naiveZ2 = -0.3f),
+            mkToken(w3, 20L, spk2.name, "v_ei", "前响[ei]", 485, 2240, com.example.audio.VowelGlideType.MONOPHTHONG, 0.42f, naiveZ1 = 1.15f, naiveZ2 = -0.2f),
+            mkToken(w4, 20L, spk2.name, "v_u", "后高[u]", 370, 910, naiveZ1 = -0.7f, naiveZ2 = -1.5f)
+        )
+        val spk2Tones = mapOf(
+            1L to mkTone(w1, "55", listOf(0.90f, 0.91f, 0.90f, 0.89f, 0.89f)),
+            2L to mkTone(w2, "35", listOf(0.42f, 0.54f, 0.66f, 0.80f, 0.92f)),
+            3L to mkTone(w3, "55", listOf(0.89f, 0.88f, 0.88f, 0.87f, 0.87f)),
+            4L to mkTone(w4, "51", listOf(0.94f, 0.72f, 0.48f, 0.25f, 0.08f)) // Tone split vs Speaker 1's [214]!
+        )
+
+        val rep1 = com.example.audio.SpeakerCorpusPhonologyReport(
+            speakerId = 10L,
+            speakerName = spk1.name,
+            analyzedCount = 7,
+            medianVoicedDurationMs = 310,
+            calibratedPitchRangeHz = 95f to 210f,
+            hasCustomWordGroups = true,
+            mergedToneClusters = emptyList(),
+            pureAcousticToneClusters = emptyList(),
+            wordIdToCanonicalMember = spk1Tones,
+            vowelTokens = spk1Tokens,
+            vowelEllipses = emptyList(),
+            lobanovValid = true
+        )
+        val rep2 = com.example.audio.SpeakerCorpusPhonologyReport(
+            speakerId = 20L,
+            speakerName = spk2.name,
+            analyzedCount = 4,
+            medianVoicedDurationMs = 300,
+            calibratedPitchRangeHz = 165f to 320f,
+            hasCustomWordGroups = true,
+            mergedToneClusters = emptyList(),
+            pureAcousticToneClusters = emptyList(),
+            wordIdToCanonicalMember = spk2Tones,
+            vowelTokens = spk2Tokens,
+            vowelEllipses = emptyList(),
+            lobanovValid = false
+        )
+
+        val multiReport = com.example.audio.MultiSpeakerVowelComparisonReport(
+            speakerReports = listOf(rep1, rep2),
+            allNormalizedTokens = spk1Tokens + spk2Tokens,
+            speakerEllipses = emptyList(),
+            speakersById = mapOf(10L to spk1, 20L to spk2)
+        )
+
+        val aligned = com.example.audio.MultiSpeakerComparisonEngine.buildAlignedAnalysis(
+            multiReport = multiReport,
+            selectedSpeakerIds = setOf(10L, 20L),
+            cohortMode = com.example.audio.MultiSpeakerCohortMode.INDIVIDUAL,
+            onlySharedVocabulary = false
+        )
+
+        // 1. Verify shared-anchor calibration rescued Speaker 2's [e] (w2) from false +1.35 low-vowel distortion!
+        assertEquals(1, aligned.calibratedSpeakerCount)
+        val spk2CalibratedW2 = aligned.calibratedTokens.first { it.speakerId == 20L && it.word.id == 2L }
+        val spk1CalibratedW2 = aligned.calibratedTokens.first { it.speakerId == 10L && it.word.id == 2L }
+        assertTrue(
+            "Expected Speaker 2's calibrated [e] Z1 (${spk2CalibratedW2.z1Nucleus}) to stay close to Speaker 1's [e] Z1 (${spk1CalibratedW2.z1Nucleus}), not +1.35!",
+            kotlin.math.abs(spk2CalibratedW2.z1Nucleus - spk1CalibratedW2.z1Nucleus) < 0.45f && spk2CalibratedW2.z1Nucleus < 0.25f
+        )
+
+        // 2. Verify Glide Split detected on w3 ("杯": DIPHTHONG vs MONOPHTHONG) and Tone Split detected on w4 ("乌": [214] vs [51])
+        val compW3 = aligned.wordComparisons.first { it.wordId == 3L }
+        assertTrue("Expected monophthong-diphthong split on 杯", compW3.hasGlideSplit)
+        val compW4 = aligned.wordComparisons.first { it.wordId == 4L }
+        assertTrue("Expected tone contour split on 乌 ([214] vs [51])", compW4.hasToneSplit)
+
+        // 3. Verify Gender & SpeakerGroup Cohort aggregation modes work cleanly
+        val byGender = com.example.audio.MultiSpeakerComparisonEngine.buildAlignedAnalysis(
+            multiReport = multiReport,
+            selectedSpeakerIds = setOf(10L, 20L),
+            cohortMode = com.example.audio.MultiSpeakerCohortMode.BY_GENDER
+        )
+        assertEquals(2, byGender.cohorts.size)
+        assertTrue(byGender.alignedToneCategories.isNotEmpty())
+
+        // 4. Verify Workbook Export includes the new cross-speaker Word x Speaker matrix & Summary sheets
+        val xlsxBytes = com.example.utils.MacroReportExporter.buildWorkbookBytes(
+            projectName = "多发音人测试工程",
+            report = rep1,
+            clusters = emptyList(),
+            multiSpeakerReport = multiReport,
+            alignedMulti = aligned
+        )
+        assertTrue("Expected non-empty multi-speaker xlsx bytes", xlsxBytes.size > 1500)
+        val zipEntries = ArrayList<String>()
+        var workbookXml = ""
+        java.util.zip.ZipInputStream(xlsxBytes.inputStream()).use { zis ->
+            var entry = zis.nextEntry
+            while (entry != null) {
+                zipEntries.add(entry.name)
+                if (entry.name == "xl/workbook.xml") {
+                    workbookXml = zis.readBytes().toString(Charsets.UTF_8)
+                }
+                entry = zis.nextEntry
+            }
+        }
+        assertTrue("Expected 同词跨人声学对照表 sheet in workbook.xml, got: $workbookXml", workbookXml.contains("同词跨人声学对照表"))
+        assertTrue("Expected 多发音人调类与元音汇总 sheet in workbook.xml, got: $workbookXml", workbookXml.contains("多发音人调类与元音汇总"))
+    }
 }
+
 

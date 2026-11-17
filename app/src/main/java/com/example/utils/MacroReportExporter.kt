@@ -24,12 +24,15 @@ import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.sp
 import com.example.audio.CanonicalToneCluster
+import com.example.audio.MultiSpeakerAlignedAnalysis
+import com.example.audio.MultiSpeakerComparisonEngine
 import com.example.audio.MultiSpeakerVowelComparisonReport
 import com.example.audio.NormalizedVowelToken
 import com.example.audio.PhoneticScaleUtils
 import com.example.audio.SpeakerCorpusPhonologyReport
 import com.example.audio.VowelConfidenceEllipse
 import com.example.audio.VowelGlideType
+import kotlin.math.roundToInt
 import java.io.BufferedOutputStream
 import java.io.ByteArrayOutputStream
 import java.io.OutputStream
@@ -78,11 +81,21 @@ object MacroReportExporter {
                 report.pureAcousticToneClusters
             }
 
+            val alignedMulti = if (multiSpeakerReport != null && multiSpeakerReport.speakerReports.size >= 2) {
+                MultiSpeakerComparisonEngine.buildAlignedAnalysis(
+                    multiReport = multiSpeakerReport,
+                    selectedSpeakerIds = emptySet()
+                )
+            } else {
+                null
+            }
+
             val xlsxBytes = buildWorkbookBytes(
                 projectName = projectName,
                 report = report,
                 clusters = clusters,
-                multiSpeakerReport = multiSpeakerReport
+                multiSpeakerReport = multiSpeakerReport,
+                alignedMulti = alignedMulti
             )
 
             ZipOutputStream(BufferedOutputStream(outputStream)).use { zos ->
@@ -121,10 +134,24 @@ object MacroReportExporter {
                         }
                     }
 
-                    if (multiSpeakerReport != null && multiSpeakerReport.speakerReports.size >= 2) {
+                    if (multiSpeakerReport != null && multiSpeakerReport.speakerReports.size >= 2 && alignedMulti != null) {
+                        if (alignedMulti.alignedToneCategories.isNotEmpty()) {
+                            val multiTonePng = renderMultiSpeakerToneComparisonPng(
+                                projectName = projectName,
+                                aligned = alignedMulti,
+                                textMeasurer = textMeasurer
+                            )
+                            if (multiTonePng.isNotEmpty()) {
+                                zos.putNextEntry(ZipEntry("多发音人声调格局对比图.png"))
+                                zos.write(multiTonePng)
+                                zos.closeEntry()
+                            }
+                        }
+
                         val lobanovPng = renderLobanovMultiSpeakerPng(
                             projectName = projectName,
                             multiReport = multiSpeakerReport,
+                            aligned = alignedMulti,
                             textMeasurer = textMeasurer
                         )
                         if (lobanovPng.isNotEmpty()) {
@@ -147,7 +174,10 @@ object MacroReportExporter {
         projectName: String,
         report: SpeakerCorpusPhonologyReport,
         clusters: List<CanonicalToneCluster>,
-        multiSpeakerReport: MultiSpeakerVowelComparisonReport? = null
+        multiSpeakerReport: MultiSpeakerVowelComparisonReport? = null,
+        alignedMulti: MultiSpeakerAlignedAnalysis? = if (multiSpeakerReport != null && multiSpeakerReport.speakerReports.size >= 2) {
+            MultiSpeakerComparisonEngine.buildAlignedAnalysis(multiSpeakerReport, emptySet())
+        } else null
     ): ByteArray {
         val sheets = ArrayList<XlsxSpreadsheetWriter.SheetSpec>()
 
@@ -298,39 +328,152 @@ object MacroReportExporter {
             )
         }
 
-        // Sheet 6: 多发音人 Lobanov 声道归一化对比 (when >=2 speakers exist)
-        if (multiSpeakerReport != null && multiSpeakerReport.allNormalizedTokens.isNotEmpty()) {
-            val multiRows = multiSpeakerReport.allNormalizedTokens.map { t ->
-                val spk = multiSpeakerReport.speakersById[t.speakerId]
-                listOf<Any?>(
-                    t.speakerName,
-                    spk?.gender ?: "",
-                    spk?.age ?: 0,
-                    spk?.dialect ?: "",
-                    t.word.originalIndex + 1,
-                    t.word.text,
-                    t.groupLabel,
-                    t.vowelType.chineseLabel,
-                    t.nucleusF1Hz,
-                    t.nucleusF2Hz,
-                    t.z1Nucleus,
-                    t.z2Nucleus,
-                    PhoneticScaleUtils.lobanovZ1ToEquivHz(t.z1Nucleus),
-                    PhoneticScaleUtils.lobanovZ2ToEquivHz(t.z2Nucleus),
-                    t.barkGlideSpan
+        // Sheet 6: 同词跨人声学对照表 (Word × Speaker Matrix) & Sheet 7: 多发音人调类与元音汇总 & Sheet 8: 校准明细
+        if (multiSpeakerReport != null && alignedMulti != null && multiSpeakerReport.speakerReports.size >= 2) {
+            val spkReports = multiSpeakerReport.speakerReports
+            if (alignedMulti.wordComparisons.isNotEmpty()) {
+                val matrixHeaders = ArrayList<String>()
+                matrixHeaders.addAll(
+                    listOf("词条序号", "字词", "所属分组", "跨人异读诊断", "归一化舌位最大跨距(ΔZ)", "声调五度最大偏差")
+                )
+                for (sr in spkReports) {
+                    matrixHeaders.add("${sr.speakerName}_五度调")
+                    matrixHeaders.add("${sr.speakerName}_韵母判定")
+                    matrixHeaders.add("${sr.speakerName}_核F1/F2(Hz)与Z值")
+                }
+
+                val matrixRows = alignedMulti.wordComparisons
+                    .sortedBy { it.originalIndex }
+                    .map { wc ->
+                        val row = ArrayList<Any?>()
+                        row.add(wc.originalIndex + 1)
+                        row.add(wc.wordText)
+                        row.add(wc.groupName)
+                        row.add(wc.divergenceBadge)
+                        row.add(wc.vowelMaxShiftZ)
+                        row.add(wc.toneMaxRmse5Deg)
+                        val realMap = wc.realizations.associateBy { it.speakerId }
+                        for (sr in spkReports) {
+                            val r = realMap[sr.speakerId]
+                            if (r == null) {
+                                row.add("未录")
+                                row.add("-")
+                                row.add("-")
+                            } else {
+                                row.add(r.chaoTone)
+                                val tok = r.primaryToken
+                                if (tok != null) {
+                                    row.add("${tok.vowelType.chineseLabel.substringBefore(' ')} (${String.format(Locale.US, "%.1f", tok.barkGlideSpan)}B)")
+                                    row.add(
+                                        String.format(
+                                            Locale.US,
+                                            "%d/%d Hz (Z1=%+.2f, Z2=%+.2f)",
+                                            tok.nucleusF1Hz,
+                                            tok.nucleusF2Hz,
+                                            tok.z1Nucleus,
+                                            tok.z2Nucleus
+                                        )
+                                    )
+                                } else {
+                                    row.add("-")
+                                    row.add("-")
+                                }
+                            }
+                        }
+                        row
+                    }
+
+                sheets.add(
+                    XlsxSpreadsheetWriter.SheetSpec(
+                        name = "同词跨人声学对照表",
+                        headers = matrixHeaders,
+                        rows = matrixRows
+                    )
                 )
             }
-            sheets.add(
-                XlsxSpreadsheetWriter.SheetSpec(
-                    name = "多发音人Lobanov对比",
-                    headers = listOf(
-                        "发音人", "性别", "年龄", "方言点", "词条序号", "字词", "音类分组", "元音类型",
-                        "原始核F1(Hz)", "原始核F2(Hz)", "Lobanov_Z1", "Lobanov_Z2",
-                        "等效声道F1(Hz)", "等效声道F2(Hz)", "Bark动程跨度"
-                    ),
-                    rows = multiRows
+
+            // Sheet 7: 多发音人调类与元音汇总
+            val summaryRows = ArrayList<List<Any?>>()
+            for (tCat in alignedMulti.alignedToneCategories) {
+                for (real in tCat.cohortRealizations) {
+                    summaryRows.add(
+                        listOf(
+                            "声调调类",
+                            tCat.categoryLabel,
+                            real.cohortLabel,
+                            real.sampleCount,
+                            "[${real.representativeChao}] ${real.toneShapeLabel}",
+                            String.format(Locale.US, "%.0f Hz", real.meanF0Hz),
+                            if (tCat.hasCategoryDivergence) "跨人存在调型分化 (Δ=${String.format(Locale.US, "%.2f", tCat.maxPairwiseDiff5Deg)})" else "跨人一致",
+                            real.exampleWords.joinToString(" ")
+                        )
+                    )
+                }
+            }
+            for (vCat in alignedMulti.alignedVowelCategories) {
+                val shiftDesc = vCat.shiftVectors.joinToString("; ") {
+                    "${it.fromCohortLabel}→${it.toCohortLabel}:${it.directionSummary}"
+                }.ifEmpty { "质心稳定" }
+                for (st in vCat.cohortStats) {
+                    summaryRows.add(
+                        listOf(
+                            "元音/韵母类",
+                            vCat.groupLabel,
+                            st.cohortLabel,
+                            st.sampleCount,
+                            st.dominantVowelType.chineseLabel.substringBefore(' '),
+                            String.format(Locale.US, "%.0f / %.0f Hz (Z1=%+.2f, Z2=%+.2f)", st.meanF1Hz, st.meanF2Hz, st.centerZ1, st.centerZ2),
+                            shiftDesc,
+                            String.format(Locale.US, "平均动程 %.2f Bark", st.meanBarkGlide)
+                        )
+                    )
+                }
+            }
+            if (summaryRows.isNotEmpty()) {
+                sheets.add(
+                    XlsxSpreadsheetWriter.SheetSpec(
+                        name = "多发音人调类与元音汇总",
+                        headers = listOf("维度", "音类/调类名称", "发音人/分组", "样本数", "代表调值/韵母态", "均值频率与归一化中心", "跨人同异/位移矢量", "例字与备注"),
+                        rows = summaryRows
+                    )
                 )
-            )
+            }
+
+            // Sheet 8: 多发音人Lobanov对比 (calibrated tokens)
+            val calibratedList = alignedMulti.calibratedTokens.ifEmpty { multiSpeakerReport.allNormalizedTokens }
+            if (calibratedList.isNotEmpty()) {
+                val multiRows = calibratedList.map { t ->
+                    val spk = multiSpeakerReport.speakersById[t.speakerId]
+                    listOf<Any?>(
+                        t.speakerName,
+                        spk?.gender ?: "",
+                        spk?.age ?: 0,
+                        spk?.dialect ?: "",
+                        t.word.originalIndex + 1,
+                        t.word.text,
+                        t.groupLabel,
+                        t.vowelType.chineseLabel,
+                        t.nucleusF1Hz,
+                        t.nucleusF2Hz,
+                        t.z1Nucleus,
+                        t.z2Nucleus,
+                        PhoneticScaleUtils.lobanovZ1ToEquivHz(t.z1Nucleus),
+                        PhoneticScaleUtils.lobanovZ2ToEquivHz(t.z2Nucleus),
+                        t.barkGlideSpan
+                    )
+                }
+                sheets.add(
+                    XlsxSpreadsheetWriter.SheetSpec(
+                        name = "多发音人Lobanov对比",
+                        headers = listOf(
+                            "发音人", "性别", "年龄", "方言点", "词条序号", "字词", "音类分组", "元音类型",
+                            "原始核F1(Hz)", "原始核F2(Hz)", "Lobanov_Z1", "Lobanov_Z2",
+                            "等效声道F1(Hz)", "等效声道F2(Hz)", "Bark动程跨度"
+                        ),
+                        rows = multiRows
+                    )
+                )
+            }
         }
 
         return XlsxSpreadsheetWriter.toByteArray(sheets)
@@ -727,9 +870,144 @@ object MacroReportExporter {
         }
     }
 
+    private fun renderMultiSpeakerToneComparisonPng(
+        projectName: String,
+        aligned: MultiSpeakerAlignedAnalysis,
+        textMeasurer: TextMeasurer
+    ): ByteArray {
+        val widthPx = 1600
+        val heightPx = 1040
+        return renderDrawScopeToPngBytes(widthPx, heightPx) {
+            drawRect(Color(0xFFFAFBFD))
+
+            drawText(
+                textMeasurer = textMeasurer,
+                text = "$projectName · 多发音人五度声调格局对比图 (${aligned.cohorts.size}人 · 一致率 ${aligned.toneConsistencyPercent}%)",
+                topLeft = Offset(64f, 36f),
+                style = TextStyle(color = Color(0xFF0F172A), fontSize = 15.sp, fontWeight = FontWeight.Bold)
+            )
+            drawText(
+                textMeasurer = textMeasurer,
+                text = "消除个人基频高低差异后的五度值 (1..5) 分栏跨人叠绘对比",
+                topLeft = Offset(64f, 74f),
+                style = TextStyle(color = Color(0xFF64748B), fontSize = 10.sp)
+            )
+
+            val plotLeft = 116f
+            val plotTop = 154f
+            val plotRight = size.width - 390f
+            val plotBottom = size.height - 86f
+            val plotW = plotRight - plotLeft
+            val plotH = plotBottom - plotTop
+
+            drawRoundRect(
+                color = Color.White,
+                topLeft = Offset(plotLeft, plotTop),
+                size = Size(plotW, plotH),
+                cornerRadius = CornerRadius(16f, 16f)
+            )
+            drawRoundRect(
+                color = Color(0xFFCBD5E1),
+                topLeft = Offset(plotLeft, plotTop),
+                size = Size(plotW, plotH),
+                cornerRadius = CornerRadius(16f, 16f),
+                style = Stroke(width = 2f)
+            )
+
+            val degLabels = listOf("5 高", "4 半高", "3 中", "2 半低", "1 低")
+            for (d in 0..4) {
+                val y = plotTop + 36f + (d / 4f) * (plotH - 64f)
+                drawLine(
+                    color = Color(0xFFE2E8F0),
+                    start = Offset(plotLeft, y),
+                    end = Offset(plotRight, y),
+                    strokeWidth = 1.4f,
+                    pathEffect = PathEffect.dashPathEffect(floatArrayOf(8f, 6f), 0f)
+                )
+                val lbl = textMeasurer.measure(degLabels[d], TextStyle(color = Color(0xFF64748B), fontSize = 9.sp, fontWeight = FontWeight.SemiBold))
+                drawText(lbl, topLeft = Offset(plotLeft - lbl.size.width - 12f, y - lbl.size.height / 2f))
+            }
+
+            fun pToY(p01: Float): Float = plotTop + 36f + (1f - p01.coerceIn(0f, 1f)) * (plotH - 64f)
+
+            val cats = aligned.alignedToneCategories.take(7)
+            val laneCount = max(1, cats.size)
+            val laneW = plotW / laneCount
+
+            cats.forEachIndexed { laneIdx, cat ->
+                val lx = plotLeft + laneIdx * laneW
+                if (laneIdx > 0) {
+                    drawLine(
+                        color = Color(0xFFCBD5E1),
+                        start = Offset(lx, plotTop),
+                        end = Offset(lx, plotBottom),
+                        strokeWidth = 1.6f
+                    )
+                }
+                val title = textMeasurer.measure(
+                    text = cat.categoryLabel.take(8),
+                    style = TextStyle(color = Color(0xFF0F172A), fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                )
+                drawText(title, topLeft = Offset(lx + (laneW - title.size.width) * 0.5f, plotTop + 8f))
+
+                val pad = (laneW * 0.12f).coerceIn(12f, 28f)
+                val maxSpan = (laneW - pad * 2f).coerceAtLeast(24f)
+                cat.cohortRealizations.forEach { real ->
+                    val col = EXPORT_PALETTE[real.colorIndex % EXPORT_PALETTE.size]
+                    val span = maxSpan * real.relativeDurationRatio.coerceIn(0.45f, 1.0f)
+                    val path = Path()
+                    val pts = real.meanContour.mapIndexed { idx, p ->
+                        val pt = Offset(lx + pad + (idx / 4f) * span, pToY(p))
+                        if (idx == 0) path.moveTo(pt.x, pt.y) else path.lineTo(pt.x, pt.y)
+                        pt
+                    }
+                    drawPath(
+                        path = path,
+                        color = col,
+                        style = Stroke(width = 4.2f, cap = StrokeCap.Round, join = StrokeJoin.Round)
+                    )
+                    if (real.isChecked) {
+                        val end = pts.last()
+                        drawLine(col, Offset(end.x, end.y - 12f), Offset(end.x, end.y + 12f), strokeWidth = 3.5f)
+                    } else if (pts.size >= 2) {
+                        drawArrowHead(pts[pts.size - 2], pts.last(), col, 12f)
+                    }
+                }
+            }
+
+            val legLeft = plotRight + 34f
+            var legY = plotTop + 8f
+            drawText(
+                textMeasurer = textMeasurer,
+                text = "受试者声调摘要",
+                topLeft = Offset(legLeft, legY),
+                style = TextStyle(color = Color(0xFF0F172A), fontSize = 11.sp, fontWeight = FontWeight.Bold)
+            )
+            legY += 38f
+            aligned.speakerToneInventories.forEach { inv ->
+                val col = EXPORT_PALETTE[inv.colorIndex % EXPORT_PALETTE.size]
+                drawCircle(col, radius = 7.5f, center = Offset(legLeft + 10f, legY + 13f))
+                drawText(
+                    textMeasurer = textMeasurer,
+                    text = "${inv.cohortLabel} (${inv.totalToneCount}调 · ${inv.pitchRangeText})",
+                    topLeft = Offset(legLeft + 26f, legY),
+                    style = TextStyle(color = Color(0xFF1E293B), fontSize = 9.2.sp, fontWeight = FontWeight.SemiBold)
+                )
+                drawText(
+                    textMeasurer = textMeasurer,
+                    text = inv.inventoryChaoSummary.take(28),
+                    topLeft = Offset(legLeft + 26f, legY + 22f),
+                    style = TextStyle(color = Color(0xFF64748B), fontSize = 8.2.sp)
+                )
+                legY += 58f
+            }
+        }
+    }
+
     private fun renderLobanovMultiSpeakerPng(
         projectName: String,
         multiReport: MultiSpeakerVowelComparisonReport,
+        aligned: MultiSpeakerAlignedAnalysis,
         textMeasurer: TextMeasurer
     ): ByteArray {
         val widthPx = 1600
@@ -745,9 +1023,9 @@ object MacroReportExporter {
             )
             drawText(
                 textMeasurer = textMeasurer,
-                text = "消除生理声道长短差异后的 Z2 (前—后) × Z1 (高—低) 归一化空间",
+                text = aligned.calibrationNote,
                 topLeft = Offset(64f, 74f),
-                style = TextStyle(color = Color(0xFF64748B), fontSize = 10.sp)
+                style = TextStyle(color = Color(0xFF64748B), fontSize = 9.5.sp)
             )
 
             val plotLeft = 110f
@@ -800,64 +1078,89 @@ object MacroReportExporter {
                 drawText(yLbl, topLeft = Offset(plotRight + 10f, y - yLbl.size.height / 2f))
             }
 
-            val spkColorMap = multiReport.speakerReports.withIndex().associate { (i, r) ->
-                r.speakerId to EXPORT_PALETTE[i % EXPORT_PALETTE.size]
-            }
-
-            for (el in multiReport.speakerEllipses) {
-                val color = spkColorMap[el.speakerId] ?: EXPORT_PALETTE[0]
-                val path = Path()
-                val steps = 48
-                val cosA = cos(el.angleRadLobanov)
-                val sinA = sin(el.angleRadLobanov)
-                for (s in 0..steps) {
-                    val theta = (2.0 * PI * s / steps).toFloat()
-                    val u = el.semiMajorLobanov * cos(theta)
-                    val v = el.semiMinorLobanov * sin(theta)
-                    val z1 = el.centerLobanovZ1 + u * cosA - v * sinA
-                    val z2 = el.centerLobanovZ2 + u * sinA + v * cosA
-                    val pt = zToCanvas(z1, z2)
-                    if (s == 0) path.moveTo(pt.x, pt.y) else path.lineTo(pt.x, pt.y)
+            // 1. Outer Convex Hull Polygons per Speaker Cohort
+            aligned.cohorts.forEach { cohort ->
+                val col = EXPORT_PALETTE[cohort.colorIndex % EXPORT_PALETTE.size]
+                if (cohort.convexHullLobanov.size >= 3) {
+                    val hullPath = Path()
+                    cohort.convexHullLobanov.forEachIndexed { idx, (z2, z1) ->
+                        val pt = zToCanvas(z1, z2)
+                        if (idx == 0) hullPath.moveTo(pt.x, pt.y) else hullPath.lineTo(pt.x, pt.y)
+                    }
+                    hullPath.close()
+                    drawPath(hullPath, col.copy(alpha = 0.08f), style = Fill)
+                    drawPath(hullPath, col.copy(alpha = 0.62f), style = Stroke(width = 2.6f))
                 }
-                path.close()
-                drawPath(path, color.copy(alpha = 0.10f), style = Fill)
-                drawPath(path, color.copy(alpha = 0.52f), style = Stroke(width = 2.2f))
             }
 
-            for (token in multiReport.allNormalizedTokens) {
+            // 2. Calibrated Tokens
+            val spkColorMap = aligned.cohorts.flatMap { c ->
+                c.speakerIds.map { sid -> sid to EXPORT_PALETTE[c.colorIndex % EXPORT_PALETTE.size] }
+            }.toMap()
+
+            for (token in aligned.calibratedTokens) {
                 val color = spkColorMap[token.speakerId] ?: EXPORT_PALETTE[0]
                 val pt = zToCanvas(token.z1Nucleus, token.z2Nucleus)
-                drawCircle(Color.White, radius = 6.5f, center = pt)
-                drawCircle(color, radius = 4.5f, center = pt)
+                drawCircle(Color.White, radius = 6.2f, center = pt)
+                drawCircle(color, radius = 4.2f, center = pt)
+            }
+
+            // 3. Vowel Category Centroids & Shift Vectors + Category Labels
+            aligned.alignedVowelCategories.forEach { vCat ->
+                vCat.shiftVectors.forEach { vec ->
+                    val from = zToCanvas(vec.fromZ1, vec.fromZ2)
+                    val to = zToCanvas(vec.toZ1, vec.toZ2)
+                    val col = EXPORT_PALETTE[vec.toColorIndex % EXPORT_PALETTE.size]
+                    if ((to - from).getDistance() >= 14f) {
+                        drawLine(
+                            color = col,
+                            start = from,
+                            end = to,
+                            strokeWidth = 2.5f,
+                            pathEffect = PathEffect.dashPathEffect(floatArrayOf(8f, 5f), 0f)
+                        )
+                        drawArrowHead(from, to, col, 11f)
+                    }
+                }
+                if (vCat.cohortStats.isNotEmpty()) {
+                    val avgZ1 = vCat.cohortStats.map { it.centerZ1 }.average().toFloat()
+                    val avgZ2 = vCat.cohortStats.map { it.centerZ2 }.average().toFloat()
+                    val cPt = zToCanvas(avgZ1, avgZ2)
+                    val lbl = textMeasurer.measure(
+                        text = "[${vCat.groupLabel.substringBefore(' ')}]",
+                        style = TextStyle(color = Color(0xFF0F172A), fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                    )
+                    drawText(
+                        lbl,
+                        topLeft = Offset(
+                            (cPt.x - lbl.size.width * 0.5f).coerceIn(plotLeft + 6f, plotRight - lbl.size.width - 6f),
+                            (cPt.y - lbl.size.height - 6f).coerceIn(plotTop + 6f, plotBottom - lbl.size.height - 6f)
+                        )
+                    )
+                }
             }
 
             val legLeft = plotRight + 88f
             var legY = plotTop + 8f
             drawText(
                 textMeasurer = textMeasurer,
-                text = "发音人图例",
+                text = "发音人外包络图例",
                 topLeft = Offset(legLeft, legY),
                 style = TextStyle(color = Color(0xFF0F172A), fontSize = 11.sp, fontWeight = FontWeight.Bold)
             )
             legY += 40f
-            multiReport.speakerReports.forEach { r ->
-                val color = spkColorMap[r.speakerId] ?: EXPORT_PALETTE[0]
-                val spk = multiReport.speakersById[r.speakerId]
+            aligned.cohorts.forEach { cohort ->
+                val color = EXPORT_PALETTE[cohort.colorIndex % EXPORT_PALETTE.size]
                 drawCircle(color, radius = 7.5f, center = Offset(legLeft + 10f, legY + 13f))
-                val meta = listOfNotNull(
-                    r.speakerName,
-                    spk?.gender?.takeIf { it.isNotBlank() },
-                    spk?.age?.takeIf { it > 0 }?.let { "${it}岁" }
-                ).joinToString(" · ")
                 drawText(
                     textMeasurer = textMeasurer,
-                    text = meta,
+                    text = "${cohort.label} · ${cohort.metaSubtitle}".take(24),
                     topLeft = Offset(legLeft + 26f, legY),
                     style = TextStyle(color = Color(0xFF1E293B), fontSize = 9.5.sp, fontWeight = FontWeight.SemiBold)
                 )
                 drawText(
                     textMeasurer = textMeasurer,
-                    text = "已分析 ${r.analyzedCount} 词",
+                    text = String.format(Locale.US, "已分析 %d 词 · 包络面积 %.1f Z²", cohort.analyzedWordCount, cohort.vowelSpaceAreaZ2),
                     topLeft = Offset(legLeft + 26f, legY + 23f),
                     style = TextStyle(color = Color(0xFF64748B), fontSize = 8.5.sp)
                 )

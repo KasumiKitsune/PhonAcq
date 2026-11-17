@@ -103,26 +103,36 @@ fun ProjectAcousticSummarySheet(
     val effectiveProjectId = remember(projectId, words) {
         if (projectId > 0L) projectId else (words.firstOrNull()?.projectId ?: 1L)
     }
-    val recordedWords = remember(words) {
-        words.filter { it.isRecorded && !it.recordingFile.isNullOrEmpty() }
+
+    var activeSheetSpeaker by remember { mutableStateOf(speaker) }
+    var activeSheetWords by remember { mutableStateOf(words) }
+    LaunchedEffect(speaker?.id, words) {
+        if (activeSheetSpeaker == null || speaker?.id == activeSheetSpeaker?.id) {
+            activeSheetSpeaker = speaker
+            activeSheetWords = words
+        }
     }
 
-    // Top-level mode: false = Active Speaker Phonology, true = Multi-Speaker Lobanov Comparison
+    val recordedWords = remember(activeSheetWords) {
+        activeSheetWords.filter { it.isRecorded && !it.recordingFile.isNullOrEmpty() }
+    }
+
+    // Top-level mode: false = Active Speaker Phonology, true = Multi-Speaker Comparison Workbench
     var isMultiSpeakerCompareMode by remember { mutableStateOf(false) }
 
     val speakerReportState by produceState<SpeakerCorpusPhonologyReport?>(
         initialValue = null,
         key1 = effectiveProjectId,
-        key2 = speaker?.id,
+        key2 = activeSheetSpeaker?.id,
         key3 = recordedWords.size
     ) {
-        delay(65)
+        delay(55)
         value = withContext(Dispatchers.Default) {
             CorpusPhonologyAnalyzer.buildSpeakerPhonologyReport(
                 context = context,
                 projectId = effectiveProjectId,
-                speaker = speaker,
-                words = words
+                speaker = activeSheetSpeaker,
+                words = activeSheetWords
             )
         }
     }
@@ -248,7 +258,7 @@ fun ProjectAcousticSummarySheet(
                     Text(
                         text = S.acoustics.macroReportSubtitle.withArgs(
                             "project" to projectName,
-                            "speaker" to (speaker?.name ?: S.common.defaultLabel),
+                            "speaker" to (activeSheetSpeaker?.name ?: S.common.defaultLabel),
                             "count" to recordedWords.size
                         ),
                         fontSize = 12.sp,
@@ -267,8 +277,13 @@ fun ProjectAcousticSummarySheet(
                         FilledTonalButton(
                             onClick = {
                                 val safeProj = projectName.ifBlank { "项目" }.replace("\\s+".toRegex(), "_")
-                                val safeSpk = (speaker?.name ?: S.common.defaultLabel).replace("\\s+".toRegex(), "_")
-                                exportMacroZipLauncher.launch("${safeProj}_${safeSpk}_声学格局报告.zip")
+                                val safeSpk = (activeSheetSpeaker?.name ?: S.common.defaultLabel).replace("\\s+".toRegex(), "_")
+                                val zipName = if (isMultiSpeakerCompareMode && (multiSpeakerPairsState.size >= 2)) {
+                                    "${safeProj}_多发音人声学对比报告.zip"
+                                } else {
+                                    "${safeProj}_${safeSpk}_声学格局报告.zip"
+                                }
+                                exportMacroZipLauncher.launch(zipName)
                             },
                             enabled = !isExportingReport,
                             shape = RoundedCornerShape(10.dp),
@@ -326,6 +341,19 @@ fun ProjectAcousticSummarySheet(
                         labelText = S.acoustics.tabMultiSpeakerNormalized.withArgs("count" to recordedSpeakerCount),
                         leadingIcon = { Icon(Icons.Default.Groups, contentDescription = null, modifier = Modifier.size(16.dp)) },
                         modifier = Modifier.testTag("macro_tab_multi_speaker_lobanov")
+                    )
+                }
+                if (!isMultiSpeakerCompareMode && multiSpeakerPairsState.size >= 2) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    MacroActiveSpeakerSwitcherStrip(
+                        speakerPairs = multiSpeakerPairsState,
+                        selectedSpeakerId = activeSheetSpeaker?.id,
+                        onSelectSpeaker = { newSpk, newWords ->
+                            activeSheetSpeaker = newSpk
+                            activeSheetWords = newWords
+                            viewModel?.selectSpeaker(newSpk)
+                        },
+                        modifier = Modifier.padding(horizontal = 20.dp)
                     )
                 }
             }
@@ -396,7 +424,7 @@ fun ProjectAcousticSummarySheet(
                                 }
                             }
                         } else {
-                            MultiSpeakerLobanovVowelComparisonCard(
+                            MultiSpeakerComparisonWorkbench(
                                 multiReport = multiReport,
                                 projectId = effectiveProjectId,
                                 viewModel = viewModel,
@@ -404,20 +432,33 @@ fun ProjectAcousticSummarySheet(
                             )
                         }
                     } else {
+                        val playForActiveSheetSpeaker: (Word) -> Unit = { targetWord ->
+                            if (activeSheetSpeaker?.id == speaker?.id || viewModel == null) {
+                                onPlayWord(targetWord)
+                            } else {
+                                val fn = targetWord.recordingFile
+                                if (!fn.isNullOrEmpty()) {
+                                    val f = File(File(context.getExternalFilesDir(null), "project_$effectiveProjectId"), fn)
+                                    if (f.exists()) {
+                                        viewModel.playSpecificAudioFile(f, targetWord.id)
+                                    }
+                                }
+                            }
+                        }
                         // 1. Corpus-Level Tone System & Ribbon Card
                         EnhancedMacroToneSystemCard(
                             report = report,
                             clusterSourceMode = clusterSourceMode,
                             onClusterSourceModeChange = { clusterSourceMode = it },
                             playingWordId = playingWordId,
-                            onPlayWord = onPlayWord
+                            onPlayWord = playForActiveSheetSpeaker
                         )
 
                         // 2. High-Density Dynamic Vowel Space & Diphthong Trajectory Card
                         EnhancedMacroVowelSpaceCard(
                             report = report,
                             playingWordId = playingWordId,
-                            onPlayWord = onPlayWord
+                            onPlayWord = playForActiveSheetSpeaker
                         )
                     }
 
@@ -1714,351 +1755,7 @@ private fun EnhancedMacroVowelSpaceCard(
     }
 }
 
-/**
- * Multi-Speaker Vocal-Tract Normalized (Lobanov Z-score) Vowel Space & Diphthong Comparison Card.
- */
-@OptIn(ExperimentalLayoutApi::class)
-@Composable
-private fun MultiSpeakerLobanovVowelComparisonCard(
-    multiReport: MultiSpeakerVowelComparisonReport,
-    projectId: Long,
-    viewModel: RecordingViewModel?,
-    playingWordId: Long?
-) {
-    val context = LocalContext.current
-    var useLobanovNorm by remember { mutableStateOf(true) }
-    var glideFilter by remember { mutableStateOf(0) } // 0 = 全部, 1 = 单元音椭圆+点, 2 = 复元音箭头
-    var soloSpeakerId by remember { mutableStateOf<Long?>(null) }
-    var inspectedToken by remember { mutableStateOf<NormalizedVowelToken?>(null) }
 
-    val textMeasurer = rememberTextMeasurer()
-    val labelLayoutCache = remember(textMeasurer) { HashMap<String, TextLayoutResult>(128) }
-
-    val speakerColorMap = remember(multiReport.speakerReports) {
-        multiReport.speakerReports.mapIndexed { idx, r ->
-            r.speakerId to PHONOLOGY_PALETTE[idx % PHONOLOGY_PALETTE.size]
-        }.toMap()
-    }
-
-    Card(
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
-        shape = RoundedCornerShape(16.dp),
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)),
-        modifier = Modifier
-            .fillMaxWidth()
-            .testTag("multi_speaker_lobanov_card")
-    ) {
-        Column(modifier = Modifier.padding(16.dp)) {
-            Text(
-                text = S.acoustics.lobanovTitle,
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.primary
-            )
-            Text(
-                text = if (useLobanovNorm) {
-                    S.acoustics.lobanovActiveLongExplanation
-                } else {
-                    S.acoustics.barkPhysicalLongExplanation
-                },
-                fontSize = 11.sp,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-
-            Spacer(Modifier.height(10.dp))
-
-            FlowRow(
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                verticalArrangement = Arrangement.spacedBy(6.dp)
-            ) {
-                StudioFilterChip(
-                    selected = useLobanovNorm,
-                    onClick = { useLobanovNorm = true },
-                    labelText = S.acoustics.chipLobanovNorm,
-                    modifier = Modifier.testTag("lobanov_norm_on")
-                )
-                StudioFilterChip(
-                    selected = !useLobanovNorm,
-                    onClick = { useLobanovNorm = false },
-                    labelText = S.acoustics.chipBarkPhysical,
-                    modifier = Modifier.testTag("lobanov_norm_off")
-                )
-                StudioFilterChip(
-                    selected = glideFilter == 0,
-                    onClick = { glideFilter = 0 },
-                    labelText = S.acoustics.chipAllRimes
-                )
-                StudioFilterChip(
-                    selected = glideFilter == 1,
-                    onClick = { glideFilter = 1 },
-                    labelText = S.acoustics.chipOnlyMonophthongs
-                )
-                StudioFilterChip(
-                    selected = glideFilter == 2,
-                    onClick = { glideFilter = 2 },
-                    labelText = S.acoustics.chipOnlyDiphthongs
-                )
-            }
-
-            Spacer(Modifier.height(12.dp))
-
-            val hitList = remember { ArrayList<Pair<Offset, NormalizedVowelToken>>(128) }
-            val textHintColor = MaterialTheme.colorScheme.onSurfaceVariant
-            val gridCol = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
-
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(290.dp)
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(MaterialTheme.colorScheme.surface)
-                    .pointerInput(useLobanovNorm, glideFilter, soloSpeakerId) {
-                        detectTapGestures { tap ->
-                            val hit = hitList.minByOrNull { (p, _) -> (p - tap).getDistance() }
-                            if (hit != null && (hit.first - tap).getDistance() <= 26.dp.toPx()) {
-                                val tok = hit.second
-                                inspectedToken = tok
-                                val fn = tok.word.recordingFile
-                                if (viewModel != null && !fn.isNullOrEmpty()) {
-                                    val f = File(File(context.getExternalFilesDir(null), "project_$projectId"), fn)
-                                    if (f.exists()) {
-                                        val tagId = -(tok.word.id * 1000 + tok.speakerId)
-                                        viewModel.playSpecificAudioFile(f, tagId)
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    .padding(10.dp)
-            ) {
-                Text(S.acoustics.cornerLobanovFrontHigh, fontSize = 9.sp, color = textHintColor, modifier = Modifier.align(Alignment.TopStart))
-                Text(S.acoustics.cornerLobanovBackHigh, fontSize = 9.sp, color = textHintColor, modifier = Modifier.align(Alignment.TopEnd))
-                Text(S.acoustics.cornerLobanovCentralLow, fontSize = 9.sp, color = textHintColor, modifier = Modifier.align(Alignment.BottomCenter))
-
-                Canvas(modifier = Modifier.fillMaxSize()) {
-                    hitList.clear()
-                    val padH = 24.dp.toPx()
-                    val padV = 22.dp.toPx()
-                    val plotW = (size.width - padH * 2).coerceAtLeast(20f)
-                    val plotH = (size.height - padV * 2).coerceAtLeast(20f)
-
-                    val zMin = -2.35f
-                    val zMax = 2.35f
-                    val b2Min = PhoneticScaleUtils.hzToBark(580f)
-                    val b2Max = PhoneticScaleUtils.hzToBark(2720f)
-                    val b1Min = PhoneticScaleUtils.hzToBark(210f)
-                    val b1Max = PhoneticScaleUtils.hzToBark(980f)
-
-                    fun mapLobanov(z1: Float, z2: Float): Offset {
-                        // Left = Front (+Z2), Right = Back (-Z2); Top = High (-Z1), Bottom = Low (+Z1)
-                        val xNorm = ((zMax - z2) / (zMax - zMin)).coerceIn(0f, 1f)
-                        val yNorm = ((z1 - zMin) / (zMax - zMin)).coerceIn(0f, 1f)
-                        return Offset(padH + xNorm * plotW, padV + yNorm * plotH)
-                    }
-
-                    fun mapBark(f1: Float, f2: Float): Offset {
-                        val xNorm = ((b2Max - PhoneticScaleUtils.hzToBark(f2)) / (b2Max - b2Min)).coerceIn(0f, 1f)
-                        val yNorm = ((PhoneticScaleUtils.hzToBark(f1) - b1Min) / (b1Max - b1Min)).coerceIn(0f, 1f)
-                        return Offset(padH + xNorm * plotW, padV + yNorm * plotH)
-                    }
-
-                    // Zero-center crosshairs in Lobanov space
-                    val zeroCenter = Offset(padH + 0.5f * plotW, padV + 0.5f * plotH)
-                    drawLine(
-                        color = gridCol,
-                        start = Offset(padH, zeroCenter.y),
-                        end = Offset(padH + plotW, zeroCenter.y),
-                        strokeWidth = 1.dp.toPx(),
-                        pathEffect = PathEffect.dashPathEffect(floatArrayOf(6f, 6f), 0f)
-                    )
-                    drawLine(
-                        color = gridCol,
-                        start = Offset(zeroCenter.x, padV),
-                        end = Offset(zeroCenter.x, padV + plotH),
-                        strokeWidth = 1.dp.toPx(),
-                        pathEffect = PathEffect.dashPathEffect(floatArrayOf(6f, 6f), 0f)
-                    )
-
-                    val placedBoxes = ArrayList<androidx.compose.ui.geometry.Rect>()
-
-                    // 1. Speaker vowel category ellipses
-                    if (glideFilter != 2) {
-                        multiReport.speakerEllipses.forEach { el ->
-                            val col = speakerColorMap[el.speakerId] ?: PHONOLOGY_PALETTE[0]
-                            val isDim = soloSpeakerId != null && soloSpeakerId != el.speakerId
-                            val fillAlpha = if (isDim) 0.02f else 0.11f
-                            val strokeAlpha = if (isDim) 0.12f else 0.62f
-
-                            val centerPx = if (useLobanovNorm) {
-                                mapLobanov(el.centerLobanovZ1, el.centerLobanovZ2)
-                            } else {
-                                mapBark(el.centerF1Hz, el.centerF2Hz)
-                            }
-                            val rxPx = if (useLobanovNorm) {
-                                (el.semiMajorLobanov / (zMax - zMin)) * plotW
-                            } else {
-                                (el.semiMajorBark / (b2Max - b2Min)) * plotW
-                            }
-                            val ryPx = if (useLobanovNorm) {
-                                (el.semiMinorLobanov / (zMax - zMin)) * plotH
-                            } else {
-                                (el.semiMinorBark / (b1Max - b1Min)) * plotH
-                            }
-                            val angRad = if (useLobanovNorm) el.angleRadLobanov else el.angleRadBark
-                            val deg = (-Math.toDegrees(angRad.toDouble())).toFloat()
-
-                            withTransform({ rotate(degrees = deg, pivot = centerPx) }) {
-                                drawOval(
-                                    color = col.copy(alpha = fillAlpha),
-                                    topLeft = Offset(centerPx.x - rxPx, centerPx.y - ryPx),
-                                    size = Size(rxPx * 2f, ryPx * 2f)
-                                )
-                                drawOval(
-                                    color = col.copy(alpha = strokeAlpha),
-                                    topLeft = Offset(centerPx.x - rxPx, centerPx.y - ryPx),
-                                    size = Size(rxPx * 2f, ryPx * 2f),
-                                    style = Stroke(width = 1.4.dp.toPx())
-                                )
-                            }
-                        }
-                    }
-
-                    // 2. Speaker tokens & trajectories
-                    multiReport.allNormalizedTokens.forEach { tok ->
-                        if (glideFilter == 1 && tok.vowelType != VowelGlideType.MONOPHTHONG) return@forEach
-                        if (glideFilter == 2 && tok.vowelType == VowelGlideType.MONOPHTHONG) return@forEach
-
-                        val col = speakerColorMap[tok.speakerId] ?: PHONOLOGY_PALETTE[0]
-                        val isDim = soloSpeakerId != null && soloSpeakerId != tok.speakerId
-                        val alpha = if (isDim) 0.12f else 0.88f
-
-                        if (tok.vowelType == VowelGlideType.MONOPHTHONG) {
-                            val pt = if (useLobanovNorm) {
-                                mapLobanov(tok.z1Nucleus, tok.z2Nucleus)
-                            } else {
-                                mapBark(tok.nucleusF1Hz.toFloat(), tok.nucleusF2Hz.toFloat())
-                            }
-                            hitList.add(pt to tok)
-                            drawCircle(color = col.copy(alpha = alpha), radius = 3.6.dp.toPx(), center = pt)
-                            if (!isDim) {
-                                drawNonOverlappingLabel(
-                                    textMeasurer = textMeasurer,
-                                    labelLayoutCache = labelLayoutCache,
-                                    text = tok.displayLabel,
-                                    anchor = pt,
-                                    color = col,
-                                    placedBoxes = placedBoxes,
-                                    forceDraw = false
-                                )
-                            }
-                        } else {
-                            val pts = if (useLobanovNorm) {
-                                listOf(
-                                    mapLobanov(tok.z1Onset, tok.z2Onset),
-                                    mapLobanov(tok.z1Nucleus, tok.z2Nucleus),
-                                    mapLobanov(tok.z1Target, tok.z2Target)
-                                )
-                            } else {
-                                listOf(
-                                    mapBark(tok.onsetF1Hz.toFloat(), tok.onsetF2Hz.toFloat()),
-                                    mapBark(tok.nucleusF1Hz.toFloat(), tok.nucleusF2Hz.toFloat()),
-                                    mapBark(tok.targetF1Hz.toFloat(), tok.targetF2Hz.toFloat())
-                                )
-                            }
-                            hitList.add(pts.last() to tok)
-                            val path = buildSmoothVowelCurvePath(pts)
-                            drawPath(path = path, color = col.copy(alpha = alpha), style = Stroke(width = 2.2.dp.toPx(), cap = StrokeCap.Round))
-                            drawDirectedArrowHead(
-                                from = pts[pts.size - 2],
-                                to = pts.last(),
-                                color = col.copy(alpha = alpha),
-                                headLenPx = 7.8.dp.toPx(),
-                                headHalfWidthPx = 4.2.dp.toPx()
-                            )
-                            if (!isDim) {
-                                drawNonOverlappingLabel(
-                                    textMeasurer = textMeasurer,
-                                    labelLayoutCache = labelLayoutCache,
-                                    text = tok.displayLabel,
-                                    anchor = pts.first(),
-                                    color = col,
-                                    placedBoxes = placedBoxes,
-                                    forceDraw = false
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-
-            val insp = inspectedToken
-            if (insp != null) {
-                Spacer(Modifier.height(8.dp))
-                Text(
-                    text = S.acoustics.lobanovSelectedPointLine.withArgs(
-                        "speaker" to insp.speakerName,
-                        "word" to insp.word.text,
-                        "summary" to insp.trajectorySummary,
-                        "z1" to String.format(Locale.US, "%.2f", insp.z1Nucleus),
-                        "z2" to String.format(Locale.US, "%.2f", insp.z2Nucleus)
-                    ),
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    color = MaterialTheme.colorScheme.primary
-                )
-            }
-
-            Spacer(Modifier.height(10.dp))
-
-            // Speaker Filter Legend
-            FlowRow(
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalArrangement = Arrangement.spacedBy(6.dp)
-            ) {
-                multiReport.speakerReports.forEach { spkRep ->
-                    val col = speakerColorMap[spkRep.speakerId] ?: PHONOLOGY_PALETTE[0]
-                    val spkMeta = multiReport.speakersById[spkRep.speakerId]
-                    val selected = soloSpeakerId == spkRep.speakerId
-                    Surface(
-                        shape = RoundedCornerShape(8.dp),
-                        color = if (selected) col.copy(alpha = 0.18f) else MaterialTheme.colorScheme.surface,
-                        border = BorderStroke(1.dp, if (selected) col else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f)),
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(8.dp))
-                            .clickable {
-                                soloSpeakerId = if (soloSpeakerId == spkRep.speakerId) null else spkRep.speakerId
-                            }
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            Box(modifier = Modifier.size(9.dp).background(col, CircleShape))
-                            Text(
-                                text = buildString {
-                                    append(spkRep.speakerName)
-                                    if (spkMeta != null) {
-                                        append(
-                                            S.acoustics.speakerChipMetaAge.withArgs(
-                                                "gender" to spkMeta.gender,
-                                                "age" to spkMeta.age
-                                            )
-                                        )
-                                    }
-                                    append(S.acoustics.speakerChipTokenCount.withArgs("count" to spkRep.vowelTokens.size))
-                                    if (!spkRep.lobanovValid) append(S.acoustics.speakerChipSmallSampleTag)
-                                },
-                                fontSize = 11.sp,
-                                fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium
-                            )
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
 
 /**
  * Collision-aware Canvas text label drawer with Level-of-Detail (LOD) culling:

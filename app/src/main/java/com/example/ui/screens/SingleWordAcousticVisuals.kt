@@ -791,9 +791,14 @@ fun SingleWordDynamicVowelCard(
     speaker: Speaker?,
     analysis: AcousticAnalyzer.PhoneticAcousticResult,
     otherSpeakersEntries: List<CrossSpeakerWordAnalysis> = emptyList(),
+    hiddenOtherSpeakerIds: Set<Long> = emptySet(),
+    onToggleOtherSpeakerVisibility: ((Long) -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
-    var overlayOtherSpeakers by remember { mutableStateOf(false) }
+    var overlayOtherSpeakers by remember { mutableStateOf(otherSpeakersEntries.isNotEmpty()) }
+    var useVocalTractNormOnOverlay by remember { mutableStateOf(true) }
+    var localHiddenIds by remember(word.id) { mutableStateOf(emptySet<Long>()) }
+    val effectiveHiddenIds = if (onToggleOtherSpeakerVisibility != null) hiddenOtherSpeakerIds else localHiddenIds
     var selectedSyllableIndex by remember(word.id, analysis.formantTrajectories.size) { mutableStateOf(-1) } // -1 = 全部音节
 
     val trajectories = analysis.formantTrajectories
@@ -864,6 +869,32 @@ fun SingleWordDynamicVowelCard(
                         selected = overlayOtherSpeakers,
                         onClick = { overlayOtherSpeakers = !overlayOtherSpeakers },
                         labelText = S.acoustics.multiSpeakerOverlayChip
+                    )
+                }
+            }
+
+            if (otherSpeakersEntries.isNotEmpty() && overlayOtherSpeakers) {
+                Spacer(modifier = Modifier.height(8.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "跨人坐标:",
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    StudioFilterChip(
+                        selected = useVocalTractNormOnOverlay,
+                        onClick = { useVocalTractNormOnOverlay = true },
+                        labelText = "声道归一化相对舌位"
+                    )
+                    StudioFilterChip(
+                        selected = !useVocalTractNormOnOverlay,
+                        onClick = { useVocalTractNormOnOverlay = false },
+                        labelText = "原始 Bark 物理频率"
                     )
                 }
             }
@@ -1057,17 +1088,57 @@ fun SingleWordDynamicVowelCard(
                         Color(0xFF8E24AA)
                     )
 
-                    // Optional cross-speaker trajectories (dashed)
+                    val cmpCols = listOf(
+                        Color(0xFF00897B),
+                        Color(0xFF8E24AA),
+                        Color(0xFF5D4037),
+                        Color(0xFFC2185B),
+                        Color(0xFFEF6C00)
+                    )
+
+                    fun normalizeHzForSpeaker(spk: Speaker?, rawF1: Int, rawF2: Int): Pair<Int, Int> {
+                        if (!overlayOtherSpeakers || !useVocalTractNormOnOverlay) return rawF1 to rawF2
+                        val cachedRep = spk?.id?.let { CorpusPhonologyAnalyzer.lookupCachedSpeakerReport(word.projectId, it) }
+                        if (cachedRep != null && cachedRep.vowelTokens.size >= 5 && cachedRep.lobanovValid) {
+                            val m1 = cachedRep.vowelTokens.map { it.nucleusF1Hz }.average().toFloat()
+                            val m2 = cachedRep.vowelTokens.map { it.nucleusF2Hz }.average().toFloat()
+                            val s1 = sqrt(cachedRep.vowelTokens.map { (it.nucleusF1Hz - m1) * (it.nucleusF1Hz - m1) }.average()).toFloat().coerceAtLeast(80f)
+                            val s2 = sqrt(cachedRep.vowelTokens.map { (it.nucleusF2Hz - m2) * (it.nucleusF2Hz - m2) }.average()).toFloat().coerceAtLeast(240f)
+                            val z1 = ((rawF1 - m1) / s1).coerceIn(-2.6f, 2.6f)
+                            val z2 = ((rawF2 - m2) / s2).coerceIn(-2.6f, 2.6f)
+                            return PhoneticScaleUtils.lobanovZ1ToEquivHz(z1).roundToInt() to
+                                PhoneticScaleUtils.lobanovZ2ToEquivHz(z2).roundToInt()
+                        }
+                        val g = spk?.gender?.trim()?.lowercase(Locale.ROOT).orEmpty()
+                        val tractFactor = when {
+                            g.contains("女") || g == "f" || g.contains("female") -> 0.865f
+                            g.contains("男") || g == "m" || g.contains("male") -> 1.055f
+                            else -> 1.0f
+                        }
+                        return (rawF1 * tractFactor).roundToInt().coerceIn(200, 980) to
+                            (rawF2 * tractFactor).roundToInt().coerceIn(580, 2720)
+                    }
+
+                    fun mapActiveSpeaker(f1: Int, f2: Int): Offset {
+                        val (nf1, nf2) = normalizeHzForSpeaker(speaker, f1, f2)
+                        return mapToCanvas(nf1, nf2)
+                    }
+
+                    // Optional cross-speaker trajectories (dashed, with per-speaker vocal-tract normalization & visibility filter)
                     if (overlayOtherSpeakers) {
-                        val cmpCols = listOf(Color(0xFF00897B), Color(0xFF8E24AA), Color(0xFF5D4037), Color(0xFFC2185B))
                         otherSpeakersEntries.forEachIndexed { idx, other ->
+                            if (other.speaker.id in effectiveHiddenIds) return@forEachIndexed
                             val oTrajs = other.analysis.formantTrajectories
-                            val col = cmpCols[idx % cmpCols.size].copy(alpha = 0.62f)
-                            oTrajs.forEach { oTraj ->
+                            val col = cmpCols[idx % cmpCols.size].copy(alpha = 0.72f)
+                            oTrajs.forEachIndexed { sIdx, oTraj ->
+                                if (selectedSyllableIndex != -1 && selectedSyllableIndex != sIdx) return@forEachIndexed
                                 if (oTraj.nucleusF1 > 0) {
                                     drawSyllableVowelElement(
                                         traj = oTraj,
-                                        mapFn = ::mapToCanvas,
+                                        mapFn = { f1, f2 ->
+                                            val (nf1, nf2) = normalizeHzForSpeaker(other.speaker, f1, f2)
+                                            mapToCanvas(nf1, nf2)
+                                        },
                                         color = col,
                                         dashed = true
                                     )
@@ -1085,14 +1156,14 @@ fun SingleWordDynamicVowelCard(
                                 val tNext = trajectories[k + 1]
                                 if (tCur.nucleusF1 > 0 && tNext.nucleusF1 > 0) {
                                     val fromPt = if (tCur.vowelType == VowelGlideType.MONOPHTHONG) {
-                                        mapToCanvas(tCur.nucleusF1, tCur.nucleusF2)
+                                        mapActiveSpeaker(tCur.nucleusF1, tCur.nucleusF2)
                                     } else {
-                                        mapToCanvas(tCur.targetF1, tCur.targetF2)
+                                        mapActiveSpeaker(tCur.targetF1, tCur.targetF2)
                                     }
                                     val toPt = if (tNext.vowelType == VowelGlideType.MONOPHTHONG) {
-                                        mapToCanvas(tNext.nucleusF1, tNext.nucleusF2)
+                                        mapActiveSpeaker(tNext.nucleusF1, tNext.nucleusF2)
                                     } else {
-                                        mapToCanvas(tNext.onsetF1, tNext.onsetF2)
+                                        mapActiveSpeaker(tNext.onsetF1, tNext.onsetF2)
                                     }
                                     drawInterSyllableDashedLink(
                                         from = fromPt,
@@ -1111,16 +1182,16 @@ fun SingleWordDynamicVowelCard(
                                 val drawCol = if (isDimmed) baseCol.copy(alpha = 0.20f) else baseCol
                                 drawSyllableVowelElement(
                                     traj = traj,
-                                    mapFn = ::mapToCanvas,
+                                    mapFn = ::mapActiveSpeaker,
                                     color = drawCol,
                                     dashed = false
                                 )
 
                                 if (trajectories.size > 1 && !isDimmed) {
                                     val labelAnchor = if (traj.vowelType == VowelGlideType.MONOPHTHONG) {
-                                        mapToCanvas(traj.nucleusF1, traj.nucleusF2)
+                                        mapActiveSpeaker(traj.nucleusF1, traj.nucleusF2)
                                     } else {
-                                        mapToCanvas(traj.onsetF1, traj.onsetF2)
+                                        mapActiveSpeaker(traj.onsetF1, traj.onsetF2)
                                     }
                                     val badgeStr = "${circledSyllableBadge(sIdx + 1)}${traj.syllableLabel.take(2)}"
                                     val measured = vowelTextMeasurer.measure(
@@ -1143,7 +1214,7 @@ fun SingleWordDynamicVowelCard(
                             val f1 = analysis.speakerF1.getOrNull(s) ?: 0
                             val f2 = analysis.speakerF2.getOrNull(s) ?: 0
                             if (f1 > 0 && f2 > 0) {
-                                val pt = mapToCanvas(f1, f2)
+                                val pt = mapActiveSpeaker(f1, f2)
                                 if (ptsList.isNotEmpty()) {
                                     drawInterSyllableDashedLink(ptsList.last(), pt, interSylLinkColor)
                                 }
@@ -1151,6 +1222,77 @@ fun SingleWordDynamicVowelCard(
                                 val col = sylPalette[s % sylPalette.size]
                                 drawCircle(color = col.copy(alpha = 0.22f), radius = 11.dp.toPx(), center = pt)
                                 drawCircle(color = col, radius = 4.8.dp.toPx(), center = pt)
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Cross-Speaker Vowel Overlay Color Legend & Interactive Visibility Toggles
+            if (overlayOtherSpeakers && otherSpeakersEntries.isNotEmpty()) {
+                val cmpCols = listOf(
+                    Color(0xFF00897B),
+                    Color(0xFF8E24AA),
+                    Color(0xFF5D4037),
+                    Color(0xFFC2185B),
+                    Color(0xFFEF6C00)
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        modifier = Modifier
+                            .background(MaterialTheme.colorScheme.surface, RoundedCornerShape(7.dp))
+                            .padding(horizontal = 8.dp, vertical = 4.dp)
+                    ) {
+                        Box(modifier = Modifier.size(8.dp).background(Color(0xFFD93025), CircleShape))
+                        Text(
+                            text = "${speaker?.name ?: "当前发音人"} (实线)",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                    otherSpeakersEntries.forEachIndexed { idx, entry ->
+                        val col = cmpCols[idx % cmpCols.size]
+                        val isHidden = entry.speaker.id in effectiveHiddenIds
+                        val t0 = entry.analysis.formantTrajectories.firstOrNull()
+                        val detailTxt = if (t0 != null && t0.nucleusF1 > 0) {
+                            " ${t0.vowelType.chineseLabel.substringBefore(' ')} ${t0.nucleusF1}/${t0.nucleusF2}Hz"
+                        } else ""
+                        Surface(
+                            shape = RoundedCornerShape(7.dp),
+                            color = if (isHidden) MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f) else col.copy(alpha = 0.12f),
+                            border = BorderStroke(1.dp, if (isHidden) MaterialTheme.colorScheme.outlineVariant else col.copy(alpha = 0.55f)),
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(7.dp))
+                                .clickable {
+                                    if (onToggleOtherSpeakerVisibility != null) {
+                                        onToggleOtherSpeakerVisibility(entry.speaker.id)
+                                    } else {
+                                        localHiddenIds = if (isHidden) localHiddenIds - entry.speaker.id else localHiddenIds + entry.speaker.id
+                                    }
+                                }
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(8.dp)
+                                        .background(if (isHidden) MaterialTheme.colorScheme.outline else col, CircleShape)
+                                )
+                                Text(
+                                    text = "${entry.speaker.name} (虚线)$detailTxt",
+                                    fontSize = 11.sp,
+                                    fontWeight = if (isHidden) FontWeight.Normal else FontWeight.SemiBold,
+                                    color = if (isHidden) MaterialTheme.colorScheme.outline else MaterialTheme.colorScheme.onSurface
+                                )
                             }
                         }
                     }
