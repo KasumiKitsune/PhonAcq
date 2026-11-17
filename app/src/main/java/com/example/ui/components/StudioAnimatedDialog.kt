@@ -30,11 +30,13 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.NonSkippableComposable
 import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.neverEqualPolicy
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
@@ -61,6 +63,15 @@ val LocalStudioDialogVisible = compositionLocalOf { true }
 private val LocalInsideStudioModal = compositionLocalOf { false }
 
 /**
+ * Absorbs pointer taps inside a visible dialog card (`Surface` / `Card`) so clicks on card
+ * whitespace never fall through to the backdrop scrim, while clicks outside the card's bounds
+ * reach the scrim cleanly.
+ */
+fun Modifier.consumeDialogCardTaps(): Modifier = this.pointerInput(Unit) {
+    detectTapGestures { /* Absorb tap inside dialog card bounds */ }
+}
+
+/**
  * Represents a stacked modal dialog entry hosted inside the Desktop root window canvas
  * so both backdrop scrim and dialog card animate smoothly on enter AND exit without
  * AWT/Skia sub-window flash artifacts.
@@ -78,7 +89,7 @@ class DesktopModalEntry internal constructor(
     var dismissOnClickOutside by mutableStateOf(dismissOnClickOutside)
     var usePlatformDefaultWidth by mutableStateOf(usePlatformDefaultWidth)
     var isExiting by mutableStateOf(false)
-    var content by mutableStateOf(content)
+    var content by mutableStateOf(content, neverEqualPolicy())
 }
 
 object DesktopModalManager {
@@ -253,7 +264,7 @@ private fun DesktopModalLayer(
                 }
         )
 
-        // Dialog content container (absorbs taps on the card body itself)
+        // Dialog content container (individual dialog card Surface/Card consumes its own interior taps)
         Box(
             contentAlignment = Alignment.Center,
             modifier = Modifier
@@ -272,9 +283,6 @@ private fun DesktopModalLayer(
                     scaleY = cardScale
                     alpha = cardAlpha
                     translationY = cardTranslationY
-                }
-                .pointerInput(Unit) {
-                    detectTapGestures { /* Swallow background tap inside dialog bounds */ }
                 }
         ) {
             CompositionLocalProvider(
@@ -369,6 +377,7 @@ fun <T : Any> AnimatedNullableDialogVisibility(
  * - On Android / standalone tests: delegates to `Dialog` with [StudioDialogEnterAnimation].
  */
 @Composable
+@NonSkippableComposable
 fun StudioModalDialog(
     onDismissRequest: () -> Unit,
     properties: DialogProperties = DialogProperties(),
@@ -417,6 +426,7 @@ fun StudioModalDialog(
  * animations on both Desktop and Android.
  */
 @Composable
+@NonSkippableComposable
 fun StudioAlertDialog(
     onDismissRequest: () -> Unit,
     confirmButton: @Composable () -> Unit,
@@ -445,7 +455,8 @@ fun StudioAlertDialog(
             Surface(
                 modifier = modifier
                     .padding(horizontal = 24.dp, vertical = 18.dp)
-                    .widthIn(min = 320.dp, max = 500.dp),
+                    .widthIn(min = 320.dp, max = 500.dp)
+                    .consumeDialogCardTaps(),
                 shape = shape,
                 color = containerColor,
                 tonalElevation = tonalElevation,

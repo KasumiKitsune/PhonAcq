@@ -53,6 +53,7 @@ import com.example.i18n.S
 import com.example.i18n.withArgs
 import com.example.ui.components.DesktopAdaptiveState
 import com.example.ui.components.KeycapBadge
+import com.example.ui.components.consumeDialogCardTaps
 import com.example.ui.components.PredictiveBackGestureHandler
 import com.example.ui.components.StudioFilterChip
 import com.example.ui.components.StudioRadioRow
@@ -1905,10 +1906,15 @@ fun QuickNoteCustomizationDialog(
     com.example.ui.components.StudioModalDialog(
         onDismissRequest = onDismiss,
         properties = DialogProperties(
+            dismissOnClickOutside = false,
             usePlatformDefaultWidth = false
         )
     ) {
-        com.example.ui.components.StudioDialogEnterAnimation(modifier = Modifier.fillMaxSize()) {
+        com.example.ui.components.StudioDialogEnterAnimation(
+            modifier = Modifier
+                .fillMaxSize()
+                .consumeDialogCardTaps()
+        ) {
             QuickNoteCustomizationScreen(
                 toneSymbols = toneSymbols,
                 fieldTags = fieldTags,

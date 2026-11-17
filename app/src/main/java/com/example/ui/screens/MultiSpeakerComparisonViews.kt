@@ -1,13 +1,18 @@
 package com.example.ui.screens
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectTransformGestures
+import androidx.compose.foundation.hoverable
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsHoveredAsState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -34,6 +39,9 @@ import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Fill
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.withTransform
+import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.input.pointer.PointerIcon
+import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
@@ -49,6 +57,7 @@ import com.example.audio.*
 import com.example.data.Speaker
 import com.example.data.Word
 import com.example.i18n.S
+import com.example.ui.components.DesktopAdaptiveState
 import com.example.ui.components.StudioFilterChip
 import com.example.viewmodel.RecordingViewModel
 import kotlinx.coroutines.Job
@@ -91,6 +100,8 @@ fun MacroActiveSpeakerSwitcherStrip(
     modifier: Modifier = Modifier
 ) {
     if (speakerPairs.size < 2) return
+    val isDesktop = DesktopAdaptiveState.isDesktopPlatform
+    val cs = MaterialTheme.colorScheme
     Row(
         modifier = modifier
             .fillMaxWidth()
@@ -99,31 +110,54 @@ fun MacroActiveSpeakerSwitcherStrip(
         verticalAlignment = Alignment.CenterVertically
     ) {
         Text(
-            text = "切换发音人:",
+            text = "切换发音人",
             fontSize = 11.5.sp,
             fontWeight = FontWeight.SemiBold,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
+            color = cs.onSurfaceVariant
         )
         speakerPairs.forEachIndexed { idx, (spk, wList) ->
             val recCnt = remember(wList) { wList.count { it.isRecorded && !it.recordingFile.isNullOrEmpty() } }
             val isSelected = spk.id == selectedSpeakerId
             val accent = cohortColor(idx)
+            val interactionSource = remember { MutableInteractionSource() }
+            val isHovered = if (isDesktop) interactionSource.collectIsHoveredAsState().value else false
+            val chipBg by animateColorAsState(
+                targetValue = when {
+                    isSelected -> lerp(cs.surface, accent, 0.16f)
+                    isHovered -> lerp(cs.surface, accent, 0.08f)
+                    else -> cs.surface
+                },
+                animationSpec = tween(140),
+                label = "MacroSpeakerChipBg"
+            )
             Surface(
-                shape = RoundedCornerShape(9.dp),
-                color = if (isSelected) accent.copy(alpha = 0.16f) else MaterialTheme.colorScheme.surfaceContainerLow,
+                shape = RoundedCornerShape(10.dp),
+                color = chipBg,
                 border = BorderStroke(
                     width = if (isSelected) 1.4.dp else 1.dp,
-                    color = if (isSelected) accent else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f)
+                    color = when {
+                        isSelected -> accent
+                        isHovered -> accent.copy(alpha = 0.65f)
+                        else -> cs.outlineVariant.copy(alpha = 0.50f)
+                    }
                 ),
+                shadowElevation = 0.dp,
+                tonalElevation = 0.dp,
                 modifier = Modifier
-                    .clip(RoundedCornerShape(9.dp))
-                    .clickable { onSelectSpeaker(spk, wList) }
+                    .clip(RoundedCornerShape(10.dp))
+                    .hoverable(interactionSource)
+                    .then(if (isDesktop) Modifier.pointerHoverIcon(PointerIcon.Hand) else Modifier)
+                    .clickable(
+                        interactionSource = interactionSource,
+                        indication = null,
+                        onClick = { onSelectSpeaker(spk, wList) }
+                    )
                     .testTag("macro_quick_speaker_${spk.id}")
             ) {
                 Row(
-                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                    modifier = Modifier.padding(horizontal = 11.dp, vertical = 5.5.dp),
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(5.dp)
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
                     Box(
                         modifier = Modifier
@@ -134,7 +168,9 @@ fun MacroActiveSpeakerSwitcherStrip(
                         text = "${spk.name} ($recCnt)",
                         fontSize = 11.5.sp,
                         fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                        color = if (isSelected) accent else MaterialTheme.colorScheme.onSurface
+                        color = if (isSelected) accent else cs.onSurface,
+                        maxLines = 1,
+                        softWrap = false
                     )
                 }
             }
@@ -154,7 +190,8 @@ fun MultiSpeakerComparisonWorkbench(
     multiReport: MultiSpeakerVowelComparisonReport,
     projectId: Long,
     viewModel: RecordingViewModel?,
-    playingWordId: Long?
+    playingWordId: Long?,
+    isDesktopWide: Boolean = false
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -245,63 +282,158 @@ fun MultiSpeakerComparisonWorkbench(
         }
     }
 
-    Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-        // 1. Cohort & Shared-Vocabulary Calibration Control Card
-        MultiSpeakerCohortControlCard(
-            multiReport = multiReport,
-            aligned = alignedAnalysis,
-            selectedSpeakerIds = selectedSpeakerIds,
-            onToggleSpeaker = { spkId ->
-                val next = if (spkId in selectedSpeakerIds) {
-                    if (selectedSpeakerIds.size > 2) selectedSpeakerIds - spkId else selectedSpeakerIds
-                } else {
-                    selectedSpeakerIds + spkId
+    val onToggleSpk: (Long) -> Unit = { spkId ->
+        val next = if (spkId in selectedSpeakerIds) {
+            if (selectedSpeakerIds.size > 2) selectedSpeakerIds - spkId else selectedSpeakerIds
+        } else {
+            selectedSpeakerIds + spkId
+        }
+        selectedSpeakerIds = next
+    }
+
+    if (isDesktopWide) {
+        Column(verticalArrangement = Arrangement.spacedBy(18.dp)) {
+            if (alignedAnalysis.wordComparisons.isNotEmpty()) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(18.dp),
+                    verticalAlignment = Alignment.Top
+                ) {
+                    Box(modifier = Modifier.weight(0.50f)) {
+                        MultiSpeakerCohortControlCard(
+                            multiReport = multiReport,
+                            aligned = alignedAnalysis,
+                            selectedSpeakerIds = selectedSpeakerIds,
+                            onToggleSpeaker = onToggleSpk,
+                            onSelectAllSpeakers = { selectedSpeakerIds = allSpeakerIds },
+                            cohortMode = alignedAnalysis.cohortMode,
+                            onCohortModeChange = { cohortMode = it },
+                            onlySharedVocabulary = onlySharedVocabulary,
+                            onOnlySharedVocabularyChange = { onlySharedVocabulary = it }
+                        )
+                    }
+                    Box(modifier = Modifier.weight(0.50f)) {
+                        MultiSpeakerDivergenceSummaryCard(
+                            aligned = alignedAnalysis,
+                            focusedWordId = focusedWordId,
+                            sequentialPlayingWordId = sequentialPlayingWordId,
+                            onSelectWord = { comp ->
+                                focusedWordId = if (focusedWordId == comp.wordId) null else comp.wordId
+                            },
+                            onSequentialPlayWord = { comp -> triggerSequentialPlayForWord(comp) }
+                        )
+                    }
                 }
-                selectedSpeakerIds = next
-            },
-            onSelectAllSpeakers = { selectedSpeakerIds = allSpeakerIds },
-            cohortMode = alignedAnalysis.cohortMode,
-            onCohortModeChange = { cohortMode = it },
-            onlySharedVocabulary = onlySharedVocabulary,
-            onOnlySharedVocabularyChange = { onlySharedVocabulary = it }
-        )
+            } else {
+                MultiSpeakerCohortControlCard(
+                    multiReport = multiReport,
+                    aligned = alignedAnalysis,
+                    selectedSpeakerIds = selectedSpeakerIds,
+                    onToggleSpeaker = onToggleSpk,
+                    onSelectAllSpeakers = { selectedSpeakerIds = allSpeakerIds },
+                    cohortMode = alignedAnalysis.cohortMode,
+                    onCohortModeChange = { cohortMode = it },
+                    onlySharedVocabulary = onlySharedVocabulary,
+                    onOnlySharedVocabularyChange = { onlySharedVocabulary = it }
+                )
+            }
 
-        // 2. Cross-Speaker Divergence Summary & Top Divergent Words Radar
-        if (alignedAnalysis.wordComparisons.isNotEmpty()) {
-            MultiSpeakerDivergenceSummaryCard(
+            if (alignedAnalysis.alignedToneCategories.isNotEmpty()) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(18.dp),
+                    verticalAlignment = Alignment.Top
+                ) {
+                    Box(modifier = Modifier.weight(0.46f)) {
+                        MultiSpeakerToneComparisonCard(
+                            aligned = alignedAnalysis,
+                            focusedWordId = focusedWordId,
+                            sequentialPlayingWordId = sequentialPlayingWordId,
+                            onFocusAndPlayWord = { comp -> triggerSequentialPlayForWord(comp) }
+                        )
+                    }
+                    Box(modifier = Modifier.weight(0.54f)) {
+                        MultiSpeakerVowelWorkbenchCard(
+                            projectId = projectId,
+                            aligned = alignedAnalysis,
+                            focusedWordId = focusedWordId,
+                            onFocusWordChange = { focusedWordId = it },
+                            focusedGroupKey = focusedVowelGroupKey,
+                            onFocusGroupKeyChange = { focusedVowelGroupKey = it },
+                            playingWordId = playingWordId,
+                            sequentialPlayingWordId = sequentialPlayingWordId,
+                            onPlayRealization = { playSingleRealization(it) },
+                            onSequentialPlayWord = { triggerSequentialPlayForWord(it) }
+                        )
+                    }
+                }
+            } else {
+                MultiSpeakerVowelWorkbenchCard(
+                    projectId = projectId,
+                    aligned = alignedAnalysis,
+                    focusedWordId = focusedWordId,
+                    onFocusWordChange = { focusedWordId = it },
+                    focusedGroupKey = focusedVowelGroupKey,
+                    onFocusGroupKeyChange = { focusedVowelGroupKey = it },
+                    playingWordId = playingWordId,
+                    sequentialPlayingWordId = sequentialPlayingWordId,
+                    onPlayRealization = { playSingleRealization(it) },
+                    onSequentialPlayWord = { triggerSequentialPlayForWord(it) }
+                )
+            }
+        }
+    } else {
+        Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+            // 1. Cohort & Shared-Vocabulary Calibration Control Card
+            MultiSpeakerCohortControlCard(
+                multiReport = multiReport,
+                aligned = alignedAnalysis,
+                selectedSpeakerIds = selectedSpeakerIds,
+                onToggleSpeaker = onToggleSpk,
+                onSelectAllSpeakers = { selectedSpeakerIds = allSpeakerIds },
+                cohortMode = alignedAnalysis.cohortMode,
+                onCohortModeChange = { cohortMode = it },
+                onlySharedVocabulary = onlySharedVocabulary,
+                onOnlySharedVocabularyChange = { onlySharedVocabulary = it }
+            )
+
+            // 2. Cross-Speaker Divergence Summary & Top Divergent Words Radar
+            if (alignedAnalysis.wordComparisons.isNotEmpty()) {
+                MultiSpeakerDivergenceSummaryCard(
+                    aligned = alignedAnalysis,
+                    focusedWordId = focusedWordId,
+                    sequentialPlayingWordId = sequentialPlayingWordId,
+                    onSelectWord = { comp ->
+                        focusedWordId = if (focusedWordId == comp.wordId) null else comp.wordId
+                    },
+                    onSequentialPlayWord = { comp -> triggerSequentialPlayForWord(comp) }
+                )
+            }
+
+            // 3. Cross-Speaker 5-Degree Tone System Comparison Card
+            if (alignedAnalysis.alignedToneCategories.isNotEmpty()) {
+                MultiSpeakerToneComparisonCard(
+                    aligned = alignedAnalysis,
+                    focusedWordId = focusedWordId,
+                    sequentialPlayingWordId = sequentialPlayingWordId,
+                    onFocusAndPlayWord = { comp -> triggerSequentialPlayForWord(comp) }
+                )
+            }
+
+            // 4. 2nd-Gen Interactive Multi-Speaker Dynamic Vowel Workbench
+            MultiSpeakerVowelWorkbenchCard(
+                projectId = projectId,
                 aligned = alignedAnalysis,
                 focusedWordId = focusedWordId,
+                onFocusWordChange = { focusedWordId = it },
+                focusedGroupKey = focusedVowelGroupKey,
+                onFocusGroupKeyChange = { focusedVowelGroupKey = it },
+                playingWordId = playingWordId,
                 sequentialPlayingWordId = sequentialPlayingWordId,
-                onSelectWord = { comp ->
-                    focusedWordId = if (focusedWordId == comp.wordId) null else comp.wordId
-                },
-                onSequentialPlayWord = { comp -> triggerSequentialPlayForWord(comp) }
+                onPlayRealization = { playSingleRealization(it) },
+                onSequentialPlayWord = { triggerSequentialPlayForWord(it) }
             )
         }
-
-        // 3. Cross-Speaker 5-Degree Tone System Comparison Card
-        if (alignedAnalysis.alignedToneCategories.isNotEmpty()) {
-            MultiSpeakerToneComparisonCard(
-                aligned = alignedAnalysis,
-                focusedWordId = focusedWordId,
-                sequentialPlayingWordId = sequentialPlayingWordId,
-                onFocusAndPlayWord = { comp -> triggerSequentialPlayForWord(comp) }
-            )
-        }
-
-        // 4. 2nd-Gen Interactive Multi-Speaker Dynamic Vowel Workbench
-        MultiSpeakerVowelWorkbenchCard(
-            projectId = projectId,
-            aligned = alignedAnalysis,
-            focusedWordId = focusedWordId,
-            onFocusWordChange = { focusedWordId = it },
-            focusedGroupKey = focusedVowelGroupKey,
-            onFocusGroupKeyChange = { focusedVowelGroupKey = it },
-            playingWordId = playingWordId,
-            sequentialPlayingWordId = sequentialPlayingWordId,
-            onPlayRealization = { playSingleRealization(it) },
-            onSequentialPlayWord = { triggerSequentialPlayForWord(it) }
-        )
     }
 }
 
@@ -1334,28 +1466,23 @@ fun MultiSpeakerVowelWorkbenchCard(
                         val currentGroupOverride = remember(projectId, focusedCategory.groupKey, vowelOverrideRevision) {
                             VowelGlideOverrideStore.getGroupOverride(context, projectId, focusedCategory.groupKey)
                         }
-                        Surface(
-                            shape = RoundedCornerShape(10.dp),
-                            color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.36f),
-                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f)),
+                        VowelOverrideBarSurface(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(top = 8.dp)
+                                .padding(top = 10.dp)
                         ) {
-                            Box(modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp)) {
-                                VowelTypeManualOverrideRow(
-                                    titleLabel = "「${focusedCategory.groupLabel}」全员韵母判定:",
-                                    currentOverride = currentGroupOverride,
-                                    onSelectOverride = { nextType ->
-                                        VowelGlideOverrideStore.setGroupOverride(
-                                            context = context,
-                                            projectId = projectId,
-                                            groupKeyOrName = focusedCategory.groupKey,
-                                            overrideType = nextType
-                                        )
-                                    }
-                                )
-                            }
+                            VowelTypeManualOverrideRow(
+                                titleLabel = "「${focusedCategory.groupLabel}」全员韵母判定",
+                                currentOverride = currentGroupOverride,
+                                onSelectOverride = { nextType ->
+                                    VowelGlideOverrideStore.setGroupOverride(
+                                        context = context,
+                                        projectId = projectId,
+                                        groupKeyOrName = focusedCategory.groupKey,
+                                        overrideType = nextType
+                                    )
+                                }
+                            )
                         }
                     }
                 }

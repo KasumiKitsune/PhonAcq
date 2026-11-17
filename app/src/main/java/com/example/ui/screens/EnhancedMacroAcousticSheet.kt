@@ -1,13 +1,21 @@
 package com.example.ui.screens
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectTransformGestures
+import androidx.compose.foundation.hoverable
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsHoveredAsState
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -32,9 +40,14 @@ import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Fill
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.withTransform
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.input.pointer.PointerEventType
+import androidx.compose.ui.input.pointer.PointerIcon
+import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
@@ -46,9 +59,11 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.DialogProperties
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -57,7 +72,11 @@ import com.example.data.Speaker
 import com.example.data.Word
 import com.example.i18n.S
 import com.example.i18n.withArgs
+import com.example.ui.components.DesktopAdaptiveState
+import com.example.ui.components.KeycapBadge
 import com.example.ui.components.StudioFilterChip
+import com.example.ui.components.StudioModalDialog
+import com.example.ui.components.consumeDialogCardTaps
 import com.example.utils.MacroReportExporter
 import com.example.viewmodel.RecordingViewModel
 import kotlinx.coroutines.Dispatchers
@@ -230,6 +249,433 @@ fun ProjectAcousticSummarySheet(
         }
     }
 
+    val isDesktop = DesktopAdaptiveState.isDesktopPlatform
+    val multiReport = multiSpeakerReportState
+    val recordedSpeakerCount = multiReport?.speakerReports?.size ?: multiSpeakerPairsState.size
+    val canExportReport = speakerReportState != null && (
+        speakerReportState!!.analyzedCount > 0 || (multiSpeakerReportState?.speakerReports?.isNotEmpty() == true)
+    )
+
+    val triggerExportReport: () -> Unit = {
+        val safeProj = projectName.ifBlank { "项目" }.replace("\\s+".toRegex(), "_")
+        val safeSpk = (activeSheetSpeaker?.name ?: S.common.defaultLabel).replace("\\s+".toRegex(), "_")
+        val zipName = if (isMultiSpeakerCompareMode && (multiSpeakerPairsState.size >= 2)) {
+            "${safeProj}_多发音人声学对比报告.zip"
+        } else {
+            "${safeProj}_${safeSpk}_声学格局报告.zip"
+        }
+        exportMacroZipLauncher.launch(zipName)
+    }
+
+    val playForActiveSheetSpeaker: (Word) -> Unit = { targetWord ->
+        if (activeSheetSpeaker?.id == speaker?.id || viewModel == null) {
+            onPlayWord(targetWord)
+        } else {
+            val fn = targetWord.recordingFile
+            if (!fn.isNullOrEmpty()) {
+                val f = File(File(context.getExternalFilesDir(null), "project_$effectiveProjectId"), fn)
+                if (f.exists()) {
+                    viewModel.playSpecificAudioFile(f, targetWord.id)
+                }
+            }
+        }
+    }
+
+    if (isDesktop) {
+        StudioModalDialog(
+            onDismissRequest = onDismiss,
+            properties = DialogProperties(
+                dismissOnBackPress = true,
+                dismissOnClickOutside = false,
+                usePlatformDefaultWidth = false
+            )
+        ) {
+            Surface(
+                color = MaterialTheme.colorScheme.background,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .consumeDialogCardTaps()
+                    .testTag("desktop_macro_acoustic_fullscreen")
+            ) {
+                BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+                    val isWideStudio = maxWidth >= 1020.dp
+                    val isInlineModeBar = maxWidth >= 1100.dp
+                    val isWideMultiSpeaker = maxWidth >= 1120.dp
+
+                    Column(modifier = Modifier.fillMaxSize()) {
+                        // Top Material You Studio Header Bar
+                        Surface(
+                            color = MaterialTheme.colorScheme.surfaceContainerLow,
+                            shadowElevation = 0.dp,
+                            tonalElevation = 0.dp,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Column(modifier = Modifier.fillMaxWidth()) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 24.dp, vertical = 14.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    // Left: Brand Icon Tile + Title + Structured Metadata Badges
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(14.dp),
+                                        modifier = Modifier.weight(1f, fill = false)
+                                    ) {
+                                        Surface(
+                                            shape = RoundedCornerShape(12.dp),
+                                            color = MaterialTheme.colorScheme.primaryContainer,
+                                            modifier = Modifier.size(42.dp)
+                                        ) {
+                                            Box(contentAlignment = Alignment.Center) {
+                                                Icon(
+                                                    imageVector = Icons.Default.Insights,
+                                                    contentDescription = null,
+                                                    tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                                                    modifier = Modifier.size(22.dp)
+                                                )
+                                            }
+                                        }
+
+                                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                            Text(
+                                                text = S.acoustics.macroReportTitle,
+                                                style = MaterialTheme.typography.titleLarge,
+                                                fontWeight = FontWeight.ExtraBold,
+                                                color = MaterialTheme.colorScheme.onSurface,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis
+                                            )
+                                            Row(
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                            ) {
+                                                MacroMetaBadge(text = "项目 · ${projectName.ifBlank { S.common.defaultLabel }}")
+                                                MacroMetaBadge(
+                                                    text = "当前发音人 · ${activeSheetSpeaker?.name ?: S.common.defaultLabel}",
+                                                    highlight = !isMultiSpeakerCompareMode
+                                                )
+                                                MacroMetaBadge(text = "已录样本 ${recordedWords.size} 词")
+                                            }
+                                        }
+                                    }
+
+                                    // Center: Segmented Mode Switcher when wide enough & >=2 speakers
+                                    if (recordedSpeakerCount >= 2 && isInlineModeBar) {
+                                        Spacer(Modifier.width(16.dp))
+                                        MacroSegmentedTrack {
+                                            MacroSegmentedItem(
+                                                selected = !isMultiSpeakerCompareMode,
+                                                onClick = { isMultiSpeakerCompareMode = false },
+                                                label = S.acoustics.tabCurrentSpeakerPhonology,
+                                                leadingIcon = {
+                                                    Icon(Icons.Default.Person, contentDescription = null, modifier = Modifier.size(15.dp))
+                                                },
+                                                modifier = Modifier.testTag("macro_tab_single_speaker")
+                                            )
+                                            MacroSegmentedItem(
+                                                selected = isMultiSpeakerCompareMode,
+                                                onClick = { isMultiSpeakerCompareMode = true },
+                                                label = S.acoustics.tabMultiSpeakerNormalized.withArgs("count" to recordedSpeakerCount),
+                                                leadingIcon = {
+                                                    Icon(Icons.Default.Groups, contentDescription = null, modifier = Modifier.size(16.dp))
+                                                },
+                                                modifier = Modifier.testTag("macro_tab_multi_speaker_lobanov")
+                                            )
+                                        }
+                                    }
+
+                                    Spacer(Modifier.width(16.dp))
+
+                                    // Right: Crafted Export Button + Close Fullscreen Button with Esc Keycap
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                    ) {
+                                        if (canExportReport) {
+                                            MacroStudioActionButton(
+                                                onClick = triggerExportReport,
+                                                enabled = !isExportingReport,
+                                                isPrimary = true,
+                                                modifier = Modifier.testTag("export_macro_report_button")
+                                            ) {
+                                                if (isExportingReport) {
+                                                    CircularProgressIndicator(
+                                                        modifier = Modifier.size(14.dp),
+                                                        strokeWidth = 2.dp,
+                                                        color = MaterialTheme.colorScheme.onPrimary
+                                                    )
+                                                    Spacer(Modifier.width(6.dp))
+                                                    Text(
+                                                        text = S.acoustics.exportingMacroReportToast,
+                                                        fontSize = 12.sp,
+                                                        fontWeight = FontWeight.Bold
+                                                    )
+                                                } else {
+                                                    Icon(
+                                                        imageVector = Icons.Default.Download,
+                                                        contentDescription = null,
+                                                        modifier = Modifier.size(16.dp)
+                                                    )
+                                                    Spacer(Modifier.width(6.dp))
+                                                    Text(
+                                                        text = S.acoustics.exportMacroReportBtn,
+                                                        fontSize = 12.5.sp,
+                                                        fontWeight = FontWeight.Bold,
+                                                        maxLines = 1,
+                                                        softWrap = false
+                                                    )
+                                                }
+                                            }
+                                        }
+
+                                        MacroStudioActionButton(
+                                            onClick = onDismiss,
+                                            isPrimary = false,
+                                            modifier = Modifier.testTag("close_macro_report_button")
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.Close,
+                                                contentDescription = S.acoustics.closeMacroReportDesc,
+                                                modifier = Modifier.size(16.dp)
+                                            )
+                                            Spacer(Modifier.width(5.dp))
+                                            Text(
+                                                text = "返回工作台",
+                                                fontSize = 12.5.sp,
+                                                fontWeight = FontWeight.SemiBold,
+                                                maxLines = 1,
+                                                softWrap = false
+                                            )
+                                            Spacer(Modifier.width(6.dp))
+                                            KeycapBadge(keyText = "Esc")
+                                        }
+                                    }
+                                }
+
+                                // Secondary Sub-Toolbar for narrower desktop windows or multi-speaker active switcher
+                                val showModeRowBelow = recordedSpeakerCount >= 2 && !isInlineModeBar
+                                val showSpeakerStrip = !isMultiSpeakerCompareMode && multiSpeakerPairsState.size >= 2
+                                if (showModeRowBelow || showSpeakerStrip) {
+                                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f))
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(horizontal = 24.dp, vertical = 9.dp),
+                                        horizontalArrangement = Arrangement.spacedBy(16.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        if (showModeRowBelow) {
+                                            MacroSegmentedTrack {
+                                                MacroSegmentedItem(
+                                                    selected = !isMultiSpeakerCompareMode,
+                                                    onClick = { isMultiSpeakerCompareMode = false },
+                                                    label = S.acoustics.tabCurrentSpeakerPhonology,
+                                                    leadingIcon = {
+                                                        Icon(Icons.Default.Person, contentDescription = null, modifier = Modifier.size(15.dp))
+                                                    },
+                                                    modifier = Modifier.testTag("macro_tab_single_speaker")
+                                                )
+                                                MacroSegmentedItem(
+                                                    selected = isMultiSpeakerCompareMode,
+                                                    onClick = { isMultiSpeakerCompareMode = true },
+                                                    label = S.acoustics.tabMultiSpeakerNormalized.withArgs("count" to recordedSpeakerCount),
+                                                    leadingIcon = {
+                                                        Icon(Icons.Default.Groups, contentDescription = null, modifier = Modifier.size(16.dp))
+                                                    },
+                                                    modifier = Modifier.testTag("macro_tab_multi_speaker_lobanov")
+                                                )
+                                            }
+                                        }
+                                        if (showSpeakerStrip) {
+                                            MacroActiveSpeakerSwitcherStrip(
+                                                speakerPairs = multiSpeakerPairsState,
+                                                selectedSpeakerId = activeSheetSpeaker?.id,
+                                                onSelectSpeaker = { newSpk, newWords ->
+                                                    activeSheetSpeaker = newSpk
+                                                    activeSheetWords = newWords
+                                                    viewModel?.selectSpeaker(newSpk)
+                                                },
+                                                modifier = Modifier.weight(1f)
+                                            )
+                                        }
+                                    }
+                                }
+
+                                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+                            }
+                        }
+
+                        // Full-Screen Studio Workspace Body
+                        val report = speakerReportState
+                        if (report == null) {
+                            Box(
+                                modifier = Modifier.fillMaxSize(),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                    CircularProgressIndicator()
+                                    Spacer(Modifier.height(14.dp))
+                                    Text(
+                                        text = S.acoustics.computingMacroAnalysis,
+                                        fontSize = 13.5.sp,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
+                        } else if (report.analyzedCount == 0 && !isMultiSpeakerCompareMode) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .padding(32.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Surface(
+                                    shape = RoundedCornerShape(18.dp),
+                                    color = MaterialTheme.colorScheme.surfaceContainerLow,
+                                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f)),
+                                    modifier = Modifier.widthIn(max = 520.dp)
+                                ) {
+                                    Column(
+                                        modifier = Modifier.padding(28.dp),
+                                        horizontalAlignment = Alignment.CenterHorizontally,
+                                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.GraphicEq,
+                                            contentDescription = null,
+                                            tint = MaterialTheme.colorScheme.primary,
+                                            modifier = Modifier.size(34.dp)
+                                        )
+                                        Text(
+                                            text = S.acoustics.macroEmptyDataExplanation,
+                                            fontSize = 13.5.sp,
+                                            lineHeight = 20.sp,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            textAlign = TextAlign.Center
+                                        )
+                                    }
+                                }
+                            }
+                        } else if (isMultiSpeakerCompareMode) {
+                            if (multiReport == null) {
+                                Box(
+                                    modifier = Modifier.fillMaxSize(),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                        CircularProgressIndicator()
+                                        Spacer(Modifier.height(14.dp))
+                                        Text(
+                                            text = S.acoustics.computingLobanovAnalysis,
+                                            fontSize = 13.5.sp,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                }
+                            } else {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .verticalScroll(rememberScrollState()),
+                                    contentAlignment = Alignment.TopCenter
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .widthIn(max = 1680.dp)
+                                            .fillMaxWidth()
+                                            .padding(horizontal = 24.dp, vertical = 18.dp)
+                                    ) {
+                                        MultiSpeakerComparisonWorkbench(
+                                            multiReport = multiReport,
+                                            projectId = effectiveProjectId,
+                                            viewModel = viewModel,
+                                            playingWordId = playingWordId,
+                                            isDesktopWide = isWideMultiSpeaker
+                                        )
+                                    }
+                                }
+                            }
+                        } else if (isWideStudio) {
+                            // Two-Pane Studio Workbench: Left = Tone System & Sandhi, Right = Dynamic F1/F2 Vowel Space
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .padding(horizontal = 24.dp, vertical = 18.dp),
+                                horizontalArrangement = Arrangement.spacedBy(20.dp)
+                            ) {
+                                Column(
+                                    modifier = Modifier
+                                        .weight(0.45f)
+                                        .fillMaxHeight()
+                                        .verticalScroll(rememberScrollState()),
+                                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                                ) {
+                                    EnhancedMacroToneSystemCard(
+                                        report = report,
+                                        clusterSourceMode = clusterSourceMode,
+                                        onClusterSourceModeChange = { clusterSourceMode = it },
+                                        playingWordId = playingWordId,
+                                        onPlayWord = playForActiveSheetSpeaker,
+                                        isDesktopExpanded = true
+                                    )
+                                    Spacer(Modifier.height(16.dp))
+                                }
+
+                                Column(
+                                    modifier = Modifier
+                                        .weight(0.55f)
+                                        .fillMaxHeight()
+                                        .verticalScroll(rememberScrollState()),
+                                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                                ) {
+                                    EnhancedMacroVowelSpaceCard(
+                                        projectId = effectiveProjectId,
+                                        report = report,
+                                        playingWordId = playingWordId,
+                                        onPlayWord = playForActiveSheetSpeaker,
+                                        isDesktopExpanded = true
+                                    )
+                                    Spacer(Modifier.height(16.dp))
+                                }
+                            }
+                        } else {
+                            // Narrower Desktop Window Fallback: Single-Column Full-Screen Scroll
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .verticalScroll(rememberScrollState())
+                                    .padding(horizontal = 20.dp, vertical = 16.dp),
+                                verticalArrangement = Arrangement.spacedBy(18.dp)
+                            ) {
+                                EnhancedMacroToneSystemCard(
+                                    report = report,
+                                    clusterSourceMode = clusterSourceMode,
+                                    onClusterSourceModeChange = { clusterSourceMode = it },
+                                    playingWordId = playingWordId,
+                                    onPlayWord = playForActiveSheetSpeaker,
+                                    isDesktopExpanded = true
+                                )
+                                EnhancedMacroVowelSpaceCard(
+                                    projectId = effectiveProjectId,
+                                    report = report,
+                                    playingWordId = playingWordId,
+                                    onPlayWord = playForActiveSheetSpeaker,
+                                    isDesktopExpanded = true
+                                )
+                                Spacer(Modifier.height(18.dp))
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        return
+    }
+
+    // Android Handheld Presentation: Native ModalBottomSheet
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -271,21 +717,9 @@ fun ProjectAcousticSummarySheet(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    val canExportReport = speakerReportState != null && (
-                        speakerReportState!!.analyzedCount > 0 || (multiSpeakerReportState?.speakerReports?.isNotEmpty() == true)
-                    )
                     if (canExportReport) {
                         FilledTonalButton(
-                            onClick = {
-                                val safeProj = projectName.ifBlank { "项目" }.replace("\\s+".toRegex(), "_")
-                                val safeSpk = (activeSheetSpeaker?.name ?: S.common.defaultLabel).replace("\\s+".toRegex(), "_")
-                                val zipName = if (isMultiSpeakerCompareMode && (multiSpeakerPairsState.size >= 2)) {
-                                    "${safeProj}_多发音人声学对比报告.zip"
-                                } else {
-                                    "${safeProj}_${safeSpk}_声学格局报告.zip"
-                                }
-                                exportMacroZipLauncher.launch(zipName)
-                            },
+                            onClick = triggerExportReport,
                             enabled = !isExportingReport,
                             shape = RoundedCornerShape(10.dp),
                             contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
@@ -310,7 +744,9 @@ fun ProjectAcousticSummarySheet(
                                 if (!sheetState.isVisible) onDismiss()
                             }
                         },
-                        modifier = Modifier.size(36.dp)
+                        modifier = Modifier
+                            .size(36.dp)
+                            .testTag("close_macro_report_button")
                     ) {
                         Icon(Icons.Default.Close, contentDescription = S.acoustics.closeMacroReportDesc, modifier = Modifier.size(18.dp))
                     }
@@ -318,31 +754,30 @@ fun ProjectAcousticSummarySheet(
             }
 
             // Multi-speaker comparison mode switcher (shown automatically when >=2 speakers have recordings)
-            val multiReport = multiSpeakerReportState
-            val recordedSpeakerCount = multiReport?.speakerReports?.size ?: multiSpeakerPairsState.size
             if (recordedSpeakerCount >= 2) {
                 Spacer(modifier = Modifier.height(10.dp))
-                Row(
+                Box(
                     modifier = Modifier
                         .fillMaxWidth()
                         .horizontalScroll(rememberScrollState())
-                        .padding(horizontal = 20.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        .padding(horizontal = 20.dp)
                 ) {
-                    StudioFilterChip(
-                        selected = !isMultiSpeakerCompareMode,
-                        onClick = { isMultiSpeakerCompareMode = false },
-                        labelText = S.acoustics.tabCurrentSpeakerPhonology,
-                        leadingIcon = { Icon(Icons.Default.Person, contentDescription = null, modifier = Modifier.size(15.dp)) },
-                        modifier = Modifier.testTag("macro_tab_single_speaker")
-                    )
-                    StudioFilterChip(
-                        selected = isMultiSpeakerCompareMode,
-                        onClick = { isMultiSpeakerCompareMode = true },
-                        labelText = S.acoustics.tabMultiSpeakerNormalized.withArgs("count" to recordedSpeakerCount),
-                        leadingIcon = { Icon(Icons.Default.Groups, contentDescription = null, modifier = Modifier.size(16.dp)) },
-                        modifier = Modifier.testTag("macro_tab_multi_speaker_lobanov")
-                    )
+                    MacroSegmentedTrack {
+                        MacroSegmentedItem(
+                            selected = !isMultiSpeakerCompareMode,
+                            onClick = { isMultiSpeakerCompareMode = false },
+                            label = S.acoustics.tabCurrentSpeakerPhonology,
+                            leadingIcon = { Icon(Icons.Default.Person, contentDescription = null, modifier = Modifier.size(15.dp)) },
+                            modifier = Modifier.testTag("macro_tab_single_speaker")
+                        )
+                        MacroSegmentedItem(
+                            selected = isMultiSpeakerCompareMode,
+                            onClick = { isMultiSpeakerCompareMode = true },
+                            label = S.acoustics.tabMultiSpeakerNormalized.withArgs("count" to recordedSpeakerCount),
+                            leadingIcon = { Icon(Icons.Default.Groups, contentDescription = null, modifier = Modifier.size(16.dp)) },
+                            modifier = Modifier.testTag("macro_tab_multi_speaker_lobanov")
+                        )
+                    }
                 }
                 if (!isMultiSpeakerCompareMode && multiSpeakerPairsState.size >= 2) {
                     Spacer(modifier = Modifier.height(8.dp))
@@ -433,19 +868,6 @@ fun ProjectAcousticSummarySheet(
                             )
                         }
                     } else {
-                        val playForActiveSheetSpeaker: (Word) -> Unit = { targetWord ->
-                            if (activeSheetSpeaker?.id == speaker?.id || viewModel == null) {
-                                onPlayWord(targetWord)
-                            } else {
-                                val fn = targetWord.recordingFile
-                                if (!fn.isNullOrEmpty()) {
-                                    val f = File(File(context.getExternalFilesDir(null), "project_$effectiveProjectId"), fn)
-                                    if (f.exists()) {
-                                        viewModel.playSpecificAudioFile(f, targetWord.id)
-                                    }
-                                }
-                            }
-                        }
                         // 1. Corpus-Level Tone System & Ribbon Card
                         EnhancedMacroToneSystemCard(
                             report = report,
@@ -478,7 +900,8 @@ private fun EnhancedMacroToneSystemCard(
     clusterSourceMode: Int,
     onClusterSourceModeChange: (Int) -> Unit,
     playingWordId: Long?,
-    onPlayWord: (Word) -> Unit
+    onPlayWord: (Word) -> Unit,
+    isDesktopExpanded: Boolean = false
 ) {
     var showStdRibbon by remember { mutableStateOf(true) }
     var onlyShowOutliers by remember { mutableStateOf(false) }
@@ -496,13 +919,13 @@ private fun EnhancedMacroToneSystemCard(
 
     Card(
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
-        shape = RoundedCornerShape(16.dp),
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)),
+        shape = RoundedCornerShape(18.dp),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f)),
         modifier = Modifier
             .fillMaxWidth()
             .testTag("macro_tone_system_card")
     ) {
-        Column(modifier = Modifier.padding(16.dp)) {
+        Column(modifier = Modifier.padding(if (isDesktopExpanded) 20.dp else 16.dp)) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -513,7 +936,7 @@ private fun EnhancedMacroToneSystemCard(
                         text = S.acoustics.toneClusteringTitle,
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.primary
+                        color = MaterialTheme.colorScheme.onSurface
                     )
                     val pitchSpanText = report.calibratedPitchRangeHz?.let {
                         S.acoustics.personalRobustRangeFormat.withArgs(
@@ -527,65 +950,80 @@ private fun EnhancedMacroToneSystemCard(
                             if (checkedCatCount > 0) append(S.acoustics.checkedClusterAppend.withArgs("count" to checkedCatCount))
                             append(" · $pitchSpanText")
                         },
-                        fontSize = 11.sp,
+                        fontSize = 11.5.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-            }
-
-            Spacer(Modifier.height(10.dp))
-
-            FlowRow(
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalArrangement = Arrangement.spacedBy(6.dp)
-            ) {
-                StudioFilterChip(
-                    selected = clusterSourceMode == 0,
-                    onClick = {
-                        onClusterSourceModeChange(0)
-                        highlightedClusterId = null
-                    },
-                    labelText = S.acoustics.chipPureAcousticClusters.withArgs("count" to report.pureAcousticToneClusters.size),
-                    modifier = Modifier.testTag("tone_mode_acoustic_cluster")
-                )
-                if (report.hasCustomWordGroups && report.mergedToneClusters.isNotEmpty()) {
-                    StudioFilterChip(
-                        selected = clusterSourceMode == 1,
-                        onClick = {
-                            onClusterSourceModeChange(1)
-                            highlightedClusterId = null
-                        },
-                        labelText = S.acoustics.chipWordlistGroups.withArgs("count" to report.mergedToneClusters.size),
-                        modifier = Modifier.testTag("tone_mode_word_group")
-                    )
-                }
-                StudioFilterChip(
-                    selected = showStdRibbon,
-                    onClick = { showStdRibbon = !showStdRibbon },
-                    labelText = S.acoustics.chipSigmaBand
-                )
-                if (totalOutliers > 0) {
-                    StudioFilterChip(
-                        selected = onlyShowOutliers,
-                        onClick = { onlyShowOutliers = !onlyShowOutliers },
-                        labelText = S.acoustics.chipOutlierHint.withArgs("count" to totalOutliers),
-                        isErrorVariant = true
                     )
                 }
             }
 
             Spacer(Modifier.height(12.dp))
 
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                if (report.hasCustomWordGroups && report.mergedToneClusters.isNotEmpty()) {
+                    MacroSegmentedTrack(modifier = Modifier.align(Alignment.CenterVertically)) {
+                        MacroSegmentedItem(
+                            selected = clusterSourceMode == 0,
+                            onClick = {
+                                onClusterSourceModeChange(0)
+                                highlightedClusterId = null
+                            },
+                            label = S.acoustics.chipPureAcousticClusters.withArgs("count" to report.pureAcousticToneClusters.size),
+                            compact = true,
+                            modifier = Modifier.testTag("tone_mode_acoustic_cluster")
+                        )
+                        MacroSegmentedItem(
+                            selected = clusterSourceMode == 1,
+                            onClick = {
+                                onClusterSourceModeChange(1)
+                                highlightedClusterId = null
+                            },
+                            label = S.acoustics.chipWordlistGroups.withArgs("count" to report.mergedToneClusters.size),
+                            compact = true,
+                            modifier = Modifier.testTag("tone_mode_word_group")
+                        )
+                    }
+                } else {
+                    StudioFilterChip(
+                        selected = true,
+                        onClick = { highlightedClusterId = null },
+                        labelText = S.acoustics.chipPureAcousticClusters.withArgs("count" to report.pureAcousticToneClusters.size),
+                        modifier = Modifier
+                            .align(Alignment.CenterVertically)
+                            .testTag("tone_mode_acoustic_cluster")
+                    )
+                }
+                StudioFilterChip(
+                    selected = showStdRibbon,
+                    onClick = { showStdRibbon = !showStdRibbon },
+                    labelText = S.acoustics.chipSigmaBand,
+                    modifier = Modifier.align(Alignment.CenterVertically)
+                )
+                if (totalOutliers > 0) {
+                    StudioFilterChip(
+                        selected = onlyShowOutliers,
+                        onClick = { onlyShowOutliers = !onlyShowOutliers },
+                        labelText = S.acoustics.chipOutlierHint.withArgs("count" to totalOutliers),
+                        isErrorVariant = true,
+                        modifier = Modifier.align(Alignment.CenterVertically)
+                    )
+                }
+            }
+
+            Spacer(Modifier.height(14.dp))
+
             val gridLineColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f)
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(168.dp)
+                    .height(if (isDesktopExpanded) 224.dp else 168.dp)
             ) {
                 Column(
                     modifier = Modifier
                         .fillMaxHeight()
-                        .width(46.dp),
+                        .width(48.dp),
                     verticalArrangement = Arrangement.SpaceBetween
                 ) {
                     Text(S.archive.scale5High, fontSize = 10.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -599,8 +1037,8 @@ private fun EnhancedMacroToneSystemCard(
                     modifier = Modifier
                         .weight(1f)
                         .fillMaxHeight()
-                        .background(MaterialTheme.colorScheme.surface, RoundedCornerShape(10.dp))
-                        .padding(horizontal = 10.dp, vertical = 8.dp)
+                        .background(MaterialTheme.colorScheme.surface, RoundedCornerShape(12.dp))
+                        .padding(horizontal = 12.dp, vertical = 10.dp)
                 ) {
                     Canvas(modifier = Modifier.fillMaxSize()) {
                         val w = size.width
@@ -1131,7 +1569,8 @@ private fun EnhancedMacroVowelSpaceCard(
     projectId: Long,
     report: SpeakerCorpusPhonologyReport,
     playingWordId: Long?,
-    onPlayWord: (Word) -> Unit
+    onPlayWord: (Word) -> Unit,
+    isDesktopExpanded: Boolean = false
 ) {
     val context = LocalContext.current
     val vowelOverrideRevision by VowelGlideOverrideStore.overrideRevision.collectAsState()
@@ -1199,55 +1638,54 @@ private fun EnhancedMacroVowelSpaceCard(
 
     Card(
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
-        shape = RoundedCornerShape(16.dp),
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)),
+        shape = RoundedCornerShape(18.dp),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f)),
         modifier = Modifier
             .fillMaxWidth()
             .testTag("macro_vowel_space_card")
     ) {
-        Column(modifier = Modifier.padding(16.dp)) {
+        Column(modifier = Modifier.padding(if (isDesktopExpanded) 20.dp else 16.dp)) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.Top
             ) {
-                Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
+                Column(modifier = Modifier.weight(1f).padding(end = 10.dp)) {
                     Text(
                         text = S.acoustics.macroVowelSpaceTitle,
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.primary
+                        color = MaterialTheme.colorScheme.onSurface
                     )
                     Text(
                         text = S.acoustics.macroVowelSpaceLongDescription,
-                        fontSize = 11.sp,
+                        fontSize = 11.5.sp,
+                        lineHeight = 16.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    StudioFilterChip(
+                MacroSegmentedTrack {
+                    MacroSegmentedItem(
                         selected = useBarkScale,
                         onClick = { useBarkScale = true },
-                        labelText = "Bark",
-                        showCheckmark = false,
-                        horizontalPadding = 10.dp
+                        label = if (isDesktopExpanded) "Bark 感知" else "Bark",
+                        compact = true
                     )
-                    StudioFilterChip(
+                    MacroSegmentedItem(
                         selected = !useBarkScale,
                         onClick = { useBarkScale = false },
-                        labelText = "Hz",
-                        showCheckmark = false,
-                        horizontalPadding = 10.dp
+                        label = if (isDesktopExpanded) "Hz 物理" else "Hz",
+                        compact = true
                     )
                 }
             }
 
-            Spacer(Modifier.height(10.dp))
+            Spacer(Modifier.height(12.dp))
 
             // Anti-clutter & Glide Filter Bar
             FlowRow(
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                verticalArrangement = Arrangement.spacedBy(6.dp)
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 if (ellipses.isNotEmpty()) {
                     StudioFilterChip(
@@ -1255,37 +1693,46 @@ private fun EnhancedMacroVowelSpaceCard(
                         onClick = { aggregateEllipsesMode = !aggregateEllipsesMode },
                         labelText = if (aggregateEllipsesMode) S.acoustics.chipSigmaEllipseActive else S.acoustics.chipSigmaEllipse,
                         leadingIcon = { Icon(Icons.Default.BubbleChart, contentDescription = null, modifier = Modifier.size(14.dp)) },
-                        modifier = Modifier.testTag("vowel_toggle_ellipse_mode")
+                        modifier = Modifier
+                            .align(Alignment.CenterVertically)
+                            .testTag("vowel_toggle_ellipse_mode")
                     )
                 }
-                StudioFilterChip(
-                    selected = glideFilter == 0,
-                    onClick = { glideFilter = 0 },
-                    labelText = S.acoustics.chipAllTokens.withArgs("count" to allTokens.size)
-                )
-                StudioFilterChip(
-                    selected = glideFilter == 1,
-                    onClick = { glideFilter = 1 },
-                    labelText = S.acoustics.chipMonophthongs.withArgs("count" to monoCount),
-                    modifier = Modifier.testTag("vowel_filter_monophthong")
-                )
-                StudioFilterChip(
-                    selected = glideFilter == 2,
-                    onClick = { glideFilter = 2 },
-                    labelText = S.acoustics.chipDiphthongs.withArgs("count" to glideCount),
-                    modifier = Modifier.testTag("vowel_filter_diphthong")
-                )
+                MacroSegmentedTrack(modifier = Modifier.align(Alignment.CenterVertically)) {
+                    MacroSegmentedItem(
+                        selected = glideFilter == 0,
+                        onClick = { glideFilter = 0 },
+                        label = S.acoustics.chipAllTokens.withArgs("count" to allTokens.size),
+                        compact = true
+                    )
+                    MacroSegmentedItem(
+                        selected = glideFilter == 1,
+                        onClick = { glideFilter = 1 },
+                        label = S.acoustics.chipMonophthongs.withArgs("count" to monoCount),
+                        compact = true,
+                        modifier = Modifier.testTag("vowel_filter_monophthong")
+                    )
+                    MacroSegmentedItem(
+                        selected = glideFilter == 2,
+                        onClick = { glideFilter = 2 },
+                        label = S.acoustics.chipDiphthongs.withArgs("count" to glideCount),
+                        compact = true,
+                        modifier = Modifier.testTag("vowel_filter_diphthong")
+                    )
+                }
                 if (polysyllabicWordCount > 0) {
                     StudioFilterChip(
                         selected = showPolysyllableLinks,
                         onClick = { showPolysyllableLinks = !showPolysyllableLinks },
                         labelText = S.acoustics.chipPolysyllabicLinks.withArgs("count" to polysyllabicWordCount),
-                        modifier = Modifier.testTag("vowel_toggle_polysyllable_links")
+                        modifier = Modifier
+                            .align(Alignment.CenterVertically)
+                            .testTag("vowel_toggle_polysyllable_links")
                     )
                 }
             }
 
-            Spacer(Modifier.height(12.dp))
+            Spacer(Modifier.height(14.dp))
 
             val boundaryColor = MaterialTheme.colorScheme.outlineVariant
             val textHintColor = MaterialTheme.colorScheme.onSurfaceVariant
@@ -1299,9 +1746,37 @@ private fun EnhancedMacroVowelSpaceCard(
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(292.dp)
-                    .clip(RoundedCornerShape(12.dp))
+                    .height(if (isDesktopExpanded) 396.dp else 292.dp)
+                    .clip(RoundedCornerShape(14.dp))
                     .background(MaterialTheme.colorScheme.surface)
+                    .pointerInput(isDesktopExpanded) {
+                        if (!DesktopAdaptiveState.isDesktopPlatform) return@pointerInput
+                        awaitPointerEventScope {
+                            while (true) {
+                                val event = awaitPointerEvent()
+                                if (event.type == PointerEventType.Scroll) {
+                                    val change = event.changes.firstOrNull() ?: continue
+                                    val scrollY = change.scrollDelta.y
+                                    if (abs(scrollY) > 0.01f) {
+                                        val factor = if (scrollY < 0f) 1.18f else (1f / 1.18f)
+                                        val nextZoom = (zoomScale * factor).coerceIn(1f, 3.6f)
+                                        zoomScale = nextZoom
+                                        if (nextZoom <= 1.02f) {
+                                            panOffset = Offset.Zero
+                                        } else {
+                                            val maxPanX = size.width * (nextZoom - 1f) * 0.55f
+                                            val maxPanY = size.height * (nextZoom - 1f) * 0.55f
+                                            panOffset = Offset(
+                                                panOffset.x.coerceIn(-maxPanX, maxPanX),
+                                                panOffset.y.coerceIn(-maxPanY, maxPanY)
+                                            )
+                                        }
+                                        change.consume()
+                                    }
+                                }
+                            }
+                        }
+                    }
                     .pointerInput(filteredTokens, aggregateEllipsesMode, useBarkScale) {
                         detectTransformGestures { _, pan, zoom, _ ->
                             val newZoom = (zoomScale * zoom).coerceIn(1f, 3.6f)
@@ -1612,15 +2087,18 @@ private fun EnhancedMacroVowelSpaceCard(
 
                 // Accessible Zoom Controls (+ / - / Reset) for both Touch & Desktop Mouse
                 Surface(
-                    shape = RoundedCornerShape(10.dp),
-                    color = MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.85f),
+                    shape = RoundedCornerShape(11.dp),
+                    color = lerp(MaterialTheme.colorScheme.surface, MaterialTheme.colorScheme.surfaceContainerHigh, 0.92f),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f)),
+                    shadowElevation = 0.dp,
                     modifier = Modifier
                         .align(Alignment.BottomEnd)
-                        .padding(8.dp)
+                        .padding(10.dp)
                 ) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
+                        horizontalArrangement = Arrangement.spacedBy(2.dp),
+                        modifier = Modifier.padding(horizontal = 5.dp, vertical = 3.dp)
                     ) {
                         IconButton(
                             onClick = {
@@ -1628,25 +2106,39 @@ private fun EnhancedMacroVowelSpaceCard(
                                 zoomScale = nz
                                 if (nz <= 1.02f) panOffset = Offset.Zero
                             },
-                            modifier = Modifier.size(28.dp).testTag("vowel_zoom_out")
+                            modifier = Modifier
+                                .size(28.dp)
+                                .then(if (DesktopAdaptiveState.isDesktopPlatform) Modifier.pointerHoverIcon(PointerIcon.Hand) else Modifier)
+                                .testTag("vowel_zoom_out")
                         ) {
                             Icon(Icons.Default.Remove, contentDescription = S.acoustics.zoomOutVowelDesc, modifier = Modifier.size(15.dp))
                         }
-                        Text(
-                            text = String.format(Locale.US, "%.1fx", zoomScale),
-                            fontSize = 10.sp,
-                            fontFamily = FontFamily.Monospace,
-                            fontWeight = FontWeight.Bold,
+                        Surface(
+                            shape = RoundedCornerShape(6.dp),
+                            color = if (zoomScale > 1.03f) MaterialTheme.colorScheme.primaryContainer else Color.Transparent,
                             modifier = Modifier
+                                .clip(RoundedCornerShape(6.dp))
+                                .then(if (DesktopAdaptiveState.isDesktopPlatform) Modifier.pointerHoverIcon(PointerIcon.Hand) else Modifier)
                                 .clickable {
                                     zoomScale = 1f
                                     panOffset = Offset.Zero
                                 }
-                                .padding(horizontal = 4.dp)
-                        )
+                        ) {
+                            Text(
+                                text = if (zoomScale > 1.03f) String.format(Locale.US, "%.1fx 复位", zoomScale) else String.format(Locale.US, "%.1fx", zoomScale),
+                                fontSize = 10.5.sp,
+                                fontFamily = FontFamily.Monospace,
+                                fontWeight = FontWeight.Bold,
+                                color = if (zoomScale > 1.03f) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp)
+                            )
+                        }
                         IconButton(
                             onClick = { zoomScale = (zoomScale * 1.35f).coerceAtMost(3.5f) },
-                            modifier = Modifier.size(28.dp).testTag("vowel_zoom_in")
+                            modifier = Modifier
+                                .size(28.dp)
+                                .then(if (DesktopAdaptiveState.isDesktopPlatform) Modifier.pointerHoverIcon(PointerIcon.Hand) else Modifier)
+                                .testTag("vowel_zoom_in")
                         ) {
                             Icon(Icons.Default.Add, contentDescription = S.acoustics.zoomInVowelDesc, modifier = Modifier.size(15.dp))
                         }
@@ -1654,7 +2146,7 @@ private fun EnhancedMacroVowelSpaceCard(
                 }
             }
 
-            // Floating Selected Token Inspector Bar + Single-Word Vowel Mode Override
+            // Selected Token Inspector Card + Single-Word Vowel Mode Override
             val sel = selectedToken
             AnimatedVisibility(visible = sel != null) {
                 if (sel != null) {
@@ -1663,23 +2155,24 @@ private fun EnhancedMacroVowelSpaceCard(
                         VowelGlideOverrideStore.getWordSyllableOverride(context, sel.word.id, sel.syllableIndex)
                     }
                     Surface(
-                        shape = RoundedCornerShape(12.dp),
-                        color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f),
-                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.4f)),
+                        shape = RoundedCornerShape(14.dp),
+                        color = lerp(MaterialTheme.colorScheme.surface, MaterialTheme.colorScheme.primaryContainer, 0.28f),
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.36f)),
+                        shadowElevation = 0.dp,
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(top = 10.dp)
+                            .padding(top = 12.dp)
                     ) {
                         Column(
-                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.SpaceBetween,
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
+                                Column(modifier = Modifier.weight(1f).padding(end = 10.dp)) {
                                     val titleStr = if (sel.wordSyllableCount > 1) {
                                         S.acoustics.selectedSyllableDetailFormat.withArgs(
                                             "word" to sel.word.text,
@@ -1696,32 +2189,37 @@ private fun EnhancedMacroVowelSpaceCard(
                                     Text(
                                         text = titleStr,
                                         fontWeight = FontWeight.Bold,
-                                        fontSize = 13.sp,
+                                        fontSize = 13.5.sp,
                                         color = MaterialTheme.colorScheme.onSurface
                                     )
                                     Text(
                                         text = sel.trajectorySummary,
-                                        fontSize = 11.sp,
+                                        fontSize = 11.5.sp,
                                         color = MaterialTheme.colorScheme.primary
                                     )
                                 }
-                                FilledTonalButton(
+                                MacroStudioActionButton(
                                     onClick = { onPlayWord(sel.word) },
-                                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
-                                    modifier = Modifier.defaultMinSize(minHeight = 34.dp)
+                                    isPrimary = isPlaying
                                 ) {
                                     Icon(
                                         imageVector = if (isPlaying) Icons.Default.Stop else Icons.AutoMirrored.Filled.VolumeUp,
                                         contentDescription = null,
                                         modifier = Modifier.size(15.dp)
                                     )
-                                    Spacer(Modifier.width(4.dp))
-                                    Text(if (isPlaying) S.common.stop else S.common.playback, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                    Spacer(Modifier.width(5.dp))
+                                    Text(
+                                        text = if (isPlaying) S.common.stop else S.common.playback,
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
                                 }
                             }
 
+                            HorizontalDivider(color = MaterialTheme.colorScheme.primary.copy(alpha = 0.16f))
+
                             VowelTypeManualOverrideRow(
-                                titleLabel = "当前单字韵母形态:",
+                                titleLabel = "单字韵母判定",
                                 currentOverride = currentWordOverride,
                                 onSelectOverride = { nextType ->
                                     VowelGlideOverrideStore.setWordSyllableOverride(
@@ -1739,16 +2237,16 @@ private fun EnhancedMacroVowelSpaceCard(
 
             // Interactive Rime / Vowel Group Solo Chips + Group-Level Manual Override
             if (groupLegendEntries.isNotEmpty()) {
-                Spacer(Modifier.height(10.dp))
+                Spacer(Modifier.height(12.dp))
                 Text(
                     text = S.acoustics.tapRimeGroupHint,
-                    fontSize = 10.sp,
-                    color = MaterialTheme.colorScheme.outline
+                    fontSize = 11.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
-                Spacer(Modifier.height(6.dp))
+                Spacer(Modifier.height(8.dp))
                 FlowRow(
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                    horizontalArrangement = Arrangement.spacedBy(7.dp),
+                    verticalArrangement = Arrangement.spacedBy(7.dp)
                 ) {
                     groupLegendEntries.forEach { (gKey, gLabel, count) ->
                         val col = groupColorMap[gKey] ?: PHONOLOGY_PALETTE[0]
@@ -1756,44 +2254,21 @@ private fun EnhancedMacroVowelSpaceCard(
                         val grpOverridden = remember(projectId, gKey, vowelOverrideRevision) {
                             VowelGlideOverrideStore.getGroupOverride(context, projectId, gKey)
                         }
-                        Surface(
-                            shape = RoundedCornerShape(8.dp),
-                            color = if (selected) col.copy(alpha = 0.18f) else MaterialTheme.colorScheme.surface,
-                            border = BorderStroke(
-                                1.dp,
-                                if (selected) col else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f)
-                            ),
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(8.dp))
-                                .clickable {
-                                    soloGroupKey = if (soloGroupKey == gKey) null else gKey
-                                }
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(horizontal = 9.dp, vertical = 5.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(5.dp)
-                            ) {
-                                Box(modifier = Modifier.size(8.dp).background(col, CircleShape))
-                                Text(
-                                    text = buildString {
-                                        append("$gLabel ($count)")
-                                        if (grpOverridden != null) {
-                                            append(
-                                                when (grpOverridden) {
-                                                    VowelGlideType.MONOPHTHONG -> " · 定单"
-                                                    VowelGlideType.DIPHTHONG -> " · 定复"
-                                                    VowelGlideType.TRIPHTHONG -> " · 定三"
-                                                }
-                                            )
-                                        }
-                                    },
-                                    fontSize = 11.sp,
-                                    fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
-                                    color = MaterialTheme.colorScheme.onSurface
-                                )
+                        MacroRhymeGroupChip(
+                            label = gLabel,
+                            count = count,
+                            accentColor = col,
+                            selected = selected,
+                            overrideBadge = when (grpOverridden) {
+                                VowelGlideType.MONOPHTHONG -> "单"
+                                VowelGlideType.DIPHTHONG -> "复"
+                                VowelGlideType.TRIPHTHONG -> "三"
+                                null -> null
+                            },
+                            onClick = {
+                                soloGroupKey = if (soloGroupKey == gKey) null else gKey
                             }
-                        }
+                        )
                     }
                 }
 
@@ -1804,32 +2279,429 @@ private fun EnhancedMacroVowelSpaceCard(
                         val currentGroupOverride = remember(projectId, gKey, vowelOverrideRevision) {
                             VowelGlideOverrideStore.getGroupOverride(context, projectId, gKey)
                         }
-                        Surface(
-                            shape = RoundedCornerShape(10.dp),
-                            color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.38f),
-                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f)),
+                        VowelOverrideBarSurface(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(top = 8.dp)
+                                .padding(top = 10.dp)
                                 .testTag("macro_group_vowel_override_bar")
                         ) {
-                            Box(modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp)) {
-                                VowelTypeManualOverrideRow(
-                                    titleLabel = "「$gLabel」整组韵母判定:",
-                                    currentOverride = currentGroupOverride,
-                                    onSelectOverride = { nextType ->
-                                        VowelGlideOverrideStore.setGroupOverride(
-                                            context = context,
-                                            projectId = projectId,
-                                            groupKeyOrName = gKey,
-                                            overrideType = nextType
-                                        )
-                                    }
-                                )
-                            }
+                            VowelTypeManualOverrideRow(
+                                titleLabel = "「$gLabel」整组韵母判定",
+                                currentOverride = currentGroupOverride,
+                                onSelectOverride = { nextType ->
+                                    VowelGlideOverrideStore.setGroupOverride(
+                                        context = context,
+                                        projectId = projectId,
+                                        groupKeyOrName = gKey,
+                                        overrideType = nextType
+                                    )
+                                }
+                            )
                         }
                     }
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun MacroMetaBadge(
+    text: String,
+    highlight: Boolean = false
+) {
+    Surface(
+        shape = RoundedCornerShape(7.dp),
+        color = if (highlight) {
+            lerp(MaterialTheme.colorScheme.surface, MaterialTheme.colorScheme.primaryContainer, 0.55f)
+        } else {
+            MaterialTheme.colorScheme.surfaceContainerHigh
+        },
+        shadowElevation = 0.dp,
+        tonalElevation = 0.dp
+    ) {
+        Text(
+            text = text,
+            fontSize = 11.5.sp,
+            fontWeight = if (highlight) FontWeight.SemiBold else FontWeight.Medium,
+            color = if (highlight) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+        )
+    }
+}
+
+/**
+ * Tactile Material You studio button with zero gray hover flash (`indication = null` + `lerp` animated colors)
+ * and zero Skia shadow ring artifacts.
+ */
+@Composable
+internal fun MacroStudioActionButton(
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+    isPrimary: Boolean = false,
+    content: @Composable RowScope.() -> Unit
+) {
+    val isDesktop = DesktopAdaptiveState.isDesktopPlatform
+    val interactionSource = remember { MutableInteractionSource() }
+    val isHovered = if (isDesktop && enabled) interactionSource.collectIsHoveredAsState().value else false
+    val isPressed by interactionSource.collectIsPressedAsState()
+    val cs = MaterialTheme.colorScheme
+
+    val bgColor by animateColorAsState(
+        targetValue = when {
+            !enabled -> lerp(cs.surface, cs.surfaceContainerHigh, 0.55f)
+            isPrimary -> if (isHovered) lerp(cs.primary, cs.onPrimary, 0.10f) else cs.primary
+            else -> if (isHovered) lerp(cs.surfaceContainerHigh, cs.primaryContainer, 0.42f) else cs.surfaceContainerHigh
+        },
+        animationSpec = tween(140),
+        label = "MacroStudioActionBtnBg"
+    )
+    val contentColor by animateColorAsState(
+        targetValue = when {
+            !enabled -> cs.onSurfaceVariant.copy(alpha = 0.45f)
+            isPrimary -> cs.onPrimary
+            isHovered -> cs.onPrimaryContainer
+            else -> cs.onSurface
+        },
+        animationSpec = tween(140),
+        label = "MacroStudioActionBtnFg"
+    )
+    val borderColor by animateColorAsState(
+        targetValue = when {
+            !enabled -> cs.outlineVariant.copy(alpha = 0.25f)
+            isPrimary -> cs.primary
+            isHovered -> cs.primary.copy(alpha = 0.45f)
+            else -> cs.outlineVariant.copy(alpha = 0.55f)
+        },
+        animationSpec = tween(140),
+        label = "MacroStudioActionBtnBorder"
+    )
+    val scale by animateFloatAsState(
+        targetValue = when {
+            !enabled -> 1f
+            isPressed -> 0.96f
+            isHovered && isDesktop -> 1.012f
+            else -> 1f
+        },
+        animationSpec = spring(dampingRatio = 0.74f, stiffness = 640f),
+        label = "MacroStudioActionBtnScale"
+    )
+
+    Surface(
+        shape = RoundedCornerShape(11.dp),
+        color = bgColor,
+        border = BorderStroke(1.dp, borderColor),
+        shadowElevation = 0.dp,
+        tonalElevation = 0.dp,
+        modifier = modifier
+            .defaultMinSize(minHeight = 36.dp)
+            .graphicsLayer {
+                scaleX = scale
+                scaleY = scale
+            }
+            .clip(RoundedCornerShape(11.dp))
+            .then(
+                if (enabled) {
+                    Modifier
+                        .hoverable(interactionSource)
+                        .then(if (isDesktop) Modifier.pointerHoverIcon(PointerIcon.Hand) else Modifier)
+                        .clickable(
+                            interactionSource = interactionSource,
+                            indication = null,
+                            onClick = onClick
+                        )
+                } else {
+                    Modifier
+                }
+            )
+    ) {
+        CompositionLocalProvider(LocalContentColor provides contentColor) {
+            Row(
+                modifier = Modifier.padding(horizontal = 13.dp, vertical = 7.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.Center,
+                content = content
+            )
+        }
+    }
+}
+
+/**
+ * Material You Segmented Track container (flat tonal hierarchy, zero gradients).
+ */
+@Composable
+internal fun MacroSegmentedTrack(
+    modifier: Modifier = Modifier,
+    content: @Composable RowScope.() -> Unit
+) {
+    Surface(
+        shape = RoundedCornerShape(11.dp),
+        color = lerp(MaterialTheme.colorScheme.surface, MaterialTheme.colorScheme.surfaceContainerHighest, 0.72f),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.50f)),
+        shadowElevation = 0.dp,
+        tonalElevation = 0.dp,
+        modifier = modifier
+    ) {
+        Row(
+            modifier = Modifier.padding(3.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(3.dp),
+            content = content
+        )
+    }
+}
+
+@Composable
+internal fun MacroSegmentedItem(
+    selected: Boolean,
+    onClick: () -> Unit,
+    label: String,
+    modifier: Modifier = Modifier,
+    compact: Boolean = false,
+    leadingIcon: (@Composable () -> Unit)? = null
+) {
+    val isDesktop = DesktopAdaptiveState.isDesktopPlatform
+    val interactionSource = remember { MutableInteractionSource() }
+    val isHovered = if (isDesktop) interactionSource.collectIsHoveredAsState().value else false
+    val isPressed by interactionSource.collectIsPressedAsState()
+    val cs = MaterialTheme.colorScheme
+
+    val trackBg = lerp(cs.surface, cs.surfaceContainerHighest, 0.72f)
+    val itemBg by animateColorAsState(
+        targetValue = when {
+            selected -> cs.primary
+            isHovered -> lerp(trackBg, cs.primaryContainer, 0.55f)
+            else -> trackBg.copy(alpha = 0f)
+        },
+        animationSpec = tween(140),
+        label = "MacroSegItemBg"
+    )
+    val fgColor by animateColorAsState(
+        targetValue = when {
+            selected -> cs.onPrimary
+            isHovered -> cs.primary
+            else -> cs.onSurfaceVariant
+        },
+        animationSpec = tween(140),
+        label = "MacroSegItemFg"
+    )
+    val scale by animateFloatAsState(
+        targetValue = if (isPressed) 0.96f else 1f,
+        animationSpec = spring(dampingRatio = 0.75f, stiffness = 650f),
+        label = "MacroSegItemScale"
+    )
+
+    val corner = RoundedCornerShape(8.dp)
+    Box(
+        contentAlignment = Alignment.Center,
+        modifier = modifier
+            .defaultMinSize(minHeight = if (compact) 28.dp else 32.dp)
+            .graphicsLayer {
+                scaleX = scale
+                scaleY = scale
+            }
+            .clip(corner)
+            .background(itemBg, corner)
+            .hoverable(interactionSource)
+            .then(if (isDesktop) Modifier.pointerHoverIcon(PointerIcon.Hand) else Modifier)
+            .clickable(
+                interactionSource = interactionSource,
+                indication = null,
+                onClick = onClick
+            )
+            .padding(
+                horizontal = if (compact) 10.dp else 12.dp,
+                vertical = if (compact) 4.5.dp else 6.dp
+            )
+    ) {
+        CompositionLocalProvider(LocalContentColor provides fgColor) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(5.dp)
+            ) {
+                if (leadingIcon != null) {
+                    leadingIcon()
+                }
+                Text(
+                    text = label,
+                    fontSize = if (compact) 11.5.sp else 12.sp,
+                    lineHeight = 14.sp,
+                    fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
+                    color = fgColor,
+                    maxLines = 1,
+                    softWrap = false
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun MacroRhymeGroupChip(
+    label: String,
+    count: Int,
+    accentColor: Color,
+    selected: Boolean,
+    overrideBadge: String?,
+    onClick: () -> Unit
+) {
+    val isDesktop = DesktopAdaptiveState.isDesktopPlatform
+    val interactionSource = remember { MutableInteractionSource() }
+    val isHovered = if (isDesktop) interactionSource.collectIsHoveredAsState().value else false
+    val isPressed by interactionSource.collectIsPressedAsState()
+    val cs = MaterialTheme.colorScheme
+
+    val bgColor by animateColorAsState(
+        targetValue = when {
+            selected -> lerp(cs.surface, accentColor, 0.16f)
+            isHovered -> lerp(cs.surface, accentColor, 0.08f)
+            else -> cs.surface
+        },
+        animationSpec = tween(140),
+        label = "RhymeChipBg"
+    )
+    val borderCol by animateColorAsState(
+        targetValue = when {
+            selected -> accentColor
+            isHovered -> accentColor.copy(alpha = 0.65f)
+            else -> cs.outlineVariant.copy(alpha = 0.55f)
+        },
+        animationSpec = tween(140),
+        label = "RhymeChipBorder"
+    )
+    val scale by animateFloatAsState(
+        targetValue = when {
+            isPressed -> 0.96f
+            isHovered && isDesktop -> 1.015f
+            else -> 1f
+        },
+        animationSpec = spring(dampingRatio = 0.74f, stiffness = 640f),
+        label = "RhymeChipScale"
+    )
+
+    Surface(
+        shape = RoundedCornerShape(10.dp),
+        color = bgColor,
+        border = BorderStroke(if (selected) 1.4.dp else 1.dp, borderCol),
+        shadowElevation = 0.dp,
+        tonalElevation = 0.dp,
+        modifier = Modifier
+            .graphicsLayer {
+                scaleX = scale
+                scaleY = scale
+            }
+            .clip(RoundedCornerShape(10.dp))
+            .hoverable(interactionSource)
+            .then(if (isDesktop) Modifier.pointerHoverIcon(PointerIcon.Hand) else Modifier)
+            .clickable(
+                interactionSource = interactionSource,
+                indication = null,
+                onClick = onClick
+            )
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            Box(modifier = Modifier.size(8.dp).background(accentColor, CircleShape))
+            Text(
+                text = "$label ($count)",
+                fontSize = 11.5.sp,
+                fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
+                color = cs.onSurface,
+                maxLines = 1,
+                softWrap = false
+            )
+            if (overrideBadge != null) {
+                Surface(
+                    shape = RoundedCornerShape(5.dp),
+                    color = lerp(cs.surface, accentColor, 0.22f)
+                ) {
+                    Text(
+                        text = "定$overrideBadge",
+                        fontSize = 9.5.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = accentColor,
+                        modifier = Modifier.padding(horizontal = 4.5.dp, vertical = 1.dp)
+                    )
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Clean Material You tonal surface container for manual vowel-glide override bars across
+ * macro, multi-speaker, and single-word acoustic screens (replaces washed-out mint tint).
+ */
+@Composable
+internal fun VowelOverrideBarSurface(
+    modifier: Modifier = Modifier,
+    content: @Composable () -> Unit
+) {
+    Surface(
+        shape = RoundedCornerShape(12.dp),
+        color = lerp(MaterialTheme.colorScheme.surface, MaterialTheme.colorScheme.surfaceContainerHigh, 0.68f),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f)),
+        shadowElevation = 0.dp,
+        tonalElevation = 0.dp,
+        modifier = modifier
+    ) {
+        Box(modifier = Modifier.padding(horizontal = 12.dp, vertical = 9.dp)) {
+            content()
+        }
+    }
+}
+
+@Composable
+private fun PhoneticGlideGlyph(
+    glideType: VowelGlideType?,
+    tint: Color
+) {
+    if (glideType == null) {
+        Icon(
+            imageVector = Icons.Default.AutoAwesome,
+            contentDescription = null,
+            tint = tint,
+            modifier = Modifier.size(13.dp)
+        )
+        return
+    }
+    Canvas(modifier = Modifier.size(14.dp)) {
+        val w = size.width
+        val h = size.height
+        val strokePx = 1.45.dp.toPx()
+        when (glideType) {
+            VowelGlideType.MONOPHTHONG -> {
+                val c = Offset(w * 0.5f, h * 0.5f)
+                drawCircle(color = tint.copy(alpha = 0.35f), radius = w * 0.38f, center = c, style = Stroke(width = 1.1.dp.toPx()))
+                drawCircle(color = tint, radius = w * 0.20f, center = c)
+            }
+            VowelGlideType.DIPHTHONG -> {
+                val start = Offset(w * 0.18f, h * 0.76f)
+                val end = Offset(w * 0.84f, h * 0.22f)
+                drawCircle(color = tint, radius = 1.7.dp.toPx(), center = start)
+                drawLine(color = tint, start = start, end = end, strokeWidth = strokePx, cap = StrokeCap.Round)
+                drawLine(color = tint, start = end, end = Offset(w * 0.54f, h * 0.22f), strokeWidth = strokePx, cap = StrokeCap.Round)
+                drawLine(color = tint, start = end, end = Offset(w * 0.84f, h * 0.52f), strokeWidth = strokePx, cap = StrokeCap.Round)
+            }
+            VowelGlideType.TRIPHTHONG -> {
+                val p1 = Offset(w * 0.12f, h * 0.68f)
+                val p2 = Offset(w * 0.48f, h * 0.22f)
+                val p3 = Offset(w * 0.88f, h * 0.62f)
+                val path = Path().apply {
+                    moveTo(p1.x, p1.y)
+                    lineTo(p2.x, p2.y)
+                    lineTo(p3.x, p3.y)
+                }
+                drawPath(path = path, color = tint, style = Stroke(width = strokePx, cap = StrokeCap.Round, join = StrokeJoin.Round))
+                drawCircle(color = tint, radius = 1.5.dp.toPx(), center = p2)
+                drawLine(color = tint, start = p3, end = Offset(w * 0.64f, h * 0.62f), strokeWidth = strokePx, cap = StrokeCap.Round)
+                drawLine(color = tint, start = p3, end = Offset(w * 0.88f, h * 0.38f), strokeWidth = strokePx, cap = StrokeCap.Round)
             }
         }
     }
@@ -1840,57 +2712,85 @@ private fun EnhancedMacroVowelSpaceCard(
 internal fun VowelTypeManualOverrideRow(
     titleLabel: String,
     currentOverride: VowelGlideType?,
-    onSelectOverride: (VowelGlideType?) -> Unit
+    onSelectOverride: (VowelGlideType?) -> Unit,
+    modifier: Modifier = Modifier
 ) {
+    val cleanTitle = titleLabel.trimEnd(':', '：')
     val options: List<Pair<VowelGlideType?, String>> = listOf(
         null to "自动识别",
-        VowelGlideType.MONOPHTHONG to "指定单韵母",
-        VowelGlideType.DIPHTHONG to "指定复韵母",
-        VowelGlideType.TRIPHTHONG to "指定三合元音"
+        VowelGlideType.MONOPHTHONG to "单韵母",
+        VowelGlideType.DIPHTHONG to "复韵母",
+        VowelGlideType.TRIPHTHONG to "三合元音"
     )
     FlowRow(
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
-        verticalArrangement = Arrangement.spacedBy(5.dp)
+        modifier = modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        Text(
-            text = titleLabel,
-            fontSize = 11.sp,
-            fontWeight = FontWeight.SemiBold,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
             modifier = Modifier
                 .align(Alignment.CenterVertically)
-                .padding(end = 2.dp)
-        )
-        options.forEach { (typeVal, label) ->
-            val selected = currentOverride == typeVal
+                .padding(end = 8.dp)
+        ) {
             Surface(
-                shape = RoundedCornerShape(7.dp),
-                color = if (selected) {
-                    MaterialTheme.colorScheme.primary
-                } else {
-                    MaterialTheme.colorScheme.surface
-                },
-                border = BorderStroke(
-                    1.dp,
-                    if (selected) MaterialTheme.colorScheme.primary
-                    else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f)
-                ),
-                modifier = Modifier
-                    .align(Alignment.CenterVertically)
-                    .clip(RoundedCornerShape(7.dp))
-                    .clickable { onSelectOverride(typeVal) }
+                shape = RoundedCornerShape(6.dp),
+                color = lerp(MaterialTheme.colorScheme.surface, MaterialTheme.colorScheme.primaryContainer, 0.55f),
+                modifier = Modifier.size(22.dp)
             ) {
-                Text(
-                    text = label,
-                    fontSize = 10.5.sp,
-                    fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
-                    color = if (selected) {
-                        MaterialTheme.colorScheme.onPrimary
-                    } else {
-                        MaterialTheme.colorScheme.onSurface
-                    },
-                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.5.dp)
-                )
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(
+                        imageVector = Icons.Default.Tune,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(13.dp)
+                    )
+                }
+            }
+            Text(
+                text = cleanTitle,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+            if (currentOverride != null) {
+                Surface(
+                    shape = RoundedCornerShape(5.dp),
+                    color = lerp(MaterialTheme.colorScheme.surface, MaterialTheme.colorScheme.tertiaryContainer, 0.65f)
+                ) {
+                    Text(
+                        text = "已人工锁定",
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onTertiaryContainer,
+                        modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.5.dp)
+                    )
+                }
+            }
+        }
+
+        Box(
+            modifier = Modifier
+                .align(Alignment.CenterVertically)
+                .horizontalScroll(rememberScrollState())
+        ) {
+            MacroSegmentedTrack {
+                options.forEach { (typeVal, label) ->
+                    val selected = currentOverride == typeVal
+                    MacroSegmentedItem(
+                        selected = selected,
+                        onClick = { onSelectOverride(typeVal) },
+                        label = label,
+                        compact = true,
+                        leadingIcon = {
+                            PhoneticGlideGlyph(
+                                glideType = typeVal,
+                                tint = LocalContentColor.current
+                            )
+                        }
+                    )
+                }
             }
         }
     }

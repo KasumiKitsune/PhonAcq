@@ -1291,18 +1291,8 @@ class RecordingViewModel(
         val totalStorageBytes: Long get() = activeBytes + backupTakeBytes + tempAndOrphanBytes
     }
 
-    private fun parseWordAndSpeakerFromWavName(fileName: String): Pair<Long, Long>? {
-        if (!fileName.startsWith("word_") || !fileName.endsWith(".wav")) return null
-        val spkMarker = "_speaker_"
-        val spkIdx = fileName.indexOf(spkMarker)
-        if (spkIdx <= 5) return null
-        val wordId = fileName.substring(5, spkIdx).toLongOrNull() ?: return null
-        val afterSpk = spkIdx + spkMarker.length
-        val nextUnderscore = fileName.indexOf('_', afterSpk)
-        if (nextUnderscore <= afterSpk) return null
-        val speakerId = fileName.substring(afterSpk, nextUnderscore).toLongOrNull() ?: return null
-        return wordId to speakerId
-    }
+    private fun parseWordAndSpeakerFromWavName(fileName: String): Pair<Long, Long>? =
+        parseWordAndSpeakerFromWavFileName(fileName)
 
     private fun computeDirectoryBytesAndCount(dir: File?): Pair<Long, Int> {
         if (dir == null || !dir.exists()) return 0L to 0
@@ -1595,6 +1585,7 @@ class RecordingViewModel(
                 }
             }
 
+            invalidateProjectTakesIndex()
             _takesRefreshTrigger.value++
             withContext(Dispatchers.Main) {
                 onComplete(freedBytes, deletedCount)
@@ -1646,6 +1637,7 @@ class RecordingViewModel(
             }
 
             sessionOriginalRecordings.clear()
+            invalidateProjectTakesIndex(targetProjectId)
             _takesRefreshTrigger.value++
             withContext(Dispatchers.Main) {
                 onComplete(freedBytes, deletedCount)
@@ -1896,11 +1888,8 @@ class RecordingViewModel(
     private val projectTakesIndexCache = ConcurrentHashMap<Long, Map<String, List<File>>>()
     private val projectTakesLocks = ConcurrentHashMap<Long, Any>()
 
-    private fun extractWavTimestamp(file: File): Long {
-        val name = file.name
-        val ts = name.substringAfterLast('_').removeSuffix(".wav").toLongOrNull()
-        return ts ?: file.lastModified()
-    }
+    private fun extractWavTimestamp(file: File): Long =
+        extractWavTimestampFromFileName(file.name, file.lastModified())
 
     private fun invalidateProjectTakesIndex(projectId: Long? = null) {
         if (projectId == null) {
@@ -1925,19 +1914,23 @@ class RecordingViewModel(
                 ?: emptyArray()
             val grouped = HashMap<String, MutableList<File>>(rawFiles.size.coerceAtLeast(16))
             for (f in rawFiles) {
-                if (f.length() <= 44L) continue
-                // Expected format: word_<wordId>_speaker_<speakerId>_<timestamp>.wav
-                val key = f.name.substringBeforeLast('_')
-                if (key.contains("_speaker_")) {
-                    grouped.getOrPut(key) { ArrayList(2) }.add(f)
-                }
+                if (!f.isFile || f.length() <= 44L) continue
+                // Supports both standard `word_<wordId>_speaker_<speakerId>_<ts>.wav`
+                // and imported `.teproj` `word_<wordId>_speaker_<speakerId>_<ts>_<seq>.wav`
+                val pair = parseWordAndSpeakerFromWavFileName(f.name) ?: continue
+                val key = "word_${pair.first}_speaker_${pair.second}"
+                grouped.getOrPut(key) { ArrayList(3) }.add(f)
             }
             val sortedMap = HashMap<String, List<File>>(grouped.size)
             for ((k, list) in grouped) {
                 sortedMap[k] = if (list.size <= 1) {
                     list
                 } else {
-                    list.sortedByDescending { extractWavTimestamp(it) }
+                    list.sortedWith(
+                        compareByDescending<File> { extractWavTimestamp(it) }
+                            .thenByDescending { it.lastModified() }
+                            .thenByDescending { it.name }
+                    )
                 }
             }
             projectTakesIndexCache[projectId] = sortedMap
@@ -1974,11 +1967,33 @@ class RecordingViewModel(
         }
     }
 
-    fun getAvailableTakesForWord(projectId: Long, wordId: Long, speakerId: Long): List<File> {
+    fun getAvailableTakesForWord(
+        projectId: Long,
+        wordId: Long,
+        speakerId: Long,
+        forceRescan: Boolean = false
+    ): List<File> {
+        if (forceRescan) {
+            invalidateProjectTakesIndex(projectId)
+        }
         val index = getOrBuildProjectTakesIndex(projectId)
         val key = "word_${wordId}_speaker_${speakerId}"
-        val cachedList = index[key] ?: return emptyList()
-        return cachedList.filter { it.exists() && it.length() > 44L }.take(5)
+        val indexedValid = index[key].orEmpty().filter { it.exists() && it.length() > 44L }
+        val maxLimit = _maxRetainedTakes.value.coerceIn(1, 10)
+
+        // Ensure the currently active recordingFile (if custom-named on import) is always present
+        val activeName = if (_currentProject.value?.id == projectId && _currentSpeaker.value?.id == speakerId) {
+            _currentWords.value.find { it.id == wordId }?.recordingFile
+        } else {
+            null
+        }
+        if (!activeName.isNullOrBlank() && indexedValid.none { it.name == activeName }) {
+            val explicitFile = File(File(context.getExternalFilesDir(null), "project_$projectId"), activeName)
+            if (explicitFile.exists() && explicitFile.length() > 44L) {
+                return (listOf(explicitFile) + indexedValid).take(maxLimit)
+            }
+        }
+        return indexedValid.take(maxLimit)
     }
 
     fun selectTakeForWord(word: Word, takeFile: File) {
@@ -3695,3 +3710,43 @@ class RecordingViewModelFactory(
         throw IllegalArgumentException("Unknown ViewModel class")
     }
 }
+
+/**
+ * Parses `(wordId, speakerId)` from any PhonAcq WAV filename, including:
+ * - Standard takes: `word_<wordId>_speaker_<speakerId>_<timestamp>.wav`
+ * - Imported `.teproj` takes: `word_<wordId>_speaker_<speakerId>_<timestamp>_<importSeq>.wav`
+ */
+internal fun parseWordAndSpeakerFromWavFileName(fileName: String): Pair<Long, Long>? {
+    if (!fileName.startsWith("word_") || !fileName.endsWith(".wav")) return null
+    val spkMarker = "_speaker_"
+    val spkIdx = fileName.indexOf(spkMarker)
+    if (spkIdx <= 5) return null
+    val wordId = fileName.substring(5, spkIdx).toLongOrNull() ?: return null
+    val afterSpk = spkIdx + spkMarker.length
+    val nextUnderscore = fileName.indexOf('_', afterSpk)
+    val endOfSpk = if (nextUnderscore > afterSpk) nextUnderscore else (fileName.length - 4)
+    if (endOfSpk <= afterSpk) return null
+    val speakerId = fileName.substring(afterSpk, endOfSpk).toLongOrNull() ?: return null
+    return wordId to speakerId
+}
+
+/**
+ * Extracts the millisecond capture timestamp token immediately following `_speaker_<speakerId>_`,
+ * falling back to [fallbackLastModified] when no numeric timestamp segment exists.
+ */
+internal fun extractWavTimestampFromFileName(fileName: String, fallbackLastModified: Long = 0L): Long {
+    val spkMarker = "_speaker_"
+    val spkIdx = fileName.indexOf(spkMarker)
+    if (spkIdx > 0) {
+        val afterSpk = spkIdx + spkMarker.length
+        val tsStartUnderscore = fileName.indexOf('_', afterSpk)
+        if (tsStartUnderscore > afterSpk) {
+            val remainder = fileName.removeSuffix(".wav").substring(tsStartUnderscore + 1)
+            val firstToken = remainder.substringBefore('_')
+            firstToken.toLongOrNull()?.let { return it }
+        }
+    }
+    val tailToken = fileName.substringAfterLast('_').removeSuffix(".wav").toLongOrNull()
+    return tailToken ?: fallbackLastModified
+}
+

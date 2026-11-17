@@ -63,6 +63,7 @@ import com.example.ui.components.StudioDialogEnterAnimation
 import com.example.ui.components.StudioFilterChip
 import com.example.ui.components.StudioModalDialog
 import com.example.ui.components.StudioSwitchRow
+import com.example.ui.components.consumeDialogCardTaps
 import com.example.ui.components.studioTactile
 import com.example.viewmodel.RecordingViewModel
 import kotlinx.coroutines.launch
@@ -141,7 +142,11 @@ fun WirelessLinkPairingDialog(
 
     StudioModalDialog(
         onDismissRequest = onDismiss,
-        properties = DialogProperties(usePlatformDefaultWidth = false)
+        properties = DialogProperties(
+            dismissOnBackPress = true,
+            dismissOnClickOutside = !showManualIp,
+            usePlatformDefaultWidth = false
+        )
     ) {
         StudioDialogEnterAnimation {
             Surface(
@@ -153,6 +158,7 @@ fun WirelessLinkPairingDialog(
                     .widthIn(max = 540.dp)
                     .fillMaxWidth(0.94f)
                     .heightIn(max = 740.dp)
+                    .consumeDialogCardTaps()
                     .testTag("wireless_pairing_dialog")
             ) {
                 Column(modifier = Modifier.fillMaxWidth()) {

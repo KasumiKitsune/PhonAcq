@@ -133,6 +133,7 @@ import androidx.compose.ui.window.DialogProperties
 import com.example.ui.components.StudioAlertDialog
 import com.example.ui.components.StudioFilterChip
 import com.example.ui.components.StudioModalDialog
+import com.example.ui.components.consumeDialogCardTaps
 import com.example.ui.components.rememberStudioInteraction
 import com.example.ui.components.studioTactile
 import java.awt.datatransfer.DataFlavor
@@ -478,7 +479,7 @@ fun DesktopStudioFilePickerHost() {
             onDismissRequest = { DesktopFilePickerController.dismissAndCancel() },
             properties = DialogProperties(
                 dismissOnBackPress = true,
-                dismissOnClickOutside = true,
+                dismissOnClickOutside = false,
                 usePlatformDefaultWidth = false
             )
         ) {
@@ -854,6 +855,7 @@ private fun DesktopStudioFilePickerSurface(request: DesktopFilePickerRequest) {
             border = BorderStroke(1.dp, cs.outlineVariant.copy(alpha = 0.65f)),
             modifier = Modifier
                 .size(dialogWidth, dialogHeight)
+                .consumeDialogCardTaps()
                 .focusRequester(dialogFocusRequester)
                 .focusable()
                 .testTag("desktop_studio_file_picker")

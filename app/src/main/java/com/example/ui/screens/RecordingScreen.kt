@@ -28,6 +28,7 @@ import com.example.ui.components.StudioFilterChip
 import com.example.ui.components.StudioSwitchRow
 import com.example.ui.components.SuspendDesktopShortcutsWhen
 import com.example.ui.components.ZoomableWordImage
+import com.example.ui.components.consumeDialogCardTaps
 import com.example.ui.components.predictiveBackLayer
 import com.example.ui.components.rememberPredictiveBackVisualState
 import com.example.ui.components.rememberStudioInteraction
@@ -543,7 +544,7 @@ fun RecordingScreen(
                                     Row(
                                         modifier = Modifier.padding(horizontal = 9.dp, vertical = 5.dp),
                                         verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                        horizontalArrangement = Arrangement.spacedBy(5.dp)
                                     ) {
                                         Icon(
                                             imageVector = if (participantCleanMode) Icons.Default.VisibilityOff else Icons.Default.Visibility,
@@ -556,7 +557,11 @@ fun RecordingScreen(
                                             modifier = Modifier.size(15.dp)
                                         )
                                         Text(
-                                            text = if (participantCleanMode) S.recording.cleanModePillExit else S.recording.cleanModePillEnter,
+                                            text = if (participantCleanMode) {
+                                                if (DesktopAdaptiveState.isDesktopPlatform) S.recording.exitFullScreenCleanShort else S.recording.cleanModePillExit
+                                            } else {
+                                                S.recording.cleanModePillEnter
+                                            },
                                             style = MaterialTheme.typography.labelSmall,
                                             fontWeight = FontWeight.Bold,
                                             maxLines = 1,
@@ -567,6 +572,9 @@ fun RecordingScreen(
                                                 MaterialTheme.colorScheme.onSurfaceVariant
                                             }
                                         )
+                                        if (participantCleanMode && DesktopAdaptiveState.isDesktopPlatform) {
+                                            KeycapBadge("Esc")
+                                        }
                                     }
                                 }
                                 if (!participantCleanMode) {
@@ -666,32 +674,6 @@ fun RecordingScreen(
                         },
                         actions = {
                             if (participantCleanMode) {
-                                if (DesktopAdaptiveState.isDesktopPlatform) {
-                                    Surface(
-                                        shape = RoundedCornerShape(10.dp),
-                                        color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                                        modifier = Modifier
-                                            .padding(end = 6.dp)
-                                            .clip(RoundedCornerShape(10.dp))
-                                            .clickable { viewModel.setParticipantCleanMode(false) }
-                                    ) {
-                                        Row(
-                                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.spacedBy(5.dp)
-                                        ) {
-                                            Text(
-                                                text = S.recording.exitFullScreenCleanShort,
-                                                style = MaterialTheme.typography.labelSmall,
-                                                fontWeight = FontWeight.Bold,
-                                                maxLines = 1,
-                                                softWrap = false,
-                                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                                            )
-                                            KeycapBadge("Esc")
-                                        }
-                                    }
-                                }
                                 if (enablePicturePrompts) {
                                     val isWordTextShown = !hideTextInCleanMode
                                     Surface(
@@ -769,7 +751,7 @@ fun RecordingScreen(
                                 Row(
                                     modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
                                     verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(5.dp)
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
                                 ) {
                                     Icon(
                                         imageVector = if (participantCleanMode) Icons.Default.VisibilityOff else Icons.Default.Visibility,
@@ -782,7 +764,11 @@ fun RecordingScreen(
                                         modifier = Modifier.size(16.dp)
                                     )
                                     Text(
-                                        text = if (participantCleanMode) S.recording.cleanModePillExit else S.recording.cleanModePillEnter,
+                                        text = if (participantCleanMode) {
+                                            if (DesktopAdaptiveState.isDesktopPlatform) S.recording.exitFullScreenCleanShort else S.recording.cleanModePillExit
+                                        } else {
+                                            S.recording.cleanModePillEnter
+                                        },
                                         style = MaterialTheme.typography.labelMedium,
                                         fontWeight = FontWeight.Bold,
                                         maxLines = 1,
@@ -793,6 +779,9 @@ fun RecordingScreen(
                                             MaterialTheme.colorScheme.onSurfaceVariant
                                         }
                                     )
+                                    if (participantCleanMode && DesktopAdaptiveState.isDesktopPlatform) {
+                                        KeycapBadge("Esc")
+                                    }
                                 }
                             }
 
@@ -1877,14 +1866,12 @@ private fun RecordingStagePane(
         val pid = activeProject?.id
         val sid = activeSpeaker?.id
         if (pid != null && sid != null) {
-            val takes by produceState<List<File>>(
-                initialValue = emptyList(),
-                targetWord.id,
-                targetWord.recordingFile,
-                takesRefreshTrigger
-            ) {
-                value = withContext(Dispatchers.IO) {
-                    viewModel.getAvailableTakesForWord(pid, targetWord.id, sid)
+            var takes by remember(pid, targetWord.id, sid, targetWord.recordingFile, takesRefreshTrigger) {
+                mutableStateOf(viewModel.getAvailableTakesForWord(pid, targetWord.id, sid))
+            }
+            LaunchedEffect(pid, targetWord.id, sid, targetWord.recordingFile, takesRefreshTrigger) {
+                takes = withContext(Dispatchers.IO) {
+                    viewModel.getAvailableTakesForWord(pid, targetWord.id, sid, forceRescan = true)
                 }
             }
             MultiTakeSwitcherDialog(
@@ -3012,6 +2999,7 @@ private fun QuickRemarkEditorDialog(
 
     com.example.ui.components.StudioAlertDialog(
         onDismissRequest = onDismiss,
+        properties = androidx.compose.ui.window.DialogProperties(dismissOnClickOutside = false),
         icon = { Icon(Icons.Default.EditNote, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
         title = {
             Row(
@@ -4943,7 +4931,13 @@ fun SpeakerSelectionAndManagementDialog(
         }
     }
 
-    com.example.ui.components.StudioModalDialog(onDismissRequest = onDismiss) {
+    val hasActiveSpeakerFormInput = isCreatingNew || editingSpeaker != null
+    com.example.ui.components.StudioModalDialog(
+        onDismissRequest = onDismiss,
+        properties = androidx.compose.ui.window.DialogProperties(
+            dismissOnClickOutside = !hasActiveSpeakerFormInput
+        )
+    ) {
         com.example.ui.components.StudioDialogEnterAnimation {
             Surface(
                 shape = RoundedCornerShape(28.dp),
@@ -4952,6 +4946,7 @@ fun SpeakerSelectionAndManagementDialog(
                 modifier = Modifier
                     .fillMaxWidth()
                     .heightIn(max = 640.dp)
+                    .consumeDialogCardTaps()
                     .testTag("speaker_manager_dialog")
             ) {
                 Column(modifier = Modifier.padding(20.dp)) {
@@ -5485,6 +5480,7 @@ internal fun ManualSpeakerPitchDialog(
 
     com.example.ui.components.StudioAlertDialog(
         onDismissRequest = onDismiss,
+        properties = androidx.compose.ui.window.DialogProperties(dismissOnClickOutside = false),
         title = {
             Text(
                 text = S.recording.manualPitchDialogTitle.withArgs("name" to speaker.name),

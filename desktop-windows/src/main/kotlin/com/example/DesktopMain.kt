@@ -59,6 +59,7 @@ import com.example.ui.components.DesktopModalHost
 import com.example.ui.components.DesktopModalManager
 import com.example.ui.components.KeycapBadge
 import com.example.ui.components.StudioModalDialog
+import com.example.ui.components.consumeDialogCardTaps
 import com.example.ui.components.studioTactile
 import com.example.ui.filepicker.DesktopFilePickerController
 import com.example.ui.filepicker.DesktopStudioFilePickerHost
@@ -739,7 +740,9 @@ private fun DesktopShortcutCheatSheetDialog(
                 color = MaterialTheme.colorScheme.surfaceContainerHigh,
                 tonalElevation = 6.dp,
                 border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f)),
-                modifier = Modifier.widthIn(min = 440.dp, max = 560.dp)
+                modifier = Modifier
+                    .widthIn(min = 440.dp, max = 560.dp)
+                    .consumeDialogCardTaps()
             ) {
                 Column(
                     modifier = Modifier.padding(22.dp),

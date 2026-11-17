@@ -63,6 +63,7 @@ import androidx.compose.ui.window.DialogProperties
 import com.example.BuildConfig
 import com.example.i18n.S
 import com.example.ui.components.StudioModalDialog
+import com.example.ui.components.consumeDialogCardTaps
 import com.example.i18n.withArgs
 import com.example.ui.components.StudioDialogEnterAnimation
 
@@ -82,12 +83,14 @@ fun AboutPhonAcqDialog(
 ) {
     StudioModalDialog(
         onDismissRequest = onDismiss,
-        properties = DialogProperties(usePlatformDefaultWidth = false)
+        properties = DialogProperties(
+            dismissOnBackPress = true,
+            dismissOnClickOutside = true,
+            usePlatformDefaultWidth = false
+        )
     ) {
         com.example.ui.components.StudioDialogEnterAnimation(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 24.dp)
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 24.dp)
         ) {
             Surface(
                 shape = RoundedCornerShape(24.dp),
@@ -98,6 +101,7 @@ fun AboutPhonAcqDialog(
                     .widthIn(max = 580.dp)
                     .fillMaxWidth()
                     .heightIn(max = 680.dp)
+                    .consumeDialogCardTaps()
                     .testTag("about_phonacq_dialog")
             ) {
                 Column(modifier = Modifier.fillMaxWidth()) {

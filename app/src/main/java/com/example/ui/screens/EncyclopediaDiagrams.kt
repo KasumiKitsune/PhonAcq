@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import com.example.ui.components.consumeDialogCardTaps
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ZoomIn
@@ -236,7 +237,11 @@ internal fun EncyclopediaDynamicDiagramCard(
     com.example.ui.components.AnimatedDialogVisibility(visible = showZoomLightbox) {
         com.example.ui.components.StudioModalDialog(
             onDismissRequest = { showZoomLightbox = false },
-            properties = DialogProperties(usePlatformDefaultWidth = false)
+            properties = DialogProperties(
+                dismissOnBackPress = true,
+                dismissOnClickOutside = true,
+                usePlatformDefaultWidth = false
+            )
         ) {
             StudioDialogEnterAnimation {
                 Surface(
@@ -247,6 +252,7 @@ internal fun EncyclopediaDynamicDiagramCard(
                     modifier = Modifier
                         .widthIn(max = 840.dp)
                         .fillMaxWidth(0.92f)
+                        .consumeDialogCardTaps()
                 ) {
                     Column(
                         modifier = Modifier.padding(18.dp),

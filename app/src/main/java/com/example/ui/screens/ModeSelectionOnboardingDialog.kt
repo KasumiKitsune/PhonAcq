@@ -32,6 +32,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.DialogProperties
 import com.example.i18n.S
 import com.example.ui.components.StudioModalDialog
+import com.example.ui.components.consumeDialogCardTaps
 import com.example.ui.components.rememberStudioInteraction
 
 @Composable
@@ -65,6 +66,7 @@ fun ModeSelectionOnboardingDialog(
                     modifier = Modifier
                         .widthIn(max = if (isSideBySide) 820.dp else 460.dp)
                         .fillMaxWidth()
+                        .consumeDialogCardTaps()
                         .testTag("mode_selection_onboarding_dialog")
                 ) {
                 Column(

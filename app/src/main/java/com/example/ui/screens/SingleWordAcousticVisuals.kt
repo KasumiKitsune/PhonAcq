@@ -942,36 +942,31 @@ fun SingleWordDynamicVowelCard(
 
             if (trajectories.isNotEmpty() && (!isPolysyllabic || selectedSyllableIndex in trajectories.indices)) {
                 Spacer(modifier = Modifier.height(10.dp))
-                Surface(
-                    shape = RoundedCornerShape(10.dp),
-                    color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.36f),
-                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f)),
+                VowelOverrideBarSurface(
                     modifier = Modifier
                         .fillMaxWidth()
                         .testTag("single_word_vowel_override_bar")
                 ) {
-                    Box(modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp)) {
-                        val titlePrefix = if (isPolysyllabic && focusedTraj != null) {
-                            val sylLbl = focusedTraj.syllableLabel.ifBlank {
-                                S.common.syllableFallback.withArgs("index" to activeOverrideSylIndex + 1)
-                            }
-                            "「$sylLbl」韵母判定:"
-                        } else {
-                            "本词韵母判定:"
+                    val titlePrefix = if (isPolysyllabic && focusedTraj != null) {
+                        val sylLbl = focusedTraj.syllableLabel.ifBlank {
+                            S.common.syllableFallback.withArgs("index" to activeOverrideSylIndex + 1)
                         }
-                        VowelTypeManualOverrideRow(
-                            titleLabel = titlePrefix,
-                            currentOverride = currentWordSylOverride,
-                            onSelectOverride = { nextType ->
-                                VowelGlideOverrideStore.setWordSyllableOverride(
-                                    context = context,
-                                    wordId = word.id,
-                                    syllableIndex = activeOverrideSylIndex,
-                                    overrideType = nextType
-                                )
-                            }
-                        )
+                        "「$sylLbl」韵母判定"
+                    } else {
+                        "本词韵母判定"
                     }
+                    VowelTypeManualOverrideRow(
+                        titleLabel = titlePrefix,
+                        currentOverride = currentWordSylOverride,
+                        onSelectOverride = { nextType ->
+                            VowelGlideOverrideStore.setWordSyllableOverride(
+                                context = context,
+                                wordId = word.id,
+                                syllableIndex = activeOverrideSylIndex,
+                                overrideType = nextType
+                            )
+                        }
+                    )
                 }
             }
 

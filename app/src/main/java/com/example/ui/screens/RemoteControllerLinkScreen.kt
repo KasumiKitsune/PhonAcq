@@ -67,6 +67,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.core.content.ContextCompat
 import com.example.i18n.S
 import com.example.i18n.withArgs
+import com.example.ui.components.consumeDialogCardTaps
 import com.example.link.ActiveMicOwner
 import com.example.link.LinkRole
 import com.example.link.RemoteProjectSummary
@@ -1800,9 +1801,14 @@ private fun ControllerProjectSpeakerDialog(
     var newSpkAge by remember { mutableStateOf("55") }
     var newSpkDialect by remember { mutableStateOf("") }
 
+    val hasCreateSpeakerInputs = selectedTab == 1 && showCreateSpeakerForm
     com.example.ui.components.StudioModalDialog(
         onDismissRequest = onDismiss,
-        properties = DialogProperties(usePlatformDefaultWidth = false)
+        properties = DialogProperties(
+            dismissOnBackPress = true,
+            dismissOnClickOutside = !hasCreateSpeakerInputs,
+            usePlatformDefaultWidth = false
+        )
     ) {
         StudioDialogEnterAnimation {
             Surface(
@@ -1814,6 +1820,7 @@ private fun ControllerProjectSpeakerDialog(
                     .widthIn(max = 520.dp)
                     .fillMaxWidth(0.93f)
                     .heightIn(max = 640.dp)
+                    .consumeDialogCardTaps()
                     .testTag("controller_project_speaker_dialog")
             ) {
                 Column(modifier = Modifier.fillMaxWidth()) {

@@ -57,6 +57,7 @@ import com.example.i18n.S
 import com.example.ui.components.DesktopAdaptiveState
 import com.example.ui.components.KeycapBadge
 import com.example.ui.components.StudioModalDialog
+import com.example.ui.components.consumeDialogCardTaps
 import com.example.ui.components.rememberStudioInteraction
 import kotlinx.coroutines.launch
 import kotlin.math.abs
@@ -177,7 +178,11 @@ fun RecordingTipsDialog(
 
     StudioModalDialog(
         onDismissRequest = onDismiss,
-        properties = DialogProperties(usePlatformDefaultWidth = false)
+        properties = DialogProperties(
+            dismissOnBackPress = true,
+            dismissOnClickOutside = true,
+            usePlatformDefaultWidth = false
+        )
     ) {
         BoxWithConstraints(
             modifier = Modifier
@@ -201,6 +206,7 @@ fun RecordingTipsDialog(
                     )
                     .heightIn(max = maxHeight)
                     .fillMaxWidth()
+                    .consumeDialogCardTaps()
                     .focusRequester(focusRequester)
                     .focusable()
                     .onPreviewKeyEvent { keyEvent ->

@@ -55,6 +55,7 @@ import androidx.compose.ui.window.Dialog
 import com.example.data.*
 import com.example.i18n.S
 import com.example.i18n.withArgs
+import com.example.ui.components.consumeDialogCardTaps
 import com.example.viewmodel.RecordingViewModel
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
@@ -1875,12 +1876,19 @@ fun ProjectDetailEditDialog(
     val startedCount = summary?.startedSpeakerCount ?: 0
     val completedCount = summary?.completedSpeakerCount ?: 0
 
-    com.example.ui.components.StudioModalDialog(onDismissRequest = onDismiss) {
+    val hasProjectInputFields = isEditingMode || showAddWordRow
+    com.example.ui.components.StudioModalDialog(
+        onDismissRequest = onDismiss,
+        properties = androidx.compose.ui.window.DialogProperties(
+            dismissOnClickOutside = !hasProjectInputFields
+        )
+    ) {
         com.example.ui.components.StudioDialogEnterAnimation {
             Card(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(vertical = 12.dp),
+                    .padding(vertical = 12.dp)
+                    .consumeDialogCardTaps(),
                 shape = RoundedCornerShape(28.dp),
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
             ) {
@@ -2257,6 +2265,7 @@ fun ProjectDetailEditDialog(
 
         com.example.ui.components.StudioAlertDialog(
             onDismissRequest = { wordBeingEdited = null },
+            properties = androidx.compose.ui.window.DialogProperties(dismissOnClickOutside = false),
             title = { Text(S.project.editWordDialogTitle, fontWeight = FontWeight.Bold) },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {

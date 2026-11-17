@@ -2016,6 +2016,7 @@ fun WordListEditorScreen(
 
         com.example.ui.components.StudioAlertDialog(
             onDismissRequest = { showAddOrEditWordDialog = false },
+            properties = androidx.compose.ui.window.DialogProperties(dismissOnClickOutside = false),
             title = {
                 Text(
                     text = if (existingItem == null) {
