@@ -317,11 +317,16 @@ tasks.register("packageWindowsSetup") {
         manifestSrc.copyTo(manifestFile, overwrite = true)
 
         val csPatchedFile = File(workDir, "PhonAcqInstaller.cs")
-        val csPatchedContent = buildString {
-            appendLine("""[assembly: System.Reflection.AssemblyVersion("$nativePkgVersion.0")]""")
-            appendLine("""[assembly: System.Reflection.AssemblyFileVersion("$nativePkgVersion.0")]""")
-            append(csSrc.readText(Charsets.UTF_8).replace("__PHONACQ_VERSION__", rawAppVersion))
+        val versionAttrs = listOf(
+            """[assembly: System.Reflection.AssemblyVersion("$nativePkgVersion.0")]""",
+            """[assembly: System.Reflection.AssemblyFileVersion("$nativePkgVersion.0")]"""
+        ).joinToString("\n")
+        val rawCs = csSrc.readText(Charsets.UTF_8).replace("__PHONACQ_VERSION__", rawAppVersion)
+        val nsAnchor = "namespace PhonAcqSetup"
+        if (!rawCs.contains(nsAnchor)) {
+            throw GradleException("Missing '$nsAnchor' declaration in ${csSrc.absolutePath}")
         }
+        val csPatchedContent = rawCs.replaceFirst(nsAnchor, "$versionAttrs\n\n$nsAnchor")
         // Write UTF-8 with BOM so Windows .NET Framework 4.x csc.exe parses Chinese string literals cleanly regardless of system codepage
         FileOutputStream(csPatchedFile).use { fos ->
             fos.write(byteArrayOf(0xEF.toByte(), 0xBB.toByte(), 0xBF.toByte()))
