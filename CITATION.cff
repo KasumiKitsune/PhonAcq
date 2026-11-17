@@ -10,7 +10,7 @@ abstract: "PhonAcq 是一款面向汉语方言调查、民族语记音与实验�
 repository-code: "https://github.com/KasumiKitsune/PhonAcq"
 url: "https://kasumikitsune.github.io/PhonAcq/"
 version: "2.0.2"
-date-released: "2026-11-16"
+date-released: "2026-11-17"
 keywords:
   - phonetics
   - dialectology
