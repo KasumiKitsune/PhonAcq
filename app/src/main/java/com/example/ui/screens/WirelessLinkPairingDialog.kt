@@ -62,6 +62,7 @@ import com.example.link.WirelessStorageMode
 import com.example.ui.components.StudioDialogEnterAnimation
 import com.example.ui.components.StudioFilterChip
 import com.example.ui.components.StudioModalDialog
+import com.example.ui.components.StudioSwitchRow
 import com.example.ui.components.studioTactile
 import com.example.viewmodel.RecordingViewModel
 import kotlinx.coroutines.launch
@@ -303,66 +304,26 @@ fun WirelessLinkPairingDialog(
 
                                 // Single Clear Switch: Dual-Device Full Backup
                                 val isDualBackup = promptPolicy.storageMode == WirelessStorageMode.DUAL_FULL_MIRROR
-                                Surface(
-                                    shape = RoundedCornerShape(14.dp),
-                                    color = MaterialTheme.colorScheme.surfaceContainerLow,
-                                    border = BorderStroke(
-                                        1.dp,
-                                        MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f)
-                                    ),
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .clip(RoundedCornerShape(14.dp))
-                                        .clickable {
-                                            val nextMode = if (isDualBackup) {
-                                                WirelessStorageMode.HOST_ONLY
-                                            } else {
-                                                WirelessStorageMode.DUAL_FULL_MIRROR
-                                            }
-                                            wireless.updatePromptPolicy { it.copy(storageMode = nextMode) }
+                                StudioSwitchRow(
+                                    title = S.wireless.storageBothFullTitle,
+                                    subtitle = if (isDualBackup) {
+                                        S.wireless.storageBothFullSub
+                                    } else {
+                                        S.wireless.storageHostOnlySub
+                                    },
+                                    checked = isDualBackup,
+                                    onCheckedChange = { enabled ->
+                                        val nextMode = if (enabled) {
+                                            WirelessStorageMode.DUAL_FULL_MIRROR
+                                        } else {
+                                            WirelessStorageMode.HOST_ONLY
                                         }
-                                        .testTag("pair_dual_backup_card")
-                                ) {
-                                    Row(
-                                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(12.dp)
-                                    ) {
-                                        Column(
-                                            modifier = Modifier.weight(1f),
-                                            verticalArrangement = Arrangement.spacedBy(2.dp)
-                                        ) {
-                                            Text(
-                                                text = S.wireless.storageBothFullTitle,
-                                                fontSize = 13.5.sp,
-                                                fontWeight = FontWeight.Bold,
-                                                color = MaterialTheme.colorScheme.onSurface
-                                            )
-                                            Text(
-                                                text = if (isDualBackup) {
-                                                    S.wireless.storageBothFullSub
-                                                } else {
-                                                    S.wireless.storageHostOnlySub
-                                                },
-                                                fontSize = 11.5.sp,
-                                                lineHeight = 16.sp,
-                                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                                            )
-                                        }
-                                        Switch(
-                                            checked = isDualBackup,
-                                            onCheckedChange = { enabled ->
-                                                val nextMode = if (enabled) {
-                                                    WirelessStorageMode.DUAL_FULL_MIRROR
-                                                } else {
-                                                    WirelessStorageMode.HOST_ONLY
-                                                }
-                                                wireless.updatePromptPolicy { it.copy(storageMode = nextMode) }
-                                            },
-                                            modifier = Modifier.testTag("pair_dual_backup_switch")
-                                        )
-                                    }
-                                }
+                                        wireless.updatePromptPolicy { it.copy(storageMode = nextMode) }
+                                    },
+                                    elevatedSurface = true,
+                                    rowTestTag = "pair_dual_backup_card",
+                                    switchTestTag = "pair_dual_backup_switch"
+                                )
 
                                 // Subtle auto-scan indicator when no peer has appeared yet
                                 if (discoveredPeers.isEmpty()) {
