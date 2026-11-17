@@ -119,14 +119,15 @@ fun ProjectAcousticSummarySheet(
 
     // Top-level mode: false = Active Speaker Phonology, true = Multi-Speaker Comparison Workbench
     var isMultiSpeakerCompareMode by remember { mutableStateOf(false) }
+    val vowelOverrideRevision by VowelGlideOverrideStore.overrideRevision.collectAsState()
 
     val speakerReportState by produceState<SpeakerCorpusPhonologyReport?>(
         initialValue = null,
         key1 = effectiveProjectId,
         key2 = activeSheetSpeaker?.id,
-        key3 = recordedWords.size
+        key3 = recordedWords.size * 10000 + vowelOverrideRevision
     ) {
-        delay(55)
+        if (vowelOverrideRevision == 0) delay(55)
         value = withContext(Dispatchers.Default) {
             CorpusPhonologyAnalyzer.buildSpeakerPhonologyReport(
                 context = context,
@@ -157,7 +158,7 @@ fun ProjectAcousticSummarySheet(
     val multiSpeakerReportState by produceState<MultiSpeakerVowelComparisonReport?>(
         initialValue = null,
         key1 = effectiveProjectId,
-        key2 = multiSpeakerPairsState.size,
+        key2 = multiSpeakerPairsState.size * 10000 + vowelOverrideRevision,
         key3 = isMultiSpeakerCompareMode
     ) {
         if (!isMultiSpeakerCompareMode || multiSpeakerPairsState.size < 2) {
@@ -456,6 +457,7 @@ fun ProjectAcousticSummarySheet(
 
                         // 2. High-Density Dynamic Vowel Space & Diphthong Trajectory Card
                         EnhancedMacroVowelSpaceCard(
+                            projectId = effectiveProjectId,
                             report = report,
                             playingWordId = playingWordId,
                             onPlayWord = playForActiveSheetSpeaker
@@ -1126,10 +1128,13 @@ private fun EnhancedMacroToneSystemCard(
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun EnhancedMacroVowelSpaceCard(
+    projectId: Long,
     report: SpeakerCorpusPhonologyReport,
     playingWordId: Long?,
     onPlayWord: (Word) -> Unit
 ) {
+    val context = LocalContext.current
+    val vowelOverrideRevision by VowelGlideOverrideStore.overrideRevision.collectAsState()
     val allTokens = report.vowelTokens
     val ellipses = report.vowelEllipses
 
@@ -1141,6 +1146,12 @@ private fun EnhancedMacroVowelSpaceCard(
     var glideFilter by remember { mutableStateOf(0) } // 0 = 全部韵母, 1 = 仅单元音(点), 2 = 仅复元音(动程箭头)
     var soloGroupKey by remember { mutableStateOf<String?>(null) }
     var selectedToken by remember { mutableStateOf<NormalizedVowelToken?>(null) }
+
+    // Keep selectedToken synchronized with latest report after manual vowel-type override
+    LaunchedEffect(allTokens) {
+        val cur = selectedToken ?: return@LaunchedEffect
+        selectedToken = allTokens.find { it.word.id == cur.word.id && it.syllableIndex == cur.syllableIndex }
+    }
 
     val polysyllabicWordCount = remember(allTokens) {
         allTokens.filter { it.wordSyllableCount > 1 }.map { it.word.id }.distinct().size
@@ -1643,11 +1654,14 @@ private fun EnhancedMacroVowelSpaceCard(
                 }
             }
 
-            // Floating Selected Token Inspector Bar
+            // Floating Selected Token Inspector Bar + Single-Word Vowel Mode Override
             val sel = selectedToken
             AnimatedVisibility(visible = sel != null) {
                 if (sel != null) {
                     val isPlaying = playingWordId == sel.word.id
+                    val currentWordOverride = remember(sel.word.id, sel.syllableIndex, vowelOverrideRevision) {
+                        VowelGlideOverrideStore.getWordSyllableOverride(context, sel.word.id, sel.syllableIndex)
+                    }
                     Surface(
                         shape = RoundedCornerShape(12.dp),
                         color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f),
@@ -1656,56 +1670,74 @@ private fun EnhancedMacroVowelSpaceCard(
                             .fillMaxWidth()
                             .padding(top = 10.dp)
                     ) {
-                        Row(
+                        Column(
                             modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
-                            Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
-                                val titleStr = if (sel.wordSyllableCount > 1) {
-                                    S.acoustics.selectedSyllableDetailFormat.withArgs(
-                                        "word" to sel.word.text,
-                                        "index" to sel.syllableIndex + 1,
-                                        "syllable" to sel.syllableLabel,
-                                        "group" to sel.groupLabel
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
+                                    val titleStr = if (sel.wordSyllableCount > 1) {
+                                        S.acoustics.selectedSyllableDetailFormat.withArgs(
+                                            "word" to sel.word.text,
+                                            "index" to sel.syllableIndex + 1,
+                                            "syllable" to sel.syllableLabel,
+                                            "group" to sel.groupLabel
+                                        )
+                                    } else {
+                                        S.acoustics.selectedWordOnlyDetailFormat.withArgs(
+                                            "word" to sel.word.text,
+                                            "group" to sel.groupLabel
+                                        )
+                                    }
+                                    Text(
+                                        text = titleStr,
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 13.sp,
+                                        color = MaterialTheme.colorScheme.onSurface
                                     )
-                                } else {
-                                    S.acoustics.selectedWordOnlyDetailFormat.withArgs(
-                                        "word" to sel.word.text,
-                                        "group" to sel.groupLabel
+                                    Text(
+                                        text = sel.trajectorySummary,
+                                        fontSize = 11.sp,
+                                        color = MaterialTheme.colorScheme.primary
                                     )
                                 }
-                                Text(
-                                    text = titleStr,
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 13.sp,
-                                    color = MaterialTheme.colorScheme.onSurface
-                                )
-                                Text(
-                                    text = sel.trajectorySummary,
-                                    fontSize = 11.sp,
-                                    color = MaterialTheme.colorScheme.primary
-                                )
+                                FilledTonalButton(
+                                    onClick = { onPlayWord(sel.word) },
+                                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                                    modifier = Modifier.defaultMinSize(minHeight = 34.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = if (isPlaying) Icons.Default.Stop else Icons.AutoMirrored.Filled.VolumeUp,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(15.dp)
+                                    )
+                                    Spacer(Modifier.width(4.dp))
+                                    Text(if (isPlaying) S.common.stop else S.common.playback, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                }
                             }
-                            FilledTonalButton(
-                                onClick = { onPlayWord(sel.word) },
-                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
-                                modifier = Modifier.defaultMinSize(minHeight = 34.dp)
-                            ) {
-                                Icon(
-                                    imageVector = if (isPlaying) Icons.Default.Stop else Icons.AutoMirrored.Filled.VolumeUp,
-                                    contentDescription = null,
-                                    modifier = Modifier.size(15.dp)
-                                )
-                                Spacer(Modifier.width(4.dp))
-                                Text(if (isPlaying) S.common.stop else S.common.playback, fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                            }
+
+                            VowelTypeManualOverrideRow(
+                                titleLabel = "当前单字韵母形态:",
+                                currentOverride = currentWordOverride,
+                                onSelectOverride = { nextType ->
+                                    VowelGlideOverrideStore.setWordSyllableOverride(
+                                        context = context,
+                                        wordId = sel.word.id,
+                                        syllableIndex = sel.syllableIndex,
+                                        overrideType = nextType
+                                    )
+                                }
+                            )
                         }
                     }
                 }
             }
 
-            // Interactive Rime / Vowel Group Solo Chips
+            // Interactive Rime / Vowel Group Solo Chips + Group-Level Manual Override
             if (groupLegendEntries.isNotEmpty()) {
                 Spacer(Modifier.height(10.dp))
                 Text(
@@ -1721,6 +1753,9 @@ private fun EnhancedMacroVowelSpaceCard(
                     groupLegendEntries.forEach { (gKey, gLabel, count) ->
                         val col = groupColorMap[gKey] ?: PHONOLOGY_PALETTE[0]
                         val selected = soloGroupKey == gKey
+                        val grpOverridden = remember(projectId, gKey, vowelOverrideRevision) {
+                            VowelGlideOverrideStore.getGroupOverride(context, projectId, gKey)
+                        }
                         Surface(
                             shape = RoundedCornerShape(8.dp),
                             color = if (selected) col.copy(alpha = 0.18f) else MaterialTheme.colorScheme.surface,
@@ -1741,7 +1776,18 @@ private fun EnhancedMacroVowelSpaceCard(
                             ) {
                                 Box(modifier = Modifier.size(8.dp).background(col, CircleShape))
                                 Text(
-                                    text = "$gLabel ($count)",
+                                    text = buildString {
+                                        append("$gLabel ($count)")
+                                        if (grpOverridden != null) {
+                                            append(
+                                                when (grpOverridden) {
+                                                    VowelGlideType.MONOPHTHONG -> " · 定单"
+                                                    VowelGlideType.DIPHTHONG -> " · 定复"
+                                                    VowelGlideType.TRIPHTHONG -> " · 定三"
+                                                }
+                                            )
+                                        }
+                                    },
                                     fontSize = 11.sp,
                                     fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
                                     color = MaterialTheme.colorScheme.onSurface
@@ -1750,6 +1796,101 @@ private fun EnhancedMacroVowelSpaceCard(
                         }
                     }
                 }
+
+                val activeSoloEntry = groupLegendEntries.find { it.first == soloGroupKey }
+                AnimatedVisibility(visible = activeSoloEntry != null) {
+                    if (activeSoloEntry != null) {
+                        val (gKey, gLabel, _) = activeSoloEntry
+                        val currentGroupOverride = remember(projectId, gKey, vowelOverrideRevision) {
+                            VowelGlideOverrideStore.getGroupOverride(context, projectId, gKey)
+                        }
+                        Surface(
+                            shape = RoundedCornerShape(10.dp),
+                            color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.38f),
+                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f)),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(top = 8.dp)
+                                .testTag("macro_group_vowel_override_bar")
+                        ) {
+                            Box(modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp)) {
+                                VowelTypeManualOverrideRow(
+                                    titleLabel = "「$gLabel」整组韵母判定:",
+                                    currentOverride = currentGroupOverride,
+                                    onSelectOverride = { nextType ->
+                                        VowelGlideOverrideStore.setGroupOverride(
+                                            context = context,
+                                            projectId = projectId,
+                                            groupKeyOrName = gKey,
+                                            overrideType = nextType
+                                        )
+                                    }
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+internal fun VowelTypeManualOverrideRow(
+    titleLabel: String,
+    currentOverride: VowelGlideType?,
+    onSelectOverride: (VowelGlideType?) -> Unit
+) {
+    val options: List<Pair<VowelGlideType?, String>> = listOf(
+        null to "自动识别",
+        VowelGlideType.MONOPHTHONG to "指定单韵母",
+        VowelGlideType.DIPHTHONG to "指定复韵母",
+        VowelGlideType.TRIPHTHONG to "指定三合元音"
+    )
+    FlowRow(
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        verticalArrangement = Arrangement.spacedBy(5.dp)
+    ) {
+        Text(
+            text = titleLabel,
+            fontSize = 11.sp,
+            fontWeight = FontWeight.SemiBold,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier
+                .align(Alignment.CenterVertically)
+                .padding(end = 2.dp)
+        )
+        options.forEach { (typeVal, label) ->
+            val selected = currentOverride == typeVal
+            Surface(
+                shape = RoundedCornerShape(7.dp),
+                color = if (selected) {
+                    MaterialTheme.colorScheme.primary
+                } else {
+                    MaterialTheme.colorScheme.surface
+                },
+                border = BorderStroke(
+                    1.dp,
+                    if (selected) MaterialTheme.colorScheme.primary
+                    else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f)
+                ),
+                modifier = Modifier
+                    .align(Alignment.CenterVertically)
+                    .clip(RoundedCornerShape(7.dp))
+                    .clickable { onSelectOverride(typeVal) }
+            ) {
+                Text(
+                    text = label,
+                    fontSize = 10.5.sp,
+                    fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
+                    color = if (selected) {
+                        MaterialTheme.colorScheme.onPrimary
+                    } else {
+                        MaterialTheme.colorScheme.onSurface
+                    },
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.5.dp)
+                )
             }
         }
     }

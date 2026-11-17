@@ -886,7 +886,7 @@ private fun PromptExitControlButton(
         targetValue = when {
             isHolding -> accentColor.copy(alpha = 0.16f)
             isHovered -> fgColor.copy(alpha = 0.12f)
-            else -> Color.Transparent
+            else -> fgColor.copy(alpha = 0f)
         },
         animationSpec = tween(140),
         label = "PromptExitHoverBg"

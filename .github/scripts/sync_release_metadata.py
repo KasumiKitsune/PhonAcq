@@ -16,8 +16,8 @@ def sync_readme(root: Path, version: str, apk_filename: str | None) -> None:
 
     # Update SVG download links & listed installer filenames
     text = re.sub(
-        r"releases/download/v[^/]+/PhonAcq-v[^/\"]+-windows-x64-setup\.msi",
-        f"releases/download/{tag}/PhonAcq-{tag}-windows-x64-setup.msi",
+        r"releases/download/v[^/]+/PhonAcq-v[^/\"]+-windows-x64-setup\.(?:msi|exe)",
+        f"releases/download/{tag}/PhonAcq-{tag}-windows-x64-setup.exe",
         text,
     )
     text = re.sub(
@@ -30,7 +30,11 @@ def sync_readme(root: Path, version: str, apk_filename: str | None) -> None:
         f"releases/download/{tag}/{apk_name}",
         text,
     )
-    text = re.sub(r"PhonAcq-v[0-9A-Za-z._-]+-windows-x64-setup\.msi", f"PhonAcq-{tag}-windows-x64-setup.msi", text)
+    text = re.sub(
+        r"PhonAcq-v[0-9A-Za-z._-]+-windows-x64-setup\.(?:msi|exe)",
+        f"PhonAcq-{tag}-windows-x64-setup.exe",
+        text,
+    )
     text = re.sub(r"PhonAcq-v[0-9A-Za-z._-]+-macos-arm64\.dmg", f"PhonAcq-{tag}-macos-arm64.dmg", text)
     text = re.sub(r"PhonAcq-v[0-9A-Za-z._-]+-android(?:-debug)?\.apk", apk_name, text)
     text = re.sub(r"-PappVersion=[0-9A-Za-z._-]+", f"-PappVersion={version}", text)

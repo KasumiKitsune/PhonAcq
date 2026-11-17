@@ -79,7 +79,7 @@ private fun formatDesktopMicName(rawName: String?): String {
     }
 }
 
-fun main() = application {
+fun main(args: Array<String>) = application {
     LaunchedEffect(Unit) {
         DesktopAdaptiveState.isDesktopPlatform = true
     }
@@ -88,6 +88,28 @@ fun main() = application {
     val database = remember { AppDatabase.getDatabase(appContext) }
     val repository = remember { ProjectRepository(database) }
     val viewModel = remember { RecordingViewModel(appContext, repository) }
+
+    // Handle double-clicking an associated .teproj or .zip archive on Windows / macOS
+    LaunchedEffect(Unit) {
+        val launchPath = args.firstOrNull { !it.startsWith("-") }?.trim()?.removeSurrounding("\"")
+        if (!launchPath.isNullOrEmpty()) {
+            val f = java.io.File(launchPath)
+            val ext = f.extension.lowercase()
+            if (f.isFile && (ext == "teproj" || ext == "zip")) {
+                try {
+                    viewModel.importProjectZip(java.io.FileInputStream(f)) { summary ->
+                        val msg = if (summary.success) {
+                            "已打开工程：${summary.projectName}"
+                        } else {
+                            "无法导入工程文件：${f.name}"
+                        }
+                        Toast.makeText(appContext, msg, Toast.LENGTH_SHORT).show()
+                    }
+                } catch (_: Exception) {
+                }
+            }
+        }
+    }
 
     val currentProject by viewModel.currentProject.collectAsState()
     val windowIconPainter = DesktopIconRenderer.rememberWindowIconPainter()

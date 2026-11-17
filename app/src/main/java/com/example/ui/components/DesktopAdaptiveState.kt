@@ -549,11 +549,11 @@ fun StudioSwitchRow(
     )
     val rowBorder by animateColorAsState(
         targetValue = when {
-            !enabled -> if (elevatedSurface) colorScheme.outlineVariant.copy(alpha = 0.35f) else Color.Transparent
+            !enabled -> if (elevatedSurface) colorScheme.outlineVariant.copy(alpha = 0.35f) else colorScheme.primary.copy(alpha = 0f)
             elevatedSurface && checked -> colorScheme.primary.copy(alpha = if (isHovered) 0.65f else 0.48f)
             isHovered -> colorScheme.primary.copy(alpha = 0.38f)
             elevatedSurface -> colorScheme.outlineVariant.copy(alpha = 0.65f)
-            else -> Color.Transparent
+            else -> colorScheme.primary.copy(alpha = 0f)
         },
         animationSpec = tween(140),
         label = "StudioSwitchRowBorder"
@@ -682,7 +682,7 @@ fun StudioRadioRow(
         targetValue = when {
             selected -> colorScheme.primary.copy(alpha = 0.55f)
             isHovered -> colorScheme.primary.copy(alpha = 0.32f)
-            else -> Color.Transparent
+            else -> colorScheme.primary.copy(alpha = 0f)
         },
         animationSpec = tween(140),
         label = "StudioRadioRowBorder"
@@ -776,9 +776,9 @@ fun StudioCheckbox(
     val boxBg by animateColorAsState(
         targetValue = when {
             !enabled && checked -> colorScheme.primary.copy(alpha = 0.45f)
-            !enabled -> Color.Transparent
+            !enabled -> colorScheme.primary.copy(alpha = 0f)
             checked -> colorScheme.primary
-            else -> Color.Transparent
+            else -> colorScheme.primary.copy(alpha = 0f)
         },
         animationSpec = tween(140),
         label = "StudioStandaloneCheckBoxBg"
@@ -869,12 +869,13 @@ fun StudioCheckboxRow(
     val isPressed by interactionSource.collectIsPressedAsState()
     val colorScheme = MaterialTheme.colorScheme
 
+    val hoverBaseTint = lerp(colorScheme.surface, colorScheme.primaryContainer, 0.22f)
     val rowBg by animateColorAsState(
         targetValue = when {
             !enabled -> colorScheme.surfaceContainerLow.copy(alpha = 0.55f)
             checked -> lerp(colorScheme.surface, colorScheme.primaryContainer, if (isHovered) 0.45f else 0.28f)
-            isHovered -> lerp(colorScheme.surface, colorScheme.primaryContainer, 0.22f)
-            else -> Color.Transparent
+            isHovered -> hoverBaseTint
+            else -> hoverBaseTint.copy(alpha = 0f)
         },
         animationSpec = tween(140),
         label = "StudioCheckRowBg"

@@ -1,4 +1,4 @@
-name: Release PhonAcq (Android APK · Windows MSI · macOS DMG)
+name: Release PhonAcq (Android APK · Windows EXE · macOS DMG)
 
 on:
   workflow_dispatch:
@@ -137,7 +137,7 @@ jobs:
           if-no-files-found: error
 
   build-windows:
-    name: Build Windows x64 Installer (.msi)
+    name: Build Windows x64 Installer (.exe)
     needs: prepare
     runs-on: windows-latest
     steps:
@@ -155,27 +155,45 @@ jobs:
         with:
           gradle-version: '8.10.2'
 
-      - name: Package Windows Installer (.msi)
+      - name: Package & Smoke-Verify Windows Installer (.exe)
         env:
           RAW_VERSION: ${{ needs.prepare.outputs.raw_version }}
         shell: pwsh
         run: |
-          gradle -p desktop-windows packageMsi "-PappVersion=$env:RAW_VERSION" --no-daemon
+          gradle -p desktop-windows packageWindowsSetup "-PappVersion=$env:RAW_VERSION" --no-daemon
           New-Item -ItemType Directory -Force -Path dist | Out-Null
-          $msi = Get-ChildItem -Path "desktop-windows/build/compose/binaries/main/msi/*.msi" | Select-Object -First 1
-          if (-not $msi) {
-            Write-Error "未找到生成的 .msi 安装包"
+          $setup = Get-ChildItem -Path "desktop-windows/build/installer/PhonAcq-v*-windows-x64-setup.exe" | Select-Object -First 1
+          if (-not $setup) {
+            Write-Error "未找到生成的 Windows .exe 安装包"
             exit 1
           }
-          $dest = "dist/PhonAcq-v$($env:RAW_VERSION)-windows-x64-setup.msi"
-          Copy-Item -Path $msi.FullName -Destination $dest -Force
-          Write-Host "Prepared Windows MSI: $dest"
+          $dest = "dist/PhonAcq-v$($env:RAW_VERSION)-windows-x64-setup.exe"
+          Copy-Item -Path $setup.FullName -Destination $dest -Force
 
-      - name: Upload Windows MSI Artifact
+          # Verify silent install + same-version in-place overwrite + clean uninstall
+          $smokeDir = Join-Path $env:RUNNER_TEMP "PhonAcqSmoke"
+          $p1 = Start-Process -FilePath (Resolve-Path $dest).Path -ArgumentList "--silent", "--dir=$smokeDir" -Wait -PassThru
+          if ($p1.ExitCode -ne 0 -or -not (Test-Path (Join-Path $smokeDir "PhonAcq.exe")) -or -not (Test-Path (Join-Path $smokeDir "Uninstall-PhonAcq.exe"))) {
+            Write-Error "首次静默安装自检失败 (ExitCode=$($p1.ExitCode))"
+            exit 1
+          }
+          $p2 = Start-Process -FilePath (Resolve-Path $dest).Path -ArgumentList "--silent", "--dir=$smokeDir" -Wait -PassThru
+          if ($p2.ExitCode -ne 0 -or -not (Test-Path (Join-Path $smokeDir "PhonAcq.exe"))) {
+            Write-Error "同版本号原位覆盖安装自检失败 (ExitCode=$($p2.ExitCode))"
+            exit 1
+          }
+          $p3 = Start-Process -FilePath (Join-Path $smokeDir "Uninstall-PhonAcq.exe") -ArgumentList "--uninstall", "--silent" -Wait -PassThru
+          if ($p3.ExitCode -ne 0) {
+            Write-Error "卸载程序静默自检失败 (ExitCode=$($p3.ExitCode))"
+            exit 1
+          }
+          Write-Host "Prepared & verified Windows EXE installer: $dest"
+
+      - name: Upload Windows EXE Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: release-windows-msi
-          path: dist/PhonAcq-v*-windows-x64-setup.msi
+          name: release-windows-exe
+          path: dist/PhonAcq-v*-windows-x64-setup.exe
           if-no-files-found: error
 
   build-macos:
@@ -292,7 +310,7 @@ jobs:
           | 平台 | 文件名 | 适用设备与安装说明 |
           | :--- | :--- | :--- |
           | **Android**（手机 / 平板） | \`${APK_FILENAME}\` | Android 7.0+ 通用安装包（含双机无线联动看读端/遥控端） |
-          | **Windows**（64 位） | \`PhonAcq-v${RAW_VERSION}-windows-x64-setup.msi\` | Windows 10 / 11 标准安装向导（内置运行环境，无需额外配置 Java） |
+          | **Windows**（64 位） | \`PhonAcq-v${RAW_VERSION}-windows-x64-setup.exe\` | Windows 10 / 11 简体中文图形安装向导（支持同版本/跨版本直接覆盖升级，内置运行环境） |
           | **macOS**（Apple Silicon） | \`PhonAcq-v${RAW_VERSION}-macos-arm64.dmg\` | 适用于 M1 / M2 / M3 / M4 系列芯片 Mac（内置运行环境） |
 
           > **macOS 首次打开提示**：由于安装包采用开源构建而未附加 Apple 付费商业公证，首次拖入「应用程序」打开若提示无法验证开发者，请前往 **系统设置 → 隐私与安全性** 底部点击 **「仍要打开」**，或在终端执行 \`xattr -cr /Applications/PhonAcq.app\` 即可正常使用。
@@ -324,7 +342,7 @@ jobs:
           overwrite_files: true
           files: |
             release-assets/*.apk
-            release-assets/*.msi
+            release-assets/*.exe
             release-assets/*.dmg
 
   sync-release-metadata:

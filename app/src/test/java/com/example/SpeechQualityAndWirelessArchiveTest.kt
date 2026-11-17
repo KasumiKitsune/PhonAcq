@@ -32,6 +32,8 @@ import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.util.zip.ZipInputStream
 import kotlin.math.PI
+import kotlin.math.cos
+import kotlin.math.exp
 import kotlin.math.sin
 import kotlin.random.Random
 
@@ -1059,6 +1061,168 @@ class SpeechQualityAndWirelessArchiveTest {
         assertTrue("Expected 同词跨人声学对照表 sheet in workbook.xml, got: $workbookXml", workbookXml.contains("同词跨人声学对照表"))
         assertTrue("Expected 多发音人调类与元音汇总 sheet in workbook.xml, got: $workbookXml", workbookXml.contains("多发音人调类与元音汇总"))
     }
+
+    @Test
+    fun risingMedialDiphthongAndManualOverride_recognizesShortMedialGlidesAndSupportsManualOverride() {
+        val sampleRate = 44100
+
+        // Synthesize realistic voiced vowel waveform via 3-formant cascade IIR resonators driven by periodic glottal pulses
+        fun synthesizeVowelRime(
+            totalMs: Int,
+            unvoicedLeadMs: Int = 25,
+            f0Hz: Double = 145.0,
+            formantAtProgress: (Double) -> Triple<Double, Double, Double>
+        ): FloatArray {
+            val nSamples = (sampleRate * totalMs) / 1000
+            val leadSamples = (sampleRate * unvoicedLeadMs) / 1000
+            val out = FloatArray(nSamples)
+            var phase = 0.0
+            val rng = java.util.Random(42L)
+
+            // 3 cascade 2nd-order digital resonators: y[n] = a0*x[n] + b1*y[n-1] + b2*y[n-2]
+            val y1 = DoubleArray(3)
+            val y2 = DoubleArray(3)
+            for (n in 0 until nSamples) {
+                if (n < leadSamples) {
+                    // Mild consonant release noise before vowel onset
+                    out[n] = ((rng.nextDouble() * 2.0 - 1.0) * 0.035).toFloat()
+                    continue
+                }
+                val voicedIdx = n - leadSamples
+                val voicedTotal = (nSamples - leadSamples).coerceAtLeast(1)
+                val prog = voicedIdx.toDouble() / voicedTotal.toDouble()
+
+                phase += f0Hz / sampleRate
+                var glottal = 0.0
+                if (phase >= 1.0) {
+                    phase -= 1.0
+                    glottal = 1.0
+                }
+                // Clean periodic glottal impulse excitation (uniform harmonic comb across 0..5 kHz)
+                val exc = glottal
+
+                val (f1, f2, f3) = formantAtProgress(prog)
+                val freqs = doubleArrayOf(f1, f2, f3)
+                val bws = doubleArrayOf(75.0, 110.0, 150.0)
+
+                var sig = exc
+                for (k in 0..2) {
+                    val r = exp(-Math.PI * bws[k] / sampleRate)
+                    val b1 = 2.0 * r * cos(2.0 * Math.PI * freqs[k] / sampleRate)
+                    val b2 = -(r * r)
+                    val a0 = 1.0 - b1 - b2
+                    val yn = a0 * sig + b1 * y1[k] + b2 * y2[k]
+                    y2[k] = y1[k]
+                    y1[k] = yn
+                    sig = yn
+                }
+
+                // Smooth raised-cosine onset/offset envelope
+                val env = when {
+                    prog < 0.06 -> 0.5 - 0.5 * cos(Math.PI * (prog / 0.06))
+                    prog > 0.90 -> 0.5 + 0.5 * cos(Math.PI * ((prog - 0.90) / 0.10))
+                    else -> 1.0
+                }
+                out[n] = (sig * env).toFloat()
+            }
+            var peak = 1e-6f
+            for (v in out) {
+                val a = kotlin.math.abs(v)
+                if (a > peak) peak = a
+            }
+            val scale = 0.65f / peak
+            for (i in out.indices) out[i] *= scale
+            return out
+        }
+
+        // 1. Rising diphthong "爹 [tiɛ]" (ie韵母组): brief [i] medial in first ~32% gliding into long steady [ɛ] nucleus
+        val diePcm = synthesizeVowelRime(totalMs = 340, unvoicedLeadMs = 28, f0Hz = 150.0) { p ->
+            val t = ((p - 0.08) / 0.26).coerceIn(0.0, 1.0)
+            val smooth = t * t * (3.0 - 2.0 * t)
+            val f1 = 305.0 + (535.0 - 305.0) * smooth
+            val f2 = 2290.0 + (1860.0 - 2290.0) * smooth
+            val f3 = 2960.0 + (2680.0 - 2960.0) * smooth
+            Triple(f1, f2, f3)
+        }
+        val dieTraj = com.example.audio.FormantTrajectoryAndSpectrogramExtractor.extractSyllableFormantTrajectory(
+            pcm = diePcm,
+            segStart = 0,
+            segEnd = diePcm.size,
+            sampleRate = sampleRate,
+            syllableIndex = 0,
+            syllableLabel = "爹",
+            syllableMeanF0 = 150f,
+            isHighRegister = false,
+            isMidRegister = false
+        )
+        assertEquals(
+            "Expected rising diphthong 爹 [tiɛ] (ie韵母组) with short [i] medial + steady [ɛ] nucleus to be DIPHTHONG, got ${dieTraj.vowelType} (${dieTraj.trajectorySummary})",
+            com.example.audio.VowelGlideType.DIPHTHONG,
+            dieTraj.vowelType
+        )
+        assertTrue("Expected onset F1 < target F1 for [i -> ɛ], got ${dieTraj.onsetF1} -> ${dieTraj.targetF1}", dieTraj.onsetF1 < dieTraj.targetF1)
+        assertTrue("Expected onset F2 > target F2 for [i -> ɛ], got ${dieTraj.onsetF2} -> ${dieTraj.targetF2}", dieTraj.onsetF2 > dieTraj.targetF2)
+
+        // 2. Steady monophthong "衣 [i]" must still remain MONOPHTHONG
+        val yiPcm = synthesizeVowelRime(totalMs = 320, unvoicedLeadMs = 20, f0Hz = 155.0) { _ ->
+            Triple(300.0, 2280.0, 2960.0)
+        }
+        val yiTraj = com.example.audio.FormantTrajectoryAndSpectrogramExtractor.extractSyllableFormantTrajectory(
+            pcm = yiPcm,
+            segStart = 0,
+            segEnd = yiPcm.size,
+            sampleRate = sampleRate,
+            syllableIndex = 0,
+            syllableLabel = "衣",
+            syllableMeanF0 = 155f,
+            isHighRegister = false,
+            isMidRegister = false
+        )
+        assertEquals(
+            "Expected steady monophthong 衣 [i] to stay MONOPHTHONG, got ${yiTraj.vowelType}",
+            com.example.audio.VowelGlideType.MONOPHTHONG,
+            yiTraj.vowelType
+        )
+
+        // 3. Steady monophthong "鹅 [ɤ]" must also stay MONOPHTHONG
+        val ePcm = synthesizeVowelRime(totalMs = 320, unvoicedLeadMs = 20, f0Hz = 140.0) { _ ->
+            Triple(470.0, 1280.0, 2550.0)
+        }
+        val eTraj = com.example.audio.FormantTrajectoryAndSpectrogramExtractor.extractSyllableFormantTrajectory(
+            pcm = ePcm,
+            segStart = 0,
+            segEnd = ePcm.size,
+            sampleRate = sampleRate,
+            syllableIndex = 0,
+            syllableLabel = "鹅",
+            syllableMeanF0 = 140f,
+            isHighRegister = false,
+            isMidRegister = false
+        )
+        assertEquals(
+            "Expected steady monophthong 鹅 [ɤ] to stay MONOPHTHONG, got ${eTraj.vowelType}",
+            com.example.audio.VowelGlideType.MONOPHTHONG,
+            eTraj.vowelType
+        )
+
+        // 4. Manual override re-projection preserves actual measured anchors
+        val forcedMono = com.example.audio.VowelGlideOverrideStore.applyOverrideToTrajectory(
+            dieTraj,
+            com.example.audio.VowelGlideType.MONOPHTHONG
+        )
+        assertEquals(com.example.audio.VowelGlideType.MONOPHTHONG, forcedMono.vowelType)
+        assertEquals(forcedMono.nucleusF1, forcedMono.targetF1)
+        assertTrue(forcedMono.trajectorySummary.contains("手动指定"))
+
+        val forcedDiph = com.example.audio.VowelGlideOverrideStore.applyOverrideToTrajectory(
+            yiTraj,
+            com.example.audio.VowelGlideType.DIPHTHONG
+        )
+        assertEquals(com.example.audio.VowelGlideType.DIPHTHONG, forcedDiph.vowelType)
+        assertTrue(forcedDiph.trajectorySummary.contains("手动指定"))
+        assertEquals("ie韵母组", com.example.audio.VowelGlideOverrideStore.canonicalGroupKey("wg_ie韵母组"))
+    }
 }
+
 
 

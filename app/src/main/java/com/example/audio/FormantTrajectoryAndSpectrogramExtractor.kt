@@ -215,16 +215,44 @@ object FormantTrajectoryAndSpectrogramExtractor {
         val voicedDurMs = ((voicedSpanSamples * 1000L) / fsLpc.coerceAtLeast(1)).toInt()
         val usableVoicedTravel = (voicedEndDec - voicedStartDec).coerceAtLeast(0)
 
-        // Trim consonant-locus onset transition (~25ms or 16% of voiced travel) and coda jaw relaxation (~20ms or 14%)
-        // while preserving ~68-70% of the voiced travel so both narrow ([ou, ei]) and wide ([ai, iau]) glides retain full arc.
-        val onsetLocusTrim = minOf(
-            maxOf((fsLpc * 0.025).roundToInt(), (usableVoicedTravel * 0.16).roundToInt()),
-            (usableVoicedTravel * 0.21).roundToInt()
-        )
-        val offsetRelaxTrim = minOf(
-            maxOf((fsLpc * 0.020).roundToInt(), (usableVoicedTravel * 0.14).roundToInt()),
-            (usableVoicedTravel * 0.19).roundToInt()
-        )
+        // Adaptive boundary trim:
+        // - If the earliest voiced frames already have clean harmonic periodicity (acfPeak >= 0.45 && zcr <= 0.17),
+        //   consonant burst/frication (e.g. [ɕ] in 些, [t] release in 爹) is ALREADY behind us; use a gentle ~11ms / 8%
+        //   margin so short vocalic medials ([i, u, y] in ie/ia/uo/ua/üe) are preserved intact!
+        // - Otherwise (noisy stop/affricate transition), keep the ~22ms / 15% consonant-locus trim.
+        val earlyCleanHarmonic = bestRunStart >= 0 && run {
+            val f0 = scanFrames[bestRunStart]
+            val f1 = scanFrames[(bestRunStart + 1).coerceAtMost(bestRunEnd)]
+            ((f0.acfPeak + f1.acfPeak) * 0.5 >= 0.45) && ((f0.zcr + f1.zcr) * 0.5 <= 0.17)
+        }
+        val lateCleanHarmonic = bestRunEnd >= 0 && run {
+            val fLast = scanFrames[bestRunEnd]
+            val fPrev = scanFrames[(bestRunEnd - 1).coerceAtLeast(bestRunStart)]
+            ((fLast.acfPeak + fPrev.acfPeak) * 0.5 >= 0.45) && ((fLast.zcr + fPrev.zcr) * 0.5 <= 0.17)
+        }
+
+        val onsetLocusTrim = if (earlyCleanHarmonic) {
+            minOf(
+                maxOf((fsLpc * 0.011).roundToInt(), (usableVoicedTravel * 0.075).roundToInt()),
+                (usableVoicedTravel * 0.115).roundToInt()
+            )
+        } else {
+            minOf(
+                maxOf((fsLpc * 0.022).roundToInt(), (usableVoicedTravel * 0.145).roundToInt()),
+                (usableVoicedTravel * 0.195).roundToInt()
+            )
+        }
+        val offsetRelaxTrim = if (lateCleanHarmonic) {
+            minOf(
+                maxOf((fsLpc * 0.012).roundToInt(), (usableVoicedTravel * 0.085).roundToInt()),
+                (usableVoicedTravel * 0.130).roundToInt()
+            )
+        } else {
+            minOf(
+                maxOf((fsLpc * 0.018).roundToInt(), (usableVoicedTravel * 0.130).roundToInt()),
+                (usableVoicedTravel * 0.180).roundToInt()
+            )
+        }
 
         val coreStartDec = (voicedStartDec + onsetLocusTrim).coerceIn(0, decLen - winLen)
         val coreEndDec = (voicedEndDec - offsetRelaxTrim).coerceIn(coreStartDec, decLen - winLen)
@@ -335,17 +363,42 @@ object FormantTrajectoryAndSpectrogramExtractor {
         val b1Arr = FloatArray(anchorCount) { PhoneticScaleUtils.hzToBark(smoothF1[it].toFloat()) }
         val b2Arr = FloatArray(anchorCount) { PhoneticScaleUtils.hzToBark(smoothF2[it].toFloat()) }
 
-        // Edge-spike guard: only fall back inward to [1] or [7] if the boundary step has an unphysiological jump (> 0.58 Bark);
-        // otherwise preserve the full locus-trimmed [0 -> 8] vowel trajectory without double-shrinking narrow glides like [ou, ei].
-        val onsetEdgeJumpBark = hypot(b1Arr[1] - b1Arr[0], b2Arr[1] - b2Arr[0])
-        val offsetEdgeJumpBark = hypot(b1Arr[anchorCount - 1] - b1Arr[anchorCount - 2], b2Arr[anchorCount - 1] - b2Arr[anchorCount - 2])
-        val useCleanStart = onsetEdgeJumpBark <= 0.58f
-        val useCleanEnd = offsetEdgeJumpBark <= 0.58f
+        // Edge-spike guard:
+        // Distinguish an isolated 1-frame consonant locus spike (which stalls or reverses on the next step)
+        // from a genuine rapid rising/falling vocalic glide (e.g. [i -> ɛ] in 爹/些, [u -> a] in 瓜) where
+        // consecutive steps continue moving coherently in the same direction!
+        val sb01_1 = b1Arr[1] - b1Arr[0]
+        val sb01_2 = b2Arr[1] - b2Arr[0]
+        val sb12_1 = b1Arr[2] - b1Arr[1]
+        val sb12_2 = b2Arr[2] - b2Arr[1]
+        val onsetEdgeJumpBark = hypot(sb01_1, sb01_2)
+        val secondStepBark = hypot(sb12_1, sb12_2)
+        val onsetCosSim = if (onsetEdgeJumpBark > 1e-4f && secondStepBark > 1e-4f) {
+            (sb01_1 * sb12_1 + sb01_2 * sb12_2) / (onsetEdgeJumpBark * secondStepBark)
+        } else 0f
+        val isCoherentOnsetGlide = onsetEdgeJumpBark <= 1.58f && secondStepBark >= 0.16f && onsetCosSim >= 0.45f
 
-        val b1Start = if (useCleanStart) b1Arr[0] else b1Arr[1]
-        val b2Start = if (useCleanStart) b2Arr[0] else b2Arr[1]
-        val b1End = if (useCleanEnd) b1Arr[anchorCount - 1] else b1Arr[anchorCount - 2]
-        val b2End = if (useCleanEnd) b2Arr[anchorCount - 1] else b2Arr[anchorCount - 2]
+        val lastIdx = anchorCount - 1
+        val sb78_1 = b1Arr[lastIdx] - b1Arr[lastIdx - 1]
+        val sb78_2 = b2Arr[lastIdx] - b2Arr[lastIdx - 1]
+        val sb67_1 = b1Arr[lastIdx - 1] - b1Arr[lastIdx - 2]
+        val sb67_2 = b2Arr[lastIdx - 1] - b2Arr[lastIdx - 2]
+        val offsetEdgeJumpBark = hypot(sb78_1, sb78_2)
+        val penultStepBark = hypot(sb67_1, sb67_2)
+        val offsetCosSim = if (offsetEdgeJumpBark > 1e-4f && penultStepBark > 1e-4f) {
+            (sb78_1 * sb67_1 + sb78_2 * sb67_2) / (offsetEdgeJumpBark * penultStepBark)
+        } else 0f
+        val isCoherentOffsetGlide = offsetEdgeJumpBark <= 1.58f && penultStepBark >= 0.16f && offsetCosSim >= 0.45f
+
+        val useCleanStart = onsetEdgeJumpBark <= 0.58f || isCoherentOnsetGlide
+        val useCleanEnd = offsetEdgeJumpBark <= 0.58f || isCoherentOffsetGlide
+        val effStartIdx = if (useCleanStart) 0 else 1
+        val effEndIdx = (if (useCleanEnd) lastIdx else lastIdx - 1).coerceAtLeast(effStartIdx + 1)
+
+        val b1Start = b1Arr[effStartIdx]
+        val b2Start = b2Arr[effStartIdx]
+        val b1End = b1Arr[effEndIdx]
+        val b2End = b2Arr[effEndIdx]
 
         val rawDb1 = b1End - b1Start
         val rawDb2 = b2End - b2Start
@@ -378,23 +431,42 @@ object FormantTrajectoryAndSpectrogramExtractor {
         var steadyStepCount = 0
         var forwardStepCount = 0
         var maxSingleStepBark = 0f
+        var maxStepIdx = effStartIdx
+        val stepDists = FloatArray(anchorCount - 1)
         for (i in 0 until anchorCount - 1) {
             val sb1 = b1Arr[i + 1] - b1Arr[i]
             val sb2 = b2Arr[i + 1] - b2Arr[i]
-            val stepDist = hypot(sb1, sb2)
+            stepDists[i] = hypot(sb1, sb2)
+        }
+        val activeStepCount = (effEndIdx - effStartIdx).coerceAtLeast(1)
+        for (i in effStartIdx until effEndIdx) {
+            val sb1 = b1Arr[i + 1] - b1Arr[i]
+            val sb2 = b2Arr[i + 1] - b2Arr[i]
+            val stepDist = stepDists[i]
             pathLenBark += stepDist
-            if (stepDist > maxSingleStepBark) maxSingleStepBark = stepDist
+            if (stepDist > maxSingleStepBark) {
+                maxSingleStepBark = stepDist
+                maxStepIdx = i
+            }
             if (stepDist < 0.145f) steadyStepCount++
             val forwardProj = sb1 * unitB1 + sb2 * unitB2
             if (forwardProj >= 0.035f) forwardStepCount++
         }
-        val steadyStepRatio = steadyStepCount.toFloat() / (anchorCount - 1).toFloat()
-        // Reject unphysiological step-function pole jumps (where 1-2 steps account for almost all motion while >= 50% of steps are flat)
-        val isStepArtifact = steadyStepRatio >= 0.50f && pathLenBark > 0.5f && (maxSingleStepBark / pathLenBark) >= 0.46f
+        val steadyStepRatio = steadyStepCount.toFloat() / activeStepCount.toFloat()
+        val prevNeighborStep = if (maxStepIdx > effStartIdx) stepDists[maxStepIdx - 1] else 0f
+        val nextNeighborStep = if (maxStepIdx < effEndIdx - 1) stepDists[maxStepIdx + 1] else 0f
+        // Reject unphysiological 1-frame LPC pole flips where a single isolated step accounts for >= 54% of motion
+        // while its immediate neighbors are flat (< 0.14 Bark); do NOT penalize genuine 2-4 step medial glides!
+        val isStepArtifact = steadyStepRatio >= 0.50f &&
+            pathLenBark > 0.5f &&
+            maxSingleStepBark >= 0.50f &&
+            (maxSingleStepBark / pathLenBark) >= 0.54f &&
+            prevNeighborStep < 0.14f &&
+            nextNeighborStep < 0.14f
 
         var maxInflectionBark = 0f
         var inflectIdx = anchorCount / 2
-        for (i in 2..(anchorCount - 3)) {
+        for (i in (effStartIdx + 1)..(effEndIdx - 1)) {
             val dist = pointToSegmentDistanceBark(
                 px = b2Arr[i], py = b1Arr[i],
                 x1 = b2Start, y1 = b1Start,
@@ -409,27 +481,27 @@ object FormantTrajectoryAndSpectrogramExtractor {
         val leg1ChordBark = hypot(b1Arr[inflectIdx] - b1Start, b2Arr[inflectIdx] - b2Start)
         val leg2ChordBark = hypot(b1End - b1Arr[inflectIdx], b2End - b2Arr[inflectIdx])
         var leg1Path = 0f
-        for (i in 0 until inflectIdx) {
-            leg1Path += hypot(b1Arr[i + 1] - b1Arr[i], b2Arr[i + 1] - b2Arr[i])
+        for (i in effStartIdx until inflectIdx) {
+            leg1Path += stepDists[i]
         }
         var leg2Path = 0f
-        for (i in inflectIdx until anchorCount - 1) {
-            leg2Path += hypot(b1Arr[i + 1] - b1Arr[i], b2Arr[i + 1] - b2Arr[i])
+        for (i in inflectIdx until effEndIdx) {
+            leg2Path += stepDists[i]
         }
-        val leg1Directness = if (leg1Path > 0.05f) hypot(b1Arr[inflectIdx] - b1Arr[0], b2Arr[inflectIdx] - b2Arr[0]) / leg1Path else 1f
-        val leg2Directness = if (leg2Path > 0.05f) hypot(b1Arr.last() - b1Arr[inflectIdx], b2Arr.last() - b2Arr[inflectIdx]) / leg2Path else 1f
+        val leg1Directness = if (leg1Path > 0.05f) leg1ChordBark / leg1Path else 1f
+        val leg2Directness = if (leg2Path > 0.05f) leg2ChordBark / leg2Path else 1f
 
         val fullChordBark = hypot(b1End - b1Start, b2End - b2Start)
         val directnessRatio = if (pathLenBark > 0.05f) (fullChordBark / pathLenBark).coerceIn(0f, 1f) else 1f
 
-        val robustOnsetF1 = if (useCleanStart) smoothF1[0] else smoothF1[1]
-        val robustOnsetF2 = if (useCleanStart) smoothF2[0] else smoothF2[1]
-        val robustTargetF1 = if (useCleanEnd) smoothF1[anchorCount - 1] else smoothF1[anchorCount - 2]
-        val robustTargetF2 = if (useCleanEnd) smoothF2[anchorCount - 1] else smoothF2[anchorCount - 2]
+        val robustOnsetF1 = smoothF1[effStartIdx]
+        val robustOnsetF2 = smoothF2[effStartIdx]
+        val robustTargetF1 = smoothF1[effEndIdx]
+        val robustTargetF2 = smoothF2[effEndIdx]
 
         val deltaF1Hz = abs(robustTargetF1 - robustOnsetF1)
         val deltaF2Hz = abs(robustTargetF2 - robustOnsetF2)
-        val hasWideArticulatoryShift = deltaF1Hz >= 105 || deltaF2Hz >= 215 || (deltaF1Hz >= 75 && deltaF2Hz >= 155)
+        val hasWideArticulatoryShift = deltaF1Hz >= 100 || deltaF2Hz >= 210 || (deltaF1Hz >= 70 && deltaF2Hz >= 150)
 
         val isGenuineTriphthong = voicedDurMs >= 130 &&
             pathLenBark >= 2.05f &&
@@ -439,42 +511,80 @@ object FormantTrajectoryAndSpectrogramExtractor {
             leg1Directness >= 0.62f &&
             leg2Directness >= 0.62f
 
-        val isStandardOrWideDiphthong = voicedDurMs >= 85 &&
+        val isStandardOrWideDiphthong = voicedDurMs >= 80 &&
             !isStepArtifact &&
             hasWideArticulatoryShift &&
-            effectiveNetSpanBark >= 1.22f &&
-            coreSpanBark >= 0.62f &&
-            directnessRatio >= 0.64f &&
-            !(steadyStepRatio >= 0.625f && effectiveNetSpanBark < 1.85f)
+            effectiveNetSpanBark >= 1.18f &&
+            coreSpan17Bark >= 0.68f &&
+            coreSpanBark >= 0.48f &&
+            directnessRatio >= 0.64f
+
+        // Rising diphthongs (后响复韵母: ie [iɛ], ia [ia], ua [ua], uo [uɔ], üe [yɛ] such as 爹 [tiɛ], 些 [ɕiɛ], 多 [tuɔ]):
+        // The high vocalic medial ([i/y/u]) glides rapidly during the early 30-45% (anchors [0..4]) and then settles
+        // into a long steady main vowel ([ɛ/a/ɔ]) across [4..8], causing central [2..6] span to look small despite a
+        // clear multi-step early articulatory opening glide!
+        val earlySpan04Bark = hypot(b1Arr[4] - b1Start, b2Arr[4] - b2Start)
+        val earlySpanNext4Bark = hypot(b1Arr[4] - b1Arr[(effStartIdx + 1).coerceAtMost(4)], b2Arr[4] - b2Arr[(effStartIdx + 1).coerceAtMost(4)])
+        val earlySpan03Bark = hypot(b1Arr[3] - b1Start, b2Arr[3] - b2Start)
+        val earlySpanNext3Bark = hypot(b1Arr[3] - b1Arr[(effStartIdx + 1).coerceAtMost(3)], b2Arr[3] - b2Arr[(effStartIdx + 1).coerceAtMost(3)])
+        val startsInHighMedialZone = robustOnsetF1 <= 450 && (robustOnsetF2 >= 1750 || robustOnsetF2 <= 1170)
+        val opensIntoLowerOrShiftedNucleus = (robustTargetF1 - robustOnsetF1) >= 70 ||
+            ((robustTargetF1 - robustOnsetF1) >= 46 && deltaF2Hz >= 170) ||
+            deltaF2Hz >= 235
+        val hasMultiStepEarlyGlide = (earlySpan04Bark >= 0.74f && earlySpanNext4Bark >= 0.34f) ||
+            (earlySpan03Bark >= 0.70f && earlySpanNext3Bark >= 0.32f && stepDists[effStartIdx] >= 0.15f && stepDists[(effStartIdx + 1).coerceAtMost(lastIdx - 1)] >= 0.14f)
+
+        val isRisingMedialDiphthong = voicedDurMs >= 80 &&
+            !isStepArtifact &&
+            startsInHighMedialZone &&
+            opensIntoLowerOrShiftedNucleus &&
+            hasMultiStepEarlyGlide &&
+            effectiveNetSpanBark >= 0.78f &&
+            directnessRatio >= 0.65f
+
+        // Symmetrically, falling diphthongs with a prolonged initial nucleus ([0..4]) and rapid closing offglide ([4..8])
+        val lateSpan48Bark = hypot(b1End - b1Arr[4], b2End - b2Arr[4])
+        val lateSpan4PrevBark = hypot(b1Arr[(effEndIdx - 1).coerceAtLeast(4)] - b1Arr[4], b2Arr[(effEndIdx - 1).coerceAtLeast(4)] - b2Arr[4])
+        val endsInHighOffglideZone = robustTargetF1 <= 460 && (robustTargetF2 >= 1750 || robustTargetF2 <= 1170)
+        val closesIntoHighOffglide = (robustOnsetF1 - robustTargetF1) >= 70 ||
+            ((robustOnsetF1 - robustTargetF1) >= 46 && deltaF2Hz >= 170)
+        val isLateOffglideDiphthong = voicedDurMs >= 85 &&
+            !isStepArtifact &&
+            endsInHighOffglideZone &&
+            closesIntoHighOffglide &&
+            lateSpan48Bark >= 0.74f &&
+            lateSpan4PrevBark >= 0.34f &&
+            effectiveNetSpanBark >= 0.78f &&
+            directnessRatio >= 0.65f
 
         // Narrow closing diphthongs ([ou], [ei]) move 1 height tier continuously across the entire vowel core:
-        // require unidirectional forward steps, high linearity (>= 0.86), and sustained interior motion.
-        // Note: Above 1800 Hz (e.g. [ei]), Bark compresses F2 (~380 Hz/Bark), so opposing F1/F2 articulatory motion
-        // (tongue raising ΔF1 <= -55 Hz simultaneously with tongue fronting ΔF2 >= +165 Hz, impossible under pure F0 drift)
-        // produces ~0.55..0.95 Bark net span with near-1.0 linearity.
+        // require unidirectional forward steps, high linearity (>= 0.78), and sustained interior motion.
         val hasOpposingArticulatoryGlide = (rawDb1 * rawDb2 < 0f) &&
-            abs(rawDb1) >= 0.38f &&
-            abs(rawDb2) >= 0.40f &&
-            deltaF1Hz >= 55 &&
-            deltaF2Hz >= 165
+            abs(rawDb1) >= 0.36f &&
+            abs(rawDb2) >= 0.38f &&
+            deltaF1Hz >= 52 &&
+            deltaF2Hz >= 158
 
-        val isCoherentNarrowDiphthong = voicedDurMs >= 95 &&
+        val isCoherentNarrowDiphthong = voicedDurMs >= 90 &&
             !isStepArtifact &&
-            directnessRatio >= 0.78f &&
+            directnessRatio >= 0.76f &&
             (
-                (effectiveNetSpanBark >= 0.98f &&
-                    coreSpan17Bark >= 0.72f &&
-                    coreSpanBark >= 0.45f &&
-                    forwardStepCount >= 7 &&
-                    (deltaF2Hz >= 165 || (adjDb1Mag >= 0.75f && deltaF1Hz >= 95))) ||
+                (effectiveNetSpanBark >= 0.94f &&
+                    coreSpan17Bark >= 0.68f &&
+                    coreSpanBark >= 0.42f &&
+                    forwardStepCount >= 6 &&
+                    (deltaF2Hz >= 160 || (adjDb1Mag >= 0.72f && deltaF1Hz >= 90))) ||
                 (hasOpposingArticulatoryGlide &&
-                    effectiveNetSpanBark >= 0.62f &&
-                    coreSpan17Bark >= 0.48f &&
-                    coreSpanBark >= 0.32f &&
+                    effectiveNetSpanBark >= 0.60f &&
+                    coreSpan17Bark >= 0.45f &&
+                    coreSpanBark >= 0.30f &&
                     forwardStepCount >= 6)
             )
 
-        val isGenuineDiphthong = isStandardOrWideDiphthong || isCoherentNarrowDiphthong
+        val isGenuineDiphthong = isStandardOrWideDiphthong ||
+            isRisingMedialDiphthong ||
+            isLateOffglideDiphthong ||
+            isCoherentNarrowDiphthong
 
         val vowelType = when {
             isGenuineTriphthong -> VowelGlideType.TRIPHTHONG

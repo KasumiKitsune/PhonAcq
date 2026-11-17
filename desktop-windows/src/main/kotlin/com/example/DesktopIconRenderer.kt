@@ -350,11 +350,21 @@ object DesktopIconRenderer {
         targetFile.writeBytes(buf.array())
     }
 
+    fun writePngFile(targetFile: File, sizePx: Int = 256) {
+        val img = renderIconBufferedImage(sizePx)
+        targetFile.parentFile?.mkdirs()
+        ImageIO.write(img, "png", targetFile)
+    }
+
     @JvmStatic
     fun main(args: Array<String>) {
         val icoPath = args.getOrNull(0) ?: "src/main/resources/phonacq.ico"
         writeIcoFile(File(icoPath))
         val icnsPath = args.getOrNull(1) ?: "src/main/resources/phonacq.icns"
         writeIcnsFile(File(icnsPath))
+        val pngPath = args.getOrNull(2)
+        if (!pngPath.isNullOrBlank()) {
+            writePngFile(File(pngPath), 256)
+        }
     }
 }

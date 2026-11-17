@@ -1,4 +1,11 @@
 import org.jetbrains.compose.desktop.application.dsl.TargetFormat
+import java.io.BufferedOutputStream
+import java.io.FileOutputStream
+import java.nio.ByteBuffer
+import java.nio.ByteOrder
+import java.util.zip.Deflater
+import java.util.zip.ZipEntry
+import java.util.zip.ZipOutputStream
 
 plugins {
     kotlin("jvm") version "2.1.10"
@@ -106,12 +113,142 @@ compose.desktop {
 
 tasks.register<JavaExec>("generateIco") {
     group = "compose desktop"
-    description = "Regenerates src/main/resources/phonacq.ico and phonacq.icns with the pure white Samsung pebble icon"
+    description = "Regenerates src/main/resources/phonacq.ico, phonacq.icns, and installer logo PNG with the pure white Samsung pebble icon"
     classpath = sourceSets["main"].runtimeClasspath
     mainClass.set("com.example.DesktopIconRenderer")
     args(
         project.file("src/main/resources/phonacq.ico").absolutePath,
-        project.file("src/main/resources/phonacq.icns").absolutePath
+        project.file("src/main/resources/phonacq.icns").absolutePath,
+        layout.buildDirectory.file("installer-work/phonacq-logo.png").get().asFile.absolutePath
     )
     jvmArgs("-Djava.awt.headless=true")
+}
+
+tasks.register("packageWindowsSetup") {
+    group = "compose desktop"
+    description = "Builds modern rounded HiDPI one-click PhonAcq Windows .exe installer supporting in-place same-version & cross-version overwrite"
+    dependsOn("createDistributable", "generateIco")
+
+    doLast {
+        val osName = System.getProperty("os.name").lowercase()
+        if (!osName.contains("win")) {
+            throw GradleException("packageWindowsSetup requires Windows (csc.exe + Win32 PE subsystem). Current OS: $osName")
+        }
+
+        val appImageDir = layout.buildDirectory.dir("compose/binaries/main/app/PhonAcq").get().asFile
+        if (!appImageDir.exists() || !File(appImageDir, "PhonAcq.exe").exists()) {
+            throw GradleException("Distributable app image not found at: ${appImageDir.absolutePath}")
+        }
+
+        val workDir = layout.buildDirectory.dir("installer-work").get().asFile
+        workDir.mkdirs()
+
+        val icoFile = project.file("src/main/resources/phonacq.ico")
+        val logoPngFile = File(workDir, "phonacq-logo.png")
+        if (!icoFile.exists() || !logoPngFile.exists()) {
+            throw GradleException("Missing icon assets (${icoFile.absolutePath} or ${logoPngFile.absolutePath})")
+        }
+
+        val manifestSrc = project.file("installer/installer.manifest")
+        val csSrc = project.file("installer/PhonAcqInstaller.cs")
+        if (!manifestSrc.exists() || !csSrc.exists()) {
+            throw GradleException("Missing installer source files in ${project.file("installer").absolutePath}")
+        }
+
+        val manifestFile = File(workDir, "installer.manifest")
+        manifestSrc.copyTo(manifestFile, overwrite = true)
+
+        val csPatchedFile = File(workDir, "PhonAcqInstaller.cs")
+        val csPatchedContent = buildString {
+            appendLine("""[assembly: System.Reflection.AssemblyVersion("$nativePkgVersion.0")]""")
+            appendLine("""[assembly: System.Reflection.AssemblyFileVersion("$nativePkgVersion.0")]""")
+            append(csSrc.readText(Charsets.UTF_8).replace("__PHONACQ_VERSION__", rawAppVersion))
+        }
+        // Write UTF-8 with BOM so Windows .NET Framework 4.x csc.exe parses Chinese string literals cleanly regardless of system codepage
+        FileOutputStream(csPatchedFile).use { fos ->
+            fos.write(byteArrayOf(0xEF.toByte(), 0xBB.toByte(), 0xBF.toByte()))
+            fos.write(csPatchedContent.toByteArray(Charsets.UTF_8))
+        }
+
+        val systemRoot = System.getenv("SystemRoot") ?: System.getenv("WINDIR") ?: "C:\\Windows"
+        val cscCandidates = listOf(
+            File(systemRoot, "Microsoft.NET\\Framework64\\v4.0.30319\\csc.exe"),
+            File("C:\\Windows\\Microsoft.NET\\Framework64\\v4.0.30319\\csc.exe"),
+            File(systemRoot, "Microsoft.NET\\Framework\\v4.0.30319\\csc.exe")
+        )
+        val cscExe = cscCandidates.firstOrNull { it.isFile }?.absolutePath ?: "csc.exe"
+
+        val stubExe = File(workDir, "PhonAcqSetupStub.exe")
+        if (stubExe.exists()) stubExe.delete()
+
+        val cscCmd = listOf(
+            cscExe,
+            "/nologo",
+            "/target:winexe",
+            "/platform:x64",
+            "/optimize+",
+            "/utf8output",
+            "/win32icon:${icoFile.absolutePath}",
+            "/win32manifest:${manifestFile.absolutePath}",
+            "/resource:${logoPngFile.absolutePath},phonacq-logo.png",
+            "/r:System.dll",
+            "/r:System.Core.dll",
+            "/r:System.Drawing.dll",
+            "/r:System.Windows.Forms.dll",
+            "/r:System.IO.Compression.dll",
+            "/r:System.IO.Compression.FileSystem.dll",
+            "/out:${stubExe.absolutePath}",
+            csPatchedFile.absolutePath
+        )
+
+        val proc = ProcessBuilder(cscCmd)
+            .directory(workDir)
+            .redirectErrorStream(true)
+            .start()
+        val compilerOutput = proc.inputStream.bufferedReader(Charsets.UTF_8).readText()
+        val exitCode = proc.waitFor()
+        if (exitCode != 0 || !stubExe.exists()) {
+            throw GradleException("Failed to compile PhonAcqSetupStub.exe (exit=$exitCode):\n$compilerOutput")
+        }
+
+        // Compress createDistributable output into payload.zip
+        val payloadZip = File(workDir, "payload.zip")
+        if (payloadZip.exists()) payloadZip.delete()
+        ZipOutputStream(BufferedOutputStream(FileOutputStream(payloadZip))).use { zos ->
+            zos.setLevel(Deflater.BEST_COMPRESSION)
+            val basePath = appImageDir.toPath()
+            appImageDir.walkTopDown().forEach { file ->
+                if (file.isFile) {
+                    val relName = basePath.relativize(file.toPath()).toString().replace('\\', '/')
+                    val entry = ZipEntry(relName)
+                    entry.time = file.lastModified()
+                    zos.putNextEntry(entry)
+                    file.inputStream().use { input -> input.copyTo(zos, bufferSize = 65536) }
+                    zos.closeEntry()
+                }
+            }
+        }
+
+        val outDir = layout.buildDirectory.dir("installer").get().asFile
+        outDir.mkdirs()
+        val finalSetupExe = File(outDir, "PhonAcq-v${rawAppVersion}-windows-x64-setup.exe")
+        if (finalSetupExe.exists()) finalSetupExe.delete()
+
+        val stubLen = stubExe.length()
+        val zipLen = payloadZip.length()
+        val trailer = ByteBuffer.allocate(32).order(ByteOrder.LITTLE_ENDIAN).apply {
+            put("PAQSETUP".toByteArray(Charsets.US_ASCII))
+            putLong(stubLen) // payloadOffset
+            putLong(zipLen)  // payloadLength
+            putLong(stubLen) // stubLength (used when extracting clean Uninstall-PhonAcq.exe)
+        }.array()
+
+        BufferedOutputStream(FileOutputStream(finalSetupExe)).use { out ->
+            stubExe.inputStream().use { it.copyTo(out, bufferSize = 65536) }
+            payloadZip.inputStream().use { it.copyTo(out, bufferSize = 65536) }
+            out.write(trailer)
+        }
+
+        logger.lifecycle("Built custom PhonAcq Windows installer: ${finalSetupExe.absolutePath} (${finalSetupExe.length() / (1024 * 1024)} MB)")
+    }
 }

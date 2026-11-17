@@ -291,6 +291,7 @@ fun MultiSpeakerComparisonWorkbench(
 
         // 4. 2nd-Gen Interactive Multi-Speaker Dynamic Vowel Workbench
         MultiSpeakerVowelWorkbenchCard(
+            projectId = projectId,
             aligned = alignedAnalysis,
             focusedWordId = focusedWordId,
             onFocusWordChange = { focusedWordId = it },
@@ -1127,6 +1128,7 @@ fun MultiSpeakerToneComparisonCard(
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun MultiSpeakerVowelWorkbenchCard(
+    projectId: Long,
     aligned: MultiSpeakerAlignedAnalysis,
     focusedWordId: Long?,
     onFocusWordChange: (Long?) -> Unit,
@@ -1137,6 +1139,8 @@ fun MultiSpeakerVowelWorkbenchCard(
     onPlayRealization: (SpeakerWordRealization) -> Unit,
     onSequentialPlayWord: (CrossSpeakerWordComparison) -> Unit
 ) {
+    val context = LocalContext.current
+    val vowelOverrideRevision by VowelGlideOverrideStore.overrideRevision.collectAsState()
     var useLobanovNorm by remember { mutableStateOf(true) }
     var glideFilter by remember { mutableStateOf(0) } // 0 = 全部, 1 = 单元音, 2 = 复/三元音
     var showIndividualScatterInOverview by remember { mutableStateOf(true) }
@@ -1296,9 +1300,20 @@ fun MultiSpeakerVowelWorkbenchCard(
                         labelText = "全局格局包络"
                     )
                     aligned.alignedVowelCategories.forEach { vCat ->
+                        val grpOverridden = remember(projectId, vCat.groupKey, vowelOverrideRevision) {
+                            VowelGlideOverrideStore.getGroupOverride(context, projectId, vCat.groupKey)
+                        }
                         val tag = buildString {
                             append(vCat.groupLabel)
-                            if (vCat.hasGlideTypeSplit) {
+                            if (grpOverridden != null) {
+                                append(
+                                    when (grpOverridden) {
+                                        VowelGlideType.MONOPHTHONG -> " · 定单"
+                                        VowelGlideType.DIPHTHONG -> " · 定复"
+                                        VowelGlideType.TRIPHTHONG -> " · 定三"
+                                    }
+                                )
+                            } else if (vCat.hasGlideTypeSplit) {
                                 append(" ⚡单复")
                             } else if (vCat.maxCentroidShiftZ >= 0.75f) {
                                 append(String.format(Locale.US, " Δ%.1f", vCat.maxCentroidShiftZ))
@@ -1311,6 +1326,37 @@ fun MultiSpeakerVowelWorkbenchCard(
                             },
                             labelText = tag
                         )
+                    }
+                }
+
+                AnimatedVisibility(visible = focusedCategory != null) {
+                    if (focusedCategory != null) {
+                        val currentGroupOverride = remember(projectId, focusedCategory.groupKey, vowelOverrideRevision) {
+                            VowelGlideOverrideStore.getGroupOverride(context, projectId, focusedCategory.groupKey)
+                        }
+                        Surface(
+                            shape = RoundedCornerShape(10.dp),
+                            color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.36f),
+                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f)),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(top = 8.dp)
+                        ) {
+                            Box(modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp)) {
+                                VowelTypeManualOverrideRow(
+                                    titleLabel = "「${focusedCategory.groupLabel}」全员韵母判定:",
+                                    currentOverride = currentGroupOverride,
+                                    onSelectOverride = { nextType ->
+                                        VowelGlideOverrideStore.setGroupOverride(
+                                            context = context,
+                                            projectId = projectId,
+                                            groupKeyOrName = focusedCategory.groupKey,
+                                            overrideType = nextType
+                                        )
+                                    }
+                                )
+                            }
+                        }
                     }
                 }
             }

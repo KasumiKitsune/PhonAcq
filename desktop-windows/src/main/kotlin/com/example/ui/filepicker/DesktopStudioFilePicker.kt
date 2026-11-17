@@ -1938,9 +1938,18 @@ private fun PickerNavIconButton(
     val cs = MaterialTheme.colorScheme
     val (interaction, isHoveredState) = rememberStudioInteraction()
     val isHovered by isHoveredState
+    val navBg by animateColorAsState(
+        targetValue = if (enabled && isHovered) {
+            lerp(cs.surfaceContainerLow, cs.primaryContainer, 0.55f)
+        } else {
+            cs.surfaceContainerLow
+        },
+        animationSpec = tween(120),
+        label = "PickerNavBtnBg"
+    )
     Surface(
         shape = RoundedCornerShape(9.dp),
-        color = if (enabled && isHovered) cs.primaryContainer.copy(alpha = 0.55f) else cs.surfaceContainerLow,
+        color = navBg,
         border = BorderStroke(1.dp, cs.outlineVariant.copy(alpha = if (enabled) 0.55f else 0.25f)),
         modifier = Modifier
             .size(32.dp)
@@ -1996,10 +2005,10 @@ private fun SidebarNavRow(
     val bg by animateColorAsState(
         targetValue = when {
             selected -> cs.primaryContainer.copy(alpha = 0.82f)
-            isHovered -> cs.primaryContainer.copy(alpha = 0.32f)
-            else -> Color.Transparent
+            isHovered -> cs.primaryContainer.copy(alpha = 0.34f)
+            else -> cs.primaryContainer.copy(alpha = 0f)
         },
-        animationSpec = tween(130),
+        animationSpec = tween(120),
         label = "SidebarNavBg"
     )
     Surface(
@@ -2056,16 +2065,26 @@ private fun VolumeSidebarCard(
         ((volume.totalBytes - volume.freeBytes).toFloat() / volume.totalBytes.toFloat()).coerceIn(0f, 1f)
     } else 0f
 
+    val volBg by animateColorAsState(
+        targetValue = when {
+            selected -> lerp(cs.surface, cs.primaryContainer, 0.72f)
+            isHovered -> lerp(cs.surface, cs.primaryContainer, 0.26f)
+            else -> cs.surface
+        },
+        animationSpec = tween(120),
+        label = "VolumeCardBg"
+    )
+
     Surface(
         shape = RoundedCornerShape(10.dp),
-        color = when {
-            selected -> cs.primaryContainer.copy(alpha = 0.72f)
-            isHovered -> cs.surfaceContainerHigh
-            else -> cs.surface.copy(alpha = 0.65f)
-        },
+        color = volBg,
         border = BorderStroke(
             1.dp,
-            if (selected) cs.primary.copy(alpha = 0.5f) else cs.outlineVariant.copy(alpha = 0.45f)
+            when {
+                selected -> cs.primary.copy(alpha = 0.52f)
+                isHovered -> cs.primary.copy(alpha = 0.28f)
+                else -> cs.outlineVariant.copy(alpha = 0.45f)
+            }
         ),
         modifier = Modifier
             .fillMaxWidth()
@@ -2170,14 +2189,25 @@ private fun FileTableRowItem(
     val kind = remember(file.name, file.isDirectory) { DesktopFileInspector.classifyFile(file) }
     val (badgeBg, badgeFg, iconVec) = semanticStyleForKind(kind)
 
+    // Interpolate purely between opaque cs.surface and tinted primaryContainer (never Color.Transparent / 0x00000000,
+    // which interpolates through mid-gray L=0.5 in Oklab space during hover!)
     val rowBg by animateColorAsState(
         targetValue = when {
-            isSelected -> lerp(cs.surface, cs.primaryContainer, if (isHovered) 0.78f else 0.65f)
-            isHovered -> lerp(cs.surface, cs.primaryContainer, 0.25f)
-            else -> Color.Transparent
+            isSelected -> lerp(cs.surface, cs.primaryContainer, if (isHovered) 0.76f else 0.64f)
+            isHovered -> lerp(cs.surface, cs.primaryContainer, 0.28f)
+            else -> cs.surface
         },
-        animationSpec = tween(110),
+        animationSpec = tween(115),
         label = "FileRowBg"
+    )
+    val rowBorderColor by animateColorAsState(
+        targetValue = when {
+            isSelected -> cs.primary.copy(alpha = 0.55f)
+            isHovered -> cs.primary.copy(alpha = 0.24f)
+            else -> cs.primary.copy(alpha = 0f)
+        },
+        animationSpec = tween(115),
+        label = "FileRowBorder"
     )
 
     val thumbBitmap by produceState<ImageBitmap?>(initialValue = null, key1 = file.absolutePath) {
@@ -2189,7 +2219,7 @@ private fun FileTableRowItem(
     Surface(
         shape = RoundedCornerShape(9.dp),
         color = rowBg,
-        border = if (isSelected) BorderStroke(1.dp, cs.primary.copy(alpha = 0.55f)) else null,
+        border = BorderStroke(1.dp, rowBorderColor),
         modifier = Modifier
             .fillMaxWidth()
             .height(40.dp)
@@ -2320,16 +2350,31 @@ private fun FileGridCardItem(
         }
     }
 
-    Surface(
-        shape = RoundedCornerShape(14.dp),
-        color = when {
-            isSelected -> lerp(cs.surface, cs.primaryContainer, 0.65f)
-            isHovered -> cs.surfaceContainerHigh
+    val cardBg by animateColorAsState(
+        targetValue = when {
+            isSelected -> lerp(cs.surface, cs.primaryContainer, if (isHovered) 0.74f else 0.64f)
+            isHovered -> lerp(cs.surface, cs.primaryContainer, 0.26f)
             else -> cs.surfaceContainerLow
         },
+        animationSpec = tween(115),
+        label = "FileGridCardBg"
+    )
+    val cardBorder by animateColorAsState(
+        targetValue = when {
+            isSelected -> cs.primary
+            isHovered -> cs.primary.copy(alpha = 0.35f)
+            else -> cs.outlineVariant.copy(alpha = 0.5f)
+        },
+        animationSpec = tween(115),
+        label = "FileGridCardBorder"
+    )
+
+    Surface(
+        shape = RoundedCornerShape(14.dp),
+        color = cardBg,
         border = BorderStroke(
             width = if (isSelected) 1.5.dp else 1.dp,
-            color = if (isSelected) cs.primary else cs.outlineVariant.copy(alpha = 0.5f)
+            color = cardBorder
         ),
         modifier = Modifier
             .fillMaxWidth()

@@ -8,7 +8,7 @@ echo ===========================================================================
 echo.
 echo   [1] 直接运行 Windows 桌面版 (run)
 echo   [2] 生成免安装便携版 .exe 文件夹 (createDistributable)
-echo   [3] 生成 Windows .msi 安装包 (packageMsi)
+echo   [3] 生成 Windows 图形化 .exe 安装程序 (packageWindowsSetup，支持覆盖升级)
 echo.
 set /p choice="请输入选项序号 (默认 1): "
 if "%choice%"=="" set choice=1
@@ -16,7 +16,7 @@ if "%choice%"=="" set choice=1
 where gradle >nul 2>nul
 if %errorlevel% neq 0 (
     echo [提示] 未检测到全局 gradle 命令，请确保已安装 Gradle 8.7+ 及 JDK 17+，
-    echo        或者直接将本项目推送到 GitHub，通过 GitHub Actions 云端自动生成 .exe 和 .msi！
+    echo        或者直接将本项目推送到 GitHub，通过 GitHub Actions 云端自动生成 .exe 安装包！
     pause
     exit /b 1
 )
@@ -31,10 +31,10 @@ if "%choice%"=="1" (
     echo [完成] 免安装版已输出至: desktop-windows\build\compose\binaries\main\app\PhonAcq\PhonAcq.exe
     explorer.exe "desktop-windows\build\compose\binaries\main\app"
 ) else if "%choice%"=="3" (
-    echo 正在生成 Windows .msi 安装程序...
-    gradle -p desktop-windows packageMsi
+    echo 正在生成 PhonAcq Windows 简体中文图形化 .exe 安装程序...
+    gradle -p desktop-windows packageWindowsSetup
     echo.
-    echo [完成] MSI 安装包已输出至: desktop-windows\build\compose\binaries\main\msi\
-    explorer.exe "desktop-windows\build\compose\binaries\main\msi"
+    echo [完成] 安装包已输出至: desktop-windows\build\installer\
+    explorer.exe "desktop-windows\build\installer"
 )
 pause

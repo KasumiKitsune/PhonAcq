@@ -39,6 +39,7 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.drawText
@@ -795,18 +796,35 @@ fun SingleWordDynamicVowelCard(
     onToggleOtherSpeakerVisibility: ((Long) -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
+    val context = LocalContext.current
+    val vowelOverrideRevision by VowelGlideOverrideStore.overrideRevision.collectAsState()
     var overlayOtherSpeakers by remember { mutableStateOf(otherSpeakersEntries.isNotEmpty()) }
     var useVocalTractNormOnOverlay by remember { mutableStateOf(true) }
     var localHiddenIds by remember(word.id) { mutableStateOf(emptySet<Long>()) }
     val effectiveHiddenIds = if (onToggleOtherSpeakerVisibility != null) hiddenOtherSpeakerIds else localHiddenIds
     var selectedSyllableIndex by remember(word.id, analysis.formantTrajectories.size) { mutableStateOf(-1) } // -1 = 全部音节
 
-    val trajectories = analysis.formantTrajectories
+    val trajectories = remember(analysis.formantTrajectories, word.id, word.projectId, word.groupName, vowelOverrideRevision) {
+        analysis.formantTrajectories.mapIndexed { idx, rawTraj ->
+            val forced = VowelGlideOverrideStore.resolveEffectiveOverride(
+                context = context,
+                projectId = word.projectId,
+                wordId = word.id,
+                syllableIndex = idx,
+                groupKeyOrName = word.groupName
+            )
+            if (forced != null) VowelGlideOverrideStore.applyOverrideToTrajectory(rawTraj, forced) else rawTraj
+        }
+    }
     val isPolysyllabic = trajectories.size > 1 || analysis.segmentCount > 1
+    val activeOverrideSylIndex = if (selectedSyllableIndex in trajectories.indices) selectedSyllableIndex else 0
     val focusedTraj = if (selectedSyllableIndex in trajectories.indices) {
         trajectories[selectedSyllableIndex]
     } else {
         trajectories.firstOrNull()
+    }
+    val currentWordSylOverride = remember(word.id, activeOverrideSylIndex, vowelOverrideRevision) {
+        VowelGlideOverrideStore.getWordSyllableOverride(context, word.id, activeOverrideSylIndex)
     }
     val vowelTextMeasurer = rememberTextMeasurer()
 
@@ -917,6 +935,41 @@ fun SingleWordDynamicVowelCard(
                             selected = selectedSyllableIndex == idx,
                             onClick = { selectedSyllableIndex = if (selectedSyllableIndex == idx) -1 else idx },
                             labelText = "${circledSyllableBadge(idx + 1)} $lbl (${t.vowelType.chineseLabel.substringBefore(' ')})"
+                        )
+                    }
+                }
+            }
+
+            if (trajectories.isNotEmpty() && (!isPolysyllabic || selectedSyllableIndex in trajectories.indices)) {
+                Spacer(modifier = Modifier.height(10.dp))
+                Surface(
+                    shape = RoundedCornerShape(10.dp),
+                    color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.36f),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f)),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("single_word_vowel_override_bar")
+                ) {
+                    Box(modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp)) {
+                        val titlePrefix = if (isPolysyllabic && focusedTraj != null) {
+                            val sylLbl = focusedTraj.syllableLabel.ifBlank {
+                                S.common.syllableFallback.withArgs("index" to activeOverrideSylIndex + 1)
+                            }
+                            "「$sylLbl」韵母判定:"
+                        } else {
+                            "本词韵母判定:"
+                        }
+                        VowelTypeManualOverrideRow(
+                            titleLabel = titlePrefix,
+                            currentOverride = currentWordSylOverride,
+                            onSelectOverride = { nextType ->
+                                VowelGlideOverrideStore.setWordSyllableOverride(
+                                    context = context,
+                                    wordId = word.id,
+                                    syllableIndex = activeOverrideSylIndex,
+                                    overrideType = nextType
+                                )
+                            }
                         )
                     }
                 }
@@ -1130,8 +1183,18 @@ fun SingleWordDynamicVowelCard(
                             if (other.speaker.id in effectiveHiddenIds) return@forEachIndexed
                             val oTrajs = other.analysis.formantTrajectories
                             val col = cmpCols[idx % cmpCols.size].copy(alpha = 0.72f)
-                            oTrajs.forEachIndexed { sIdx, oTraj ->
+                            oTrajs.forEachIndexed { sIdx, rawOTraj ->
                                 if (selectedSyllableIndex != -1 && selectedSyllableIndex != sIdx) return@forEachIndexed
+                                val forcedOther = VowelGlideOverrideStore.resolveEffectiveOverride(
+                                    context = context,
+                                    projectId = word.projectId,
+                                    wordId = word.id,
+                                    syllableIndex = sIdx,
+                                    groupKeyOrName = word.groupName
+                                )
+                                val oTraj = if (forcedOther != null) {
+                                    VowelGlideOverrideStore.applyOverrideToTrajectory(rawOTraj, forcedOther)
+                                } else rawOTraj
                                 if (oTraj.nucleusF1 > 0) {
                                     drawSyllableVowelElement(
                                         traj = oTraj,

@@ -67,7 +67,8 @@ object CorpusPhonologyAnalyzer {
             .filter { it.isRecorded && !it.recordingFile.isNullOrEmpty() }
             .sortedBy { it.originalIndex }
 
-        val sigHash = recordedWords.fold(37) { acc, w ->
+        val overrideRev = VowelGlideOverrideStore.overrideRevision.value
+        val sigHash = recordedWords.fold(37 + overrideRev * 97) { acc, w ->
             31 * acc + w.id.hashCode() + (w.recordingFile?.hashCode() ?: 0) + w.groupName.hashCode()
         }
         val cacheKey = ReportCacheKey(projectId, speakerId, recordedWords.size, sigHash)
@@ -206,6 +207,8 @@ object CorpusPhonologyAnalyzer {
 
         // 3. Vowel Space Tokens, Lobanov Z-score Normalization, and 1-Sigma Confidence Ellipses
         val (vowelTokens, vowelEllipses, lobanovValid) = buildNormalizedVowelSpaceAndEllipses(
+            context = context,
+            projectId = projectId,
             tokens = analyzedTokens.map { it.word to it.result },
             speakerId = speakerId,
             speakerName = speakerName,
@@ -675,6 +678,8 @@ object CorpusPhonologyAnalyzer {
     }
 
     private fun buildNormalizedVowelSpaceAndEllipses(
+        context: Context,
+        projectId: Long,
         tokens: List<Pair<Word, AcousticAnalyzer.AnalysisResult>>,
         speakerId: Long,
         speakerName: String,
@@ -751,39 +756,6 @@ object CorpusPhonologyAnalyzer {
 
         if (entries.isEmpty()) return Triple(emptyList(), emptyList(), false)
 
-        // Compute speaker intrinsic F1/F2 mean & SD for Lobanov Z-score normalization
-        val f1Pool = ArrayList<Float>(entries.size * 2)
-        val f2Pool = ArrayList<Float>(entries.size * 2)
-        for (e in entries) {
-            if (e.isNeutralSyllable && entries.size >= 4) continue
-            f1Pool.add(e.traj.nucleusF1.toFloat())
-            f2Pool.add(e.traj.nucleusF2.toFloat())
-            if (e.traj.vowelType != VowelGlideType.MONOPHTHONG) {
-                f1Pool.add(e.traj.onsetF1.toFloat())
-                f1Pool.add(e.traj.targetF1.toFloat())
-                f2Pool.add(e.traj.onsetF2.toFloat())
-                f2Pool.add(e.traj.targetF2.toFloat())
-            }
-        }
-        if (f1Pool.isEmpty()) {
-            for (e in entries) {
-                f1Pool.add(e.traj.nucleusF1.toFloat())
-                f2Pool.add(e.traj.nucleusF2.toFloat())
-            }
-        }
-
-        val meanF1 = f1Pool.average().toFloat()
-        val meanF2 = f2Pool.average().toFloat()
-        val rawSdF1 = sqrt(f1Pool.map { (it - meanF1) * (it - meanF1) }.average()).toFloat()
-        val rawSdF2 = sqrt(f2Pool.map { (it - meanF2) * (it - meanF2) }.average()).toFloat()
-
-        val lobanovValid = entries.size >= 6 && rawSdF1 >= 45f && rawSdF2 >= 140f
-        val sdF1 = if (lobanovValid) rawSdF1 else maxOf(rawSdF1, 130f)
-        val sdF2 = if (lobanovValid) rawSdF2 else maxOf(rawSdF2, 420f)
-
-        fun toZ1(f1: Int): Float = ((f1 - meanF1) / sdF1).coerceIn(-2.8f, 2.8f)
-        fun toZ2(f2: Int): Float = ((f2 - meanF2) / sdF2).coerceIn(-2.8f, 2.8f)
-
         // Check whether custom word groups represent VOWEL/RIME groups (tight Bark spread) vs TONE groups
         val useWordGroupsForVowels = if (hasCustomGroups && entries.none { it.wordSyllableCount > 1 }) {
             val byWordGrp = entries.groupBy { it.word.groupName.trim().ifEmpty { S.common.defaultGroupFallback } }
@@ -808,7 +780,61 @@ object CorpusPhonologyAnalyzer {
             false
         }
 
-        val normalizedTokens = entries.map { e ->
+        // Apply any user-specified Word/Syllable or Rime-Group VowelGlideType overrides using real measured anchors
+        val resolvedEntries = entries.map { e ->
+            val candidateGroupName = if (useWordGroupsForVowels) {
+                e.word.groupName.trim().ifEmpty { S.acoustics.defaultRimeGroupFallback }
+            } else {
+                assignArticulatoryVowelGroup(e.traj).first
+            }
+            val forcedType = VowelGlideOverrideStore.resolveEffectiveOverride(
+                context = context,
+                projectId = projectId,
+                wordId = e.word.id,
+                syllableIndex = e.syllableIndex,
+                groupKeyOrName = candidateGroupName
+            )
+            if (forcedType != null) {
+                e.copy(traj = VowelGlideOverrideStore.applyOverrideToTrajectory(e.traj, forcedType))
+            } else {
+                e
+            }
+        }
+
+        // Compute speaker intrinsic F1/F2 mean & SD for Lobanov Z-score normalization
+        val f1Pool = ArrayList<Float>(resolvedEntries.size * 2)
+        val f2Pool = ArrayList<Float>(resolvedEntries.size * 2)
+        for (e in resolvedEntries) {
+            if (e.isNeutralSyllable && resolvedEntries.size >= 4) continue
+            f1Pool.add(e.traj.nucleusF1.toFloat())
+            f2Pool.add(e.traj.nucleusF2.toFloat())
+            if (e.traj.vowelType != VowelGlideType.MONOPHTHONG) {
+                f1Pool.add(e.traj.onsetF1.toFloat())
+                f1Pool.add(e.traj.targetF1.toFloat())
+                f2Pool.add(e.traj.onsetF2.toFloat())
+                f2Pool.add(e.traj.targetF2.toFloat())
+            }
+        }
+        if (f1Pool.isEmpty()) {
+            for (e in resolvedEntries) {
+                f1Pool.add(e.traj.nucleusF1.toFloat())
+                f2Pool.add(e.traj.nucleusF2.toFloat())
+            }
+        }
+
+        val meanF1 = f1Pool.average().toFloat()
+        val meanF2 = f2Pool.average().toFloat()
+        val rawSdF1 = sqrt(f1Pool.map { (it - meanF1) * (it - meanF1) }.average()).toFloat()
+        val rawSdF2 = sqrt(f2Pool.map { (it - meanF2) * (it - meanF2) }.average()).toFloat()
+
+        val lobanovValid = resolvedEntries.size >= 6 && rawSdF1 >= 45f && rawSdF2 >= 140f
+        val sdF1 = if (lobanovValid) rawSdF1 else maxOf(rawSdF1, 130f)
+        val sdF2 = if (lobanovValid) rawSdF2 else maxOf(rawSdF2, 420f)
+
+        fun toZ1(f1: Int): Float = ((f1 - meanF1) / sdF1).coerceIn(-2.8f, 2.8f)
+        fun toZ2(f2: Int): Float = ((f2 - meanF2) / sdF2).coerceIn(-2.8f, 2.8f)
+
+        val normalizedTokens = resolvedEntries.map { e ->
             val t = e.traj
             val (grpKey, grpLabel) = if (useWordGroupsForVowels) {
                 val g = e.word.groupName.trim().ifEmpty { S.acoustics.defaultRimeGroupFallback }
@@ -862,7 +888,7 @@ object CorpusPhonologyAnalyzer {
         }
 
         // Fit 1-sigma confidence ellipses primarily for non-neutral steady monophthong clusters (or custom rime groups)
-        val nonNeutralIds = entries.filter { !it.isNeutralSyllable }
+        val nonNeutralIds = resolvedEntries.filter { !it.isNeutralSyllable }
             .map { "${it.word.id}_${it.syllableIndex}" }
             .toHashSet()
         val ellipsePool = normalizedTokens.filter { "${it.word.id}_${it.syllableIndex}" in nonNeutralIds }

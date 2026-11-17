@@ -2471,7 +2471,7 @@
             </div>
 
             <div class="dl-grid-hero">
-              <a href="https://github.com/KasumiKitsune/PhonAcq/releases/latest" class="dl-card-btn is-primary-os js-dl-btn js-dl-win" data-os="win" aria-label="下载 Windows 安装包（.msi）">
+              <a href="https://github.com/KasumiKitsune/PhonAcq/releases/latest" class="dl-card-btn is-primary-os js-dl-btn js-dl-win" data-os="win" aria-label="下载 Windows 安装包（.exe）">
                 <div class="dl-card-top">
                   <span class="dl-os-icon" aria-hidden="true">
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round">
@@ -2479,7 +2479,7 @@
                       <rect x="3.5" y="13" width="7.5" height="7.5" rx="1.2" /><rect x="13" y="13" width="7.5" height="7.5" rx="1.2" />
                     </svg>
                   </span>
-                  <span class="dl-ext">.msi</span>
+                  <span class="dl-ext">.exe</span>
                 </div>
                 <div class="dl-card-body">
                   <div class="dl-os-row">
@@ -5390,12 +5390,12 @@
                 <span class="rec-pill">当前设备推荐</span>
               </div>
               <p style="font-size: 13.5px; color: var(--ink-secondary);">
-                适用于 Windows 10 / 11（64 位），标准 <code class="mono">.msi</code> 安装包，支持电脑端采录、双机遥控与完整归档整理。
+                适用于 Windows 10 / 11（64 位），简体中文图形化 <code class="mono">.exe</code> 安装程序，支持同版本/跨版本覆盖升级、电脑端采录、双机遥控与归档整理。
               </p>
             </div>
             <div class="bottom-dl-actions">
               <a href="https://github.com/KasumiKitsune/PhonAcq/releases/latest" class="btn btn-primary js-bottom-dl-btn js-dl-win" data-os="win">
-                下载 Windows 安装包 (.msi)
+                下载 Windows 安装包 (.exe)
               </a>
               <div class="dl-mirror-box">
                 <a href="https://pan.baidu.com/s/1vLHrZPOXGFwhJmyfzfj-nA?pwd=mcmc" target="_blank" rel="noopener" class="dl-mirror-link">
@@ -5630,7 +5630,8 @@
             const name = (asset.name || '').toLowerCase();
             const url = asset.browser_download_url;
             if (!url) return;
-            if (!winUrl && (name.endsWith('.msi') || name.endsWith('.exe'))) winUrl = url;
+            if (name.endsWith('.exe')) winUrl = url;
+            else if (!winUrl && name.endsWith('.msi')) winUrl = url;
             if (!macUrl && name.endsWith('.dmg')) macUrl = url;
             if (!androidUrl && name.endsWith('.apk')) androidUrl = url;
           });
