@@ -88,7 +88,7 @@ PhonAcq 由 [KasumiKitsune](https://github.com/KasumiKitsune) 开发维护，可
 
 普通用户可直接点击页面顶部的平台下载卡片，或前往本仓库 **[Releases](https://github.com/KasumiKitsune/PhonAcq/releases)** 页面下载对应平台安装包：
 
-- **Windows（64 位）**：`PhonAcq-v2.0.2-windows-x64-setup.exe`（Windows 10 / 11 简体中文图形安装向导，支持同版本/跨版本直接覆盖升级，内置运行环境）
+- **Windows（64 位）**：`PhonAcq-v2.0.2-windows-x64-setup.exe`（Windows 10 / 11 简体中文安装程序，支持同版本/跨版本直接覆盖更新）
 - **macOS（Apple Silicon）**：`PhonAcq-v2.0.2-macos-arm64.dmg`（适用于 M1 / M2 / M3 / M4 系列芯片 Mac）
 - **Android（手机 / 平板）**：`PhonAcq-v2.0.2-android.apk`（Android 7.0+ 通用）
 

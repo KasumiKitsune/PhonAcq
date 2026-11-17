@@ -46,6 +46,7 @@ namespace PhonAcqSetup
 
         public const int WM_NCLBUTTONDOWN = 0x00A1;
         public const int HTCAPTION = 2;
+        public const int DWMWA_USE_IMMERSIVE_DARK_MODE = 20;
         public const int DWMWA_WINDOW_CORNER_PREFERENCE = 33;
         public const int DWMWCP_ROUND = 2;
         public const int SHCNE_ASSOCCHANGED = 0x08000000;
@@ -70,11 +71,32 @@ namespace PhonAcqSetup
             {
             }
         }
+
+        public static bool IsSystemDarkTheme()
+        {
+            try
+            {
+                using (RegistryKey key = Registry.CurrentUser.OpenSubKey(@"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize"))
+                {
+                    if (key != null)
+                    {
+                        object val = key.GetValue("AppsUseLightTheme");
+                        if (val is int)
+                        {
+                            return ((int)val) == 0;
+                        }
+                    }
+                }
+            }
+            catch
+            {
+            }
+            return false;
+        }
     }
 
     /// <summary>
-    /// Modern Windows Vista/10/11 COM IFileOpenDialog (FOS_PICKFOLDERS) so clicking "浏览..."
-    /// opens the modern Explorer folder picker instead of the legacy Win95 tree dialog.
+    /// Modern Windows 10/11 COM IFileOpenDialog (FOS_PICKFOLDERS) for selecting the installation folder.
     /// </summary>
     internal static class ModernFolderBrowser
     {
@@ -140,7 +162,7 @@ namespace PhonAcqSetup
                 dialog.GetOptions(out options);
                 dialog.SetOptions(options | FOS_PICKFOLDERS | FOS_FORCEFILESYSTEM | FOS_NOREADONLYRETURN);
                 dialog.SetTitle(title);
-                dialog.SetOkButtonLabel("选择此位置");
+                dialog.SetOkButtonLabel("选择文件夹");
 
                 if (!string.IsNullOrEmpty(initialDirectory))
                 {
@@ -192,6 +214,86 @@ namespace PhonAcqSetup
                     }
                 }
                 return null;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Exact Material You (Material 3) solid tonal color tokens matching PhonAcq's Theme.kt / Color.kt.
+    /// Strictly flat tonal hierarchy with zero gradients.
+    /// </summary>
+    internal sealed class MaterialYouPalette
+    {
+        public readonly bool IsDark;
+        public readonly Color Surface;
+        public readonly Color SurfaceContainer;
+        public readonly Color SurfaceContainerHigh;
+        public readonly Color InputSurface;
+        public readonly Color Primary;
+        public readonly Color PrimaryHover;
+        public readonly Color OnPrimary;
+        public readonly Color PrimaryContainer;
+        public readonly Color PrimaryContainerHover;
+        public readonly Color OnPrimaryContainer;
+        public readonly Color OnSurface;
+        public readonly Color OnSurfaceVariant;
+        public readonly Color Outline;
+        public readonly Color OutlineVariant;
+        public readonly Color WindowBorder;
+        public readonly Color Error;
+        public readonly Color ErrorHover;
+        public readonly Color OnError;
+        public readonly Color ErrorContainer;
+        public readonly Color OnErrorContainer;
+
+        public MaterialYouPalette(bool dark)
+        {
+            IsDark = dark;
+            if (dark)
+            {
+                Surface = Color.FromArgb(30, 41, 59);                // #1E293B SurfaceDark
+                SurfaceContainer = Color.FromArgb(36, 50, 71);       // #243247 SurfaceContainerDark
+                SurfaceContainerHigh = Color.FromArgb(51, 65, 85);   // #334155 SurfaceContainerHighestDark
+                InputSurface = Color.FromArgb(15, 23, 42);           // #0F172A BGDark
+                Primary = Color.FromArgb(96, 165, 250);              // #60A5FA PrimaryBlueDark
+                PrimaryHover = Color.FromArgb(147, 197, 253);        // #93C5FD
+                OnPrimary = Color.FromArgb(15, 23, 42);              // #0F172A
+                PrimaryContainer = Color.FromArgb(30, 58, 138);      // #1E3A8A PrimaryContainerDark
+                PrimaryContainerHover = Color.FromArgb(37, 99, 235); // #2563EB
+                OnPrimaryContainer = Color.FromArgb(219, 234, 254);  // #DBEAFE OnPrimaryContainerDark
+                OnSurface = Color.FromArgb(248, 250, 252);           // #F8FAFC TextLight
+                OnSurfaceVariant = Color.FromArgb(148, 163, 184);    // #94A3B8 TextMutedDark
+                Outline = Color.FromArgb(148, 163, 184);             // #94A3B8 BorderDark
+                OutlineVariant = Color.FromArgb(51, 65, 85);         // #334155
+                WindowBorder = Color.FromArgb(71, 85, 105);          // #475569 BorderVariantDark
+                Error = Color.FromArgb(248, 113, 113);               // #F87171
+                ErrorHover = Color.FromArgb(252, 165, 165);          // #FCA5A5
+                OnError = Color.FromArgb(69, 10, 10);                // #450A0A
+                ErrorContainer = Color.FromArgb(69, 26, 26);         // #451A1A
+                OnErrorContainer = Color.FromArgb(254, 202, 202);    // #FECACA
+            }
+            else
+            {
+                Surface = Color.FromArgb(255, 255, 255);             // #FFFFFF SurfaceNeutral
+                SurfaceContainer = Color.FromArgb(241, 245, 249);    // #F1F5F9 SurfaceContainerLight
+                SurfaceContainerHigh = Color.FromArgb(226, 232, 240);// #E2E8F0 SurfaceContainerHighLight
+                InputSurface = Color.FromArgb(255, 255, 255);        // #FFFFFF SurfaceContainerLowest
+                Primary = Color.FromArgb(29, 78, 216);               // #1D4ED8 PrimaryBlue
+                PrimaryHover = Color.FromArgb(30, 64, 175);          // #1E40AF
+                OnPrimary = Color.FromArgb(255, 255, 255);           // #FFFFFF
+                PrimaryContainer = Color.FromArgb(219, 234, 254);    // #DBEAFE PrimaryContainerBlue
+                PrimaryContainerHover = Color.FromArgb(191, 219, 254);// #BFDBFE
+                OnPrimaryContainer = Color.FromArgb(30, 58, 138);    // #1E3A8A OnPrimaryContainerBlue
+                OnSurface = Color.FromArgb(15, 23, 42);              // #0F172A TextDark
+                OnSurfaceVariant = Color.FromArgb(71, 85, 105);      // #475569 TextMuted
+                Outline = Color.FromArgb(100, 116, 139);             // #64748B BorderMuted
+                OutlineVariant = Color.FromArgb(203, 213, 225);      // #CBD5E1 BorderLight
+                WindowBorder = Color.FromArgb(203, 213, 225);        // #CBD5E1
+                Error = Color.FromArgb(220, 38, 38);                 // #DC2626
+                ErrorHover = Color.FromArgb(185, 28, 28);            // #B91C1C
+                OnError = Color.FromArgb(255, 255, 255);             // #FFFFFF
+                ErrorContainer = Color.FromArgb(254, 226, 226);      // #FEE2E2
+                OnErrorContainer = Color.FromArgb(127, 29, 29);      // #7F1D1D
             }
         }
     }
@@ -290,11 +392,6 @@ namespace PhonAcqSetup
         public const string PUBLISHER = "KasumiKitsune";
         public const string UNINSTALL_REG_SUBKEY = @"Software\Microsoft\Windows\CurrentVersion\Uninstall\PhonAcq";
         public static readonly byte[] TRAILER_MAGIC = Encoding.ASCII.GetBytes("PAQSETUP");
-        // Trailer layout (32 bytes at EOF):
-        // [0..7]   "PAQSETUP" (8 bytes)
-        // [8..15]  payloadOffset (Int64 LE)
-        // [16..23] payloadLength (Int64 LE)
-        // [24..31] stubLength    (Int64 LE)
 
         public static PayloadDescriptor ReadPayloadDescriptor(string exePath, string fallbackVersion)
         {
@@ -356,7 +453,6 @@ namespace PhonAcqSetup
             {
             }
 
-            // Also scan HKCU Uninstall for legacy jpackage/WiX MSI entries of PhonAcq so same-version upgrades never conflict
             try
             {
                 using (RegistryKey uninstallRoot = Registry.CurrentUser.OpenSubKey(@"Software\Microsoft\Windows\CurrentVersion\Uninstall"))
@@ -400,7 +496,6 @@ namespace PhonAcqSetup
             {
             }
 
-            // Check legacy jpackage per-user default location (%LOCALAPPDATA%\PhonAcq)
             if (string.IsNullOrEmpty(existingDir))
             {
                 string localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
@@ -486,6 +581,52 @@ namespace PhonAcqSetup
             }
         }
 
+        /// <summary>
+        /// PhonAcq intentionally does NOT associate .teproj (which belongs to PhonTracer).
+        /// If an earlier PhonAcq build wrote a PhonAcq.teproj key, clean only that entry without touching PhonTracer.
+        /// </summary>
+        public static void CleanupLegacyPhonAcqTeprojAssociation()
+        {
+            try
+            {
+                bool changed = false;
+                using (RegistryKey progKey = Registry.CurrentUser.OpenSubKey(@"Software\Classes\PhonAcq.teproj"))
+                {
+                    if (progKey != null) changed = true;
+                }
+                if (changed)
+                {
+                    Registry.CurrentUser.DeleteSubKeyTree(@"Software\Classes\PhonAcq.teproj", false);
+                }
+
+                bool removeDotKey = false;
+                using (RegistryKey extKey = Registry.CurrentUser.OpenSubKey(@"Software\Classes\.teproj", false))
+                {
+                    if (extKey != null)
+                    {
+                        string cur = extKey.GetValue("") as string;
+                        if (string.Equals(cur, "PhonAcq.teproj", StringComparison.OrdinalIgnoreCase))
+                        {
+                            removeDotKey = true;
+                        }
+                    }
+                }
+                if (removeDotKey)
+                {
+                    Registry.CurrentUser.DeleteSubKeyTree(@"Software\Classes\.teproj", false);
+                    changed = true;
+                }
+
+                if (changed)
+                {
+                    NativeMethods.SHChangeNotify(NativeMethods.SHCNE_ASSOCCHANGED, NativeMethods.SHCNF_IDLIST, IntPtr.Zero, IntPtr.Zero);
+                }
+            }
+            catch
+            {
+            }
+        }
+
         public static void CreateShortcut(string shortcutPath, string targetExe, string workingDir, string description)
         {
             try
@@ -532,36 +673,6 @@ namespace PhonAcqSetup
             }
         }
 
-        public static void RegisterFileAssociation(string targetExe)
-        {
-            try
-            {
-                using (RegistryKey extKey = Registry.CurrentUser.CreateSubKey(@"Software\Classes\.teproj"))
-                {
-                    if (extKey != null) extKey.SetValue("", "PhonAcq.teproj");
-                }
-                using (RegistryKey progKey = Registry.CurrentUser.CreateSubKey(@"Software\Classes\PhonAcq.teproj"))
-                {
-                    if (progKey != null)
-                    {
-                        progKey.SetValue("", "PhonAcq 语音调查工程包 (.teproj)");
-                        using (RegistryKey iconKey = progKey.CreateSubKey("DefaultIcon"))
-                        {
-                            if (iconKey != null) iconKey.SetValue("", String.Format("\"{0}\",0", targetExe));
-                        }
-                        using (RegistryKey cmdKey = progKey.CreateSubKey(@"shell\open\command"))
-                        {
-                            if (cmdKey != null) cmdKey.SetValue("", String.Format("\"{0}\" \"%1\"", targetExe));
-                        }
-                    }
-                }
-                NativeMethods.SHChangeNotify(NativeMethods.SHCNE_ASSOCCHANGED, NativeMethods.SHCNF_IDLIST, IntPtr.Zero, IntPtr.Zero);
-            }
-            catch
-            {
-            }
-        }
-
         public static void RegisterUninstaller(string installDir, string targetExe, string uninstallerExe, string version, long totalBytes)
         {
             try
@@ -594,16 +705,15 @@ namespace PhonAcqSetup
             string installDir,
             bool createDesktopShortcut,
             bool createStartMenuShortcut,
-            bool associateTeproj,
             List<string> legacyMsiCodes,
             Action<int, string> onProgress)
         {
-            if (onProgress != null) onProgress(3, "正在检测并关闭运行中的 PhonAcq 进程...");
+            if (onProgress != null) onProgress(4, "正在关闭运行中的 PhonAcq...");
             StopRunningPhonAcqProcesses();
 
             if (legacyMsiCodes != null && legacyMsiCodes.Count > 0)
             {
-                if (onProgress != null) onProgress(8, "正在清理旧版 MSI 安装记录（保留本地录音与语料数据）...");
+                if (onProgress != null) onProgress(9, "正在更新旧版安装记录...");
                 CleanupLegacyPerUserMsi(legacyMsiCodes);
             }
 
@@ -612,13 +722,14 @@ namespace PhonAcqSetup
                 Directory.CreateDirectory(installDir);
             }
 
-            // Clean old runtime/app jars before extracting so stale jars from older versions don't linger
             string oldAppSubdir = Path.Combine(installDir, "app");
             string oldRuntimeSubdir = Path.Combine(installDir, "runtime");
+            string oldLibSubdir = Path.Combine(installDir, "lib");
             try
             {
                 if (Directory.Exists(oldAppSubdir)) Directory.Delete(oldAppSubdir, true);
                 if (Directory.Exists(oldRuntimeSubdir)) Directory.Delete(oldRuntimeSubdir, true);
+                if (Directory.Exists(oldLibSubdir)) Directory.Delete(oldLibSubdir, true);
             }
             catch
             {
@@ -678,13 +789,13 @@ namespace PhonAcqSetup
                     {
                         if (onProgress != null)
                         {
-                            onProgress(pct, String.Format("正在释放 PhonAcq 程序与声学引擎 ({0}/{1})...", index, totalEntries));
+                            onProgress(pct, "正在复制程序文件...");
                         }
                     }
                 }
             }
 
-            if (onProgress != null) onProgress(93, "正在写入卸载向导与系统注册信息...");
+            if (onProgress != null) onProgress(93, "正在注册应用信息...");
 
             string uninstallerExe = Path.Combine(installDir, "Uninstall-PhonAcq.exe");
             using (FileStream srcStub = new FileStream(setupExePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
@@ -704,8 +815,9 @@ namespace PhonAcqSetup
 
             string mainExe = Path.Combine(installDir, "PhonAcq.exe");
             RegisterUninstaller(installDir, mainExe, uninstallerExe, desc.AppVersion, totalExtractedBytes);
+            CleanupLegacyPhonAcqTeprojAssociation();
 
-            if (onProgress != null) onProgress(97, "正在配置快捷方式与文件关联...");
+            if (onProgress != null) onProgress(97, "正在创建快捷方式...");
 
             string descText = "PhonAcq 田野语音与方言字表采录系统";
             if (createDesktopShortcut)
@@ -719,20 +831,16 @@ namespace PhonAcqSetup
                 string groupDir = Path.Combine(programsDir, APP_NAME);
                 CreateShortcut(Path.Combine(groupDir, "PhonAcq.lnk"), mainExe, installDir, descText);
             }
-            if (associateTeproj)
-            {
-                RegisterFileAssociation(mainExe);
-            }
 
-            if (onProgress != null) onProgress(100, "PhonAcq 安装完成！");
+            if (onProgress != null) onProgress(100, "安装完成");
         }
 
         public static void PerformUninstall(string installDir, string selfExePath, Action<int, string> onProgress)
         {
-            if (onProgress != null) onProgress(15, "正在关闭运行中的 PhonAcq 进程...");
+            if (onProgress != null) onProgress(15, "正在关闭运行中的 PhonAcq...");
             StopRunningPhonAcqProcesses();
 
-            if (onProgress != null) onProgress(45, "正在清理桌面与开始菜单快捷方式...");
+            if (onProgress != null) onProgress(45, "正在移除快捷方式...");
             try
             {
                 string desktopLnk = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory), "PhonAcq.lnk");
@@ -745,29 +853,17 @@ namespace PhonAcqSetup
             {
             }
 
-            if (onProgress != null) onProgress(68, "正在清理注册表与文件关联...");
+            if (onProgress != null) onProgress(70, "正在清理应用注册信息...");
             try
             {
                 Registry.CurrentUser.DeleteSubKeyTree(UNINSTALL_REG_SUBKEY, false);
-                Registry.CurrentUser.DeleteSubKeyTree(@"Software\Classes\PhonAcq.teproj", false);
-                using (RegistryKey extKey = Registry.CurrentUser.OpenSubKey(@"Software\Classes\.teproj", true))
-                {
-                    if (extKey != null)
-                    {
-                        string cur = extKey.GetValue("") as string;
-                        if (string.Equals(cur, "PhonAcq.teproj", StringComparison.OrdinalIgnoreCase))
-                        {
-                            Registry.CurrentUser.DeleteSubKeyTree(@"Software\Classes\.teproj", false);
-                        }
-                    }
-                }
-                NativeMethods.SHChangeNotify(NativeMethods.SHCNE_ASSOCCHANGED, NativeMethods.SHCNF_IDLIST, IntPtr.Zero, IntPtr.Zero);
             }
             catch
             {
             }
+            CleanupLegacyPhonAcqTeprojAssociation();
 
-            if (onProgress != null) onProgress(88, "正在移除程序运行目录...");
+            if (onProgress != null) onProgress(88, "正在移除程序文件...");
             if (!string.IsNullOrEmpty(installDir) && Directory.Exists(installDir))
             {
                 foreach (string subDir in Directory.GetDirectories(installDir))
@@ -783,7 +879,6 @@ namespace PhonAcqSetup
                     try { File.Delete(file); } catch { }
                 }
 
-                // Schedule background self-removal of Uninstall-PhonAcq.exe & empty install directory after exit
                 try
                 {
                     ProcessStartInfo psi = new ProcessStartInfo();
@@ -799,7 +894,7 @@ namespace PhonAcqSetup
                 }
             }
 
-            if (onProgress != null) onProgress(100, "PhonAcq 已成功卸载。");
+            if (onProgress != null) onProgress(100, "卸载完成");
         }
     }
 
@@ -817,6 +912,7 @@ namespace PhonAcqSetup
         private readonly string _appVersion;
         private readonly PayloadDescriptor _payload;
         private readonly Image _logoImage;
+        private readonly MaterialYouPalette _theme;
 
         private string _installDir;
         private readonly string _existingVersion;
@@ -824,28 +920,23 @@ namespace PhonAcqSetup
         private readonly List<string> _legacyMsiCodes;
 
         private SetupStage _stage = SetupStage.Ready;
-        private bool _optionsExpanded = false;
         private bool _optDesktopShortcut = true;
         private bool _optStartMenuShortcut = true;
-        private bool _optAssociateTeproj = true;
 
         private int _progressPercent = 0;
         private string _statusMessage = "";
         private string _errorMessage = "";
 
         private float _dpiScale = 1.0f;
-        private TextBox _pathTextBox;
+        private readonly TextBox _pathTextBox;
 
-        // Interactive hit rectangles (in client pixels)
         private Rectangle _rectMinBtn;
         private Rectangle _rectCloseBtn;
         private Rectangle _rectPrimaryBtn;
         private Rectangle _rectSecondaryBtn;
-        private Rectangle _rectExpandToggle;
         private Rectangle _rectBrowseBtn;
         private Rectangle _rectChkDesktop;
         private Rectangle _rectChkStartMenu;
-        private Rectangle _rectChkTeproj;
 
         private string _hoveredId = null;
 
@@ -854,6 +945,7 @@ namespace PhonAcqSetup
             _isUninstallMode = isUninstallMode;
             _appVersion = appVersion;
             _payload = payload;
+            _theme = new MaterialYouPalette(NativeMethods.IsSystemDarkTheme());
 
             SetStyle(
                 ControlStyles.AllPaintingInWmPaint |
@@ -864,8 +956,8 @@ namespace PhonAcqSetup
 
             FormBorderStyle = FormBorderStyle.None;
             StartPosition = FormStartPosition.CenterScreen;
-            BackColor = Color.FromArgb(248, 250, 252);
-            Text = isUninstallMode ? "PhonAcq 卸载向导" : "PhonAcq 安装程序";
+            BackColor = _theme.Surface;
+            Text = isUninstallMode ? "卸载 PhonAcq" : "安装 PhonAcq";
 
             try
             {
@@ -900,11 +992,13 @@ namespace PhonAcqSetup
 
             _pathTextBox = new TextBox();
             _pathTextBox.BorderStyle = BorderStyle.None;
-            _pathTextBox.BackColor = Color.White;
-            _pathTextBox.ForeColor = Color.FromArgb(30, 41, 59);
+            _pathTextBox.BackColor = _theme.InputSurface;
+            _pathTextBox.ForeColor = _theme.OnSurface;
             _pathTextBox.Text = _installDir;
             _pathTextBox.Visible = false;
             _pathTextBox.TextChanged += delegate { _installDir = _pathTextBox.Text.Trim(); };
+            _pathTextBox.GotFocus += delegate { Invalidate(); };
+            _pathTextBox.LostFocus += delegate { Invalidate(); };
             Controls.Add(_pathTextBox);
         }
 
@@ -945,11 +1039,26 @@ namespace PhonAcqSetup
 
         private void ApplyWindowGeometry()
         {
-            int w = S(540);
-            int h = (!_isUninstallMode && _stage == SetupStage.Ready && _optionsExpanded) ? S(504) : S(374);
+            int w = S(508);
+            int h = S(376);
             ClientSize = new Size(w, h);
 
-            // Request Windows 11 native DWM rounded corners + shadow; fall back to round region on Windows 10
+            if (_theme.IsDark)
+            {
+                try
+                {
+                    int darkPref = 1;
+                    NativeMethods.DwmSetWindowAttribute(
+                        Handle,
+                        NativeMethods.DWMWA_USE_IMMERSIVE_DARK_MODE,
+                        ref darkPref,
+                        sizeof(int));
+                }
+                catch
+                {
+                }
+            }
+
             int cornerPref = NativeMethods.DWMWCP_ROUND;
             int hr = -1;
             try
@@ -965,7 +1074,7 @@ namespace PhonAcqSetup
             }
             if (hr != 0)
             {
-                IntPtr rgn = NativeMethods.CreateRoundRectRgn(0, 0, w + 1, h + 1, S(20), S(20));
+                IntPtr rgn = NativeMethods.CreateRoundRectRgn(0, 0, w + 1, h + 1, S(24), S(24));
                 Region = Region.FromHrgn(rgn);
             }
 
@@ -975,16 +1084,17 @@ namespace PhonAcqSetup
 
         private void LayoutPathTextBox()
         {
-            bool showPath = !_isUninstallMode && _stage == SetupStage.Ready && _optionsExpanded;
+            bool showPath = !_isUninstallMode && _stage == SetupStage.Ready;
             _pathTextBox.Visible = showPath;
             if (showPath)
             {
-                _pathTextBox.Font = new Font("Microsoft YaHei UI", 9.5f, FontStyle.Regular, GraphicsUnit.Point);
-                int boxX = S(36);
-                int boxY = S(396);
-                int boxW = ClientSize.Width - S(142);
-                _pathTextBox.Location = new Point(boxX + S(10), boxY + (S(34) - _pathTextBox.PreferredHeight) / 2);
-                _pathTextBox.Width = boxW - S(20);
+                _pathTextBox.Font = new Font("Microsoft YaHei UI", 9.3f, FontStyle.Regular, GraphicsUnit.Point);
+                int boxX = S(46);
+                int boxY = S(148);
+                int boxW = S(330);
+                int boxH = S(38);
+                _pathTextBox.Location = new Point(boxX + S(12), boxY + (boxH - _pathTextBox.PreferredHeight) / 2);
+                _pathTextBox.Width = boxW - S(24);
             }
         }
 
@@ -1016,548 +1126,569 @@ namespace PhonAcqSetup
             int w = ClientSize.Width;
             int h = ClientSize.Height;
 
-            // Surface background
-            using (SolidBrush bgBrush = new SolidBrush(Color.FromArgb(248, 250, 252)))
+            // Pure flat Material You surface canvas (zero gradients)
+            using (SolidBrush bgBrush = new SolidBrush(_theme.Surface))
             {
                 g.FillRectangle(bgBrush, 0, 0, w, h);
             }
 
-            // 1. Studio Acoustic Hero Header
-            int headerH = S(148);
-            Rectangle headerRect = new Rectangle(0, 0, w, headerH);
-            using (LinearGradientBrush heroGrad = new LinearGradientBrush(
-                headerRect,
-                Color.FromArgb(12, 26, 46),
-                Color.FromArgb(11, 93, 118),
-                24f))
+            DrawWindowControls(g, w);
+            DrawBrandHeader(g);
+
+            _rectPrimaryBtn = Rectangle.Empty;
+            _rectSecondaryBtn = Rectangle.Empty;
+            _rectBrowseBtn = Rectangle.Empty;
+            _rectChkDesktop = Rectangle.Empty;
+            _rectChkStartMenu = Rectangle.Empty;
+
+            if (_stage == SetupStage.Ready)
             {
-                g.FillRectangle(heroGrad, headerRect);
+                if (_isUninstallMode)
+                {
+                    DrawUninstallReadyBody(g, w);
+                }
+                else
+                {
+                    DrawInstallReadyBody(g, w);
+                }
+            }
+            else if (_stage == SetupStage.Working)
+            {
+                DrawWorkingProgressBody(g, w);
+            }
+            else if (_stage == SetupStage.Completed)
+            {
+                DrawCompletedBody(g, w);
+            }
+            else if (_stage == SetupStage.Error)
+            {
+                DrawErrorBody(g, w);
             }
 
-            // Decorative subtle acoustic F0 & formant wave ribbons inside header
-            DrawDecorativeAcousticWaves(g, w, headerH);
+            // Subtle hairline border for Windows 10 fallback clarity
+            using (Pen borderPen = new Pen(_theme.WindowBorder, 1f))
+            {
+                g.DrawRectangle(borderPen, 0, 0, w - 1, h - 1);
+            }
+        }
 
-            // Top-right custom Minimize & Close buttons (smooth alpha highlight, zero gray flash)
-            _rectCloseBtn = new Rectangle(w - S(42), S(12), S(30), S(28));
-            _rectMinBtn = new Rectangle(w - S(76), S(12), S(30), S(28));
+        private void DrawWindowControls(Graphics g, int w)
+        {
+            int btnSz = S(32);
+            _rectCloseBtn = new Rectangle(w - S(44), S(12), btnSz, btnSz);
+            _rectMinBtn = new Rectangle(w - S(80), S(12), btnSz, btnSz);
 
             bool closeEnabled = _stage != SetupStage.Working;
             if (_hoveredId == "close" && closeEnabled)
             {
-                using (GraphicsPath cp = CreateRoundRect(_rectCloseBtn, S(7)))
-                using (SolidBrush cb = new SolidBrush(Color.FromArgb(220, 38, 38)))
+                using (SolidBrush b = new SolidBrush(_theme.ErrorContainer))
                 {
-                    g.FillPath(cb, cp);
+                    g.FillEllipse(b, _rectCloseBtn);
                 }
             }
             if (_hoveredId == "min")
             {
-                using (GraphicsPath mp = CreateRoundRect(_rectMinBtn, S(7)))
-                using (SolidBrush mb = new SolidBrush(Color.FromArgb(42, 255, 255, 255)))
+                using (SolidBrush b = new SolidBrush(_theme.SurfaceContainerHigh))
                 {
-                    g.FillPath(mb, mp);
+                    g.FillEllipse(b, _rectMinBtn);
                 }
             }
 
-            using (Pen winPen = new Pen(Color.FromArgb(closeEnabled ? 230 : 95, 255, 255, 255), Math.Max(1.4f, 1.5f * _dpiScale)))
+            float strokeW = Math.Max(1.4f, 1.5f * _dpiScale);
+            using (Pen minPen = new Pen(_theme.OnSurfaceVariant, strokeW))
             {
-                winPen.StartCap = LineCap.Round;
-                winPen.EndCap = LineCap.Round;
-                // Minimize bar
+                minPen.StartCap = LineCap.Round;
+                minPen.EndCap = LineCap.Round;
                 int my = _rectMinBtn.Y + _rectMinBtn.Height / 2;
-                g.DrawLine(winPen, _rectMinBtn.X + S(9), my, _rectMinBtn.Right - S(9), my);
-                // Close X
-                int cx1 = _rectCloseBtn.X + S(10);
-                int cy1 = _rectCloseBtn.Y + S(9);
-                int cx2 = _rectCloseBtn.Right - S(10);
-                int cy2 = _rectCloseBtn.Bottom - S(9);
-                g.DrawLine(winPen, cx1, cy1, cx2, cy2);
-                g.DrawLine(winPen, cx2, cy1, cx1, cy2);
+                g.DrawLine(minPen, _rectMinBtn.X + S(10), my, _rectMinBtn.Right - S(10), my);
             }
 
-            // Brand Pebble Logo + Title + Version Badge
-            int logoSize = S(72);
-            int logoX = S(34);
-            int logoY = (headerH - logoSize) / 2 + S(4);
+            Color closeGlyphCol = !closeEnabled
+                ? _theme.OutlineVariant
+                : (_hoveredId == "close" ? _theme.Error : _theme.OnSurfaceVariant);
+            using (Pen closePen = new Pen(closeGlyphCol, strokeW))
+            {
+                closePen.StartCap = LineCap.Round;
+                closePen.EndCap = LineCap.Round;
+                int cx1 = _rectCloseBtn.X + S(11);
+                int cy1 = _rectCloseBtn.Y + S(11);
+                int cx2 = _rectCloseBtn.Right - S(11);
+                int cy2 = _rectCloseBtn.Bottom - S(11);
+                g.DrawLine(closePen, cx1, cy1, cx2, cy2);
+                g.DrawLine(closePen, cx2, cy1, cx1, cy2);
+            }
+        }
+
+        private void DrawBrandHeader(Graphics g)
+        {
+            int logoSize = S(52);
+            int logoX = S(28);
+            int logoY = S(30);
             if (_logoImage != null)
             {
                 g.DrawImage(_logoImage, new Rectangle(logoX, logoY, logoSize, logoSize));
             }
             else
             {
-                using (GraphicsPath p = CreateRoundRect(new Rectangle(logoX, logoY, logoSize, logoSize), S(20)))
-                using (SolidBrush wb = new SolidBrush(Color.White))
+                using (GraphicsPath p = CreateRoundRect(new Rectangle(logoX, logoY, logoSize, logoSize), S(16)))
+                using (SolidBrush b = new SolidBrush(_theme.PrimaryContainer))
                 {
-                    g.FillPath(wb, p);
+                    g.FillPath(b, p);
                 }
             }
 
-            int textLeft = logoX + logoSize + S(18);
-            using (Font titleFont = new Font("Segoe UI", 21f, FontStyle.Bold, GraphicsUnit.Point))
-            using (SolidBrush whiteBrush = new SolidBrush(Color.White))
+            int textLeft = logoX + logoSize + S(16);
+            using (Font titleFont = new Font("Segoe UI", 18.5f, FontStyle.Bold, GraphicsUnit.Point))
+            using (SolidBrush titleBrush = new SolidBrush(_theme.OnSurface))
             {
-                g.DrawString("PhonAcq", titleFont, whiteBrush, textLeft - S(2), logoY + S(3));
+                g.DrawString("PhonAcq", titleFont, titleBrush, textLeft - S(2), logoY - S(1));
                 SizeF titleSz = g.MeasureString("PhonAcq", titleFont);
 
-                // Version Pill next to "PhonAcq"
-                string badgeText = _isUninstallMode
-                    ? "卸载向导"
-                    : String.Format("v{0} · Windows x64", _appVersion);
-                using (Font badgeFont = new Font("Segoe UI Semibold", 8.5f, FontStyle.Bold, GraphicsUnit.Point))
+                // Flat M3 PrimaryContainer stadium chip (no border, no geeky arch string)
+                string chipText = _isUninstallMode ? "卸载程序" : ("v" + _appVersion);
+                using (Font chipFont = new Font("Segoe UI Semibold", 8.8f, FontStyle.Bold, GraphicsUnit.Point))
+                using (SolidBrush chipFill = new SolidBrush(_theme.PrimaryContainer))
+                using (SolidBrush chipFg = new SolidBrush(_theme.OnPrimaryContainer))
                 {
-                    SizeF bSz = g.MeasureString(badgeText, badgeFont);
-                    Rectangle pillRect = new Rectangle(
+                    SizeF cSz = g.MeasureString(chipText, chipFont);
+                    int chipH = S(22);
+                    int chipW = (int)cSz.Width + S(14);
+                    Rectangle chipRect = new Rectangle(
                         textLeft + (int)titleSz.Width + S(4),
-                        logoY + S(13),
-                        (int)bSz.Width + S(14),
-                        (int)bSz.Height + S(5));
-                    using (GraphicsPath pillPath = CreateRoundRect(pillRect, pillRect.Height / 2))
-                    using (SolidBrush pillFill = new SolidBrush(Color.FromArgb(48, 56, 189, 248)))
-                    using (Pen pillBorder = new Pen(Color.FromArgb(115, 125, 211, 252), 1f))
-                    using (SolidBrush pillTextBrush = new SolidBrush(Color.FromArgb(224, 242, 254)))
+                        logoY + S(7),
+                        chipW,
+                        chipH);
+                    using (GraphicsPath cp = CreateRoundRect(chipRect, chipH / 2))
                     {
-                        g.FillPath(pillFill, pillPath);
-                        g.DrawPath(pillBorder, pillPath);
-                        g.DrawString(badgeText, badgeFont, pillTextBrush, pillRect.X + S(7), pillRect.Y + S(2.5f));
+                        g.FillPath(chipFill, cp);
                     }
-                }
-            }
-
-            using (Font subFont = new Font("Microsoft YaHei UI", 9.8f, FontStyle.Regular, GraphicsUnit.Point))
-            using (SolidBrush subBrush = new SolidBrush(Color.FromArgb(215, 226, 238, 248)))
-            {
-                string subtitle = _isUninstallMode
-                    ? "安全移除 PhonAcq 桌面端程序组件"
-                    : "田野语音与方言字表采录系统 · 内置独立运行环境";
-                g.DrawString(subtitle, subFont, subBrush, textLeft, logoY + S(44));
-            }
-
-            // 2. Body Content Area depending on Stage
-            _rectPrimaryBtn = Rectangle.Empty;
-            _rectSecondaryBtn = Rectangle.Empty;
-            _rectExpandToggle = Rectangle.Empty;
-            _rectBrowseBtn = Rectangle.Empty;
-            _rectChkDesktop = Rectangle.Empty;
-            _rectChkStartMenu = Rectangle.Empty;
-            _rectChkTeproj = Rectangle.Empty;
-
-            if (_stage == SetupStage.Ready)
-            {
-                if (_isUninstallMode)
-                {
-                    DrawUninstallReadyBody(g, w, headerH);
-                }
-                else
-                {
-                    DrawInstallReadyBody(g, w, headerH);
-                }
-            }
-            else if (_stage == SetupStage.Working)
-            {
-                DrawWorkingProgressBody(g, w, headerH);
-            }
-            else if (_stage == SetupStage.Completed)
-            {
-                DrawCompletedBody(g, w, headerH);
-            }
-            else if (_stage == SetupStage.Error)
-            {
-                DrawErrorBody(g, w, headerH);
-            }
-
-            // Subtle crisp outer card border
-            using (Pen borderPen = new Pen(Color.FromArgb(203, 213, 225), 1f))
-            {
-                g.DrawRectangle(borderPen, 0, 0, w - 1, h - 1);
-            }
-        }
-
-        private void DrawDecorativeAcousticWaves(Graphics g, int w, int headerH)
-        {
-            using (GraphicsPath wave1 = new GraphicsPath())
-            using (GraphicsPath wave2 = new GraphicsPath())
-            {
-                PointF[] pts1 = new PointF[7];
-                PointF[] pts2 = new PointF[7];
-                for (int i = 0; i < 7; i++)
-                {
-                    float x = (w * i) / 6.0f;
-                    float y1 = headerH * 0.72f + (float)Math.Sin(i * 0.95 + 0.4) * S(16);
-                    float y2 = headerH * 0.80f + (float)Math.Cos(i * 1.10 + 0.8) * S(12);
-                    pts1[i] = new PointF(x, y1);
-                    pts2[i] = new PointF(x, y2);
-                }
-                wave1.AddCurve(pts1, 0.45f);
-                wave2.AddCurve(pts2, 0.45f);
-
-                using (Pen p1 = new Pen(Color.FromArgb(28, 56, 189, 248), Math.Max(1.5f, 1.8f * _dpiScale)))
-                using (Pen p2 = new Pen(Color.FromArgb(26, 245, 158, 11), Math.Max(1.2f, 1.5f * _dpiScale)))
-                {
-                    g.DrawPath(p1, wave1);
-                    g.DrawPath(p2, wave2);
-                }
-            }
-        }
-
-        private void DrawInstallReadyBody(Graphics g, int w, int headerH)
-        {
-            int contentX = S(36);
-            int contentW = w - S(72);
-
-            // Status Banner (Same-version / Upgrade detection vs Clean Install)
-            Rectangle bannerRect = new Rectangle(contentX, headerH + S(24), contentW, S(46));
-            Color bannerFill = _isOverwriteUpgrade ? Color.FromArgb(236, 253, 245) : Color.FromArgb(240, 249, 255);
-            Color bannerBorder = _isOverwriteUpgrade ? Color.FromArgb(167, 243, 208) : Color.FromArgb(186, 230, 253);
-            Color bannerTextCol = _isOverwriteUpgrade ? Color.FromArgb(6, 95, 70) : Color.FromArgb(12, 74, 110);
-
-            using (GraphicsPath bp = CreateRoundRect(bannerRect, S(11)))
-            using (SolidBrush bf = new SolidBrush(bannerFill))
-            using (Pen bPen = new Pen(bannerBorder, 1f))
-            using (Font bFont = new Font("Microsoft YaHei UI", 9.0f, FontStyle.Regular, GraphicsUnit.Point))
-            using (SolidBrush bt = new SolidBrush(bannerTextCol))
-            {
-                g.FillPath(bf, bp);
-                g.DrawPath(bPen, bp);
-
-                string note = _isOverwriteUpgrade
-                    ? String.Format(
-                        "✓ 已检测到本机安装的 PhonAcq{0}，支持同版本/跨版本直接覆盖更新，全部录音与字表数据完整保留。",
-                        !string.IsNullOrEmpty(_existingVersion) ? (" (v" + _existingVersion + ")") : "")
-                    : "✓ 无需预先安装 Java 或额外组件 · 一键部署声学分析、双机互联与无损字表采录工作台。";
-
-                RectangleF textLayout = new RectangleF(
-                    bannerRect.X + S(14),
-                    bannerRect.Y + S(6),
-                    bannerRect.Width - S(28),
-                    bannerRect.Height - S(10));
-                StringFormat sf = new StringFormat();
-                sf.LineAlignment = StringAlignment.Center;
-                g.DrawString(note, bFont, bt, textLayout, sf);
-            }
-
-            // Big Primary One-Click Action Button
-            int btnW = S(268);
-            int btnH = S(50);
-            _rectPrimaryBtn = new Rectangle((w - btnW) / 2, headerH + S(92), btnW, btnH);
-            string ctaLabel = _isOverwriteUpgrade ? "覆盖安装 PhonAcq" : "立即安装";
-            DrawPrimaryActionButton(g, _rectPrimaryBtn, ctaLabel, _hoveredId == "primary", false);
-
-            // Expandable Options Toggle Link
-            string toggleLabel = _optionsExpanded ? "收起自定义选项 ▴" : "自定义安装位置与快捷方式 ▾";
-            using (Font tFont = new Font("Microsoft YaHei UI", 9.0f, FontStyle.Regular, GraphicsUnit.Point))
-            {
-                SizeF tSz = g.MeasureString(toggleLabel, tFont);
-                int tw = (int)tSz.Width + S(16);
-                int th = (int)tSz.Height + S(8);
-                _rectExpandToggle = new Rectangle((w - tw) / 2, headerH + S(158), tw, th);
-
-                Color tCol = _hoveredId == "toggle"
-                    ? Color.FromArgb(2, 132, 199)
-                    : Color.FromArgb(100, 116, 139);
-                using (SolidBrush tb = new SolidBrush(tCol))
-                {
-                    g.DrawString(toggleLabel, tFont, tb, _rectExpandToggle.X + S(8), _rectExpandToggle.Y + S(4));
-                }
-            }
-
-            if (!_optionsExpanded)
-            {
-                // Subtle current path preview at bottom
-                using (Font pFont = new Font("Microsoft YaHei UI", 8.2f, FontStyle.Regular, GraphicsUnit.Point))
-                using (SolidBrush pb = new SolidBrush(Color.FromArgb(148, 163, 184)))
-                {
                     StringFormat csf = new StringFormat();
                     csf.Alignment = StringAlignment.Center;
-                    csf.Trimming = StringTrimming.EllipsisPath;
-                    csf.FormatFlags = StringFormatFlags.NoWrap;
-                    RectangleF pr = new RectangleF(S(36), headerH + S(192), w - S(72), S(20));
-                    g.DrawString("默认位置：" + _installDir, pFont, pb, pr, csf);
+                    csf.LineAlignment = StringAlignment.Center;
+                    g.DrawString(chipText, chipFont, chipFg, chipRect, csf);
                 }
-                return;
             }
 
-            // Expanded Custom Drawer Panel
-            int drawerY = S(350);
-            int drawerH = S(132);
-            Rectangle drawerRect = new Rectangle(contentX - S(6), drawerY, contentW + S(12), drawerH);
-            using (GraphicsPath dp = CreateRoundRect(drawerRect, S(12)))
-            using (SolidBrush df = new SolidBrush(Color.FromArgb(241, 245, 249)))
-            using (Pen dPen = new Pen(Color.FromArgb(226, 232, 240), 1f))
+            using (Font subFont = new Font("Microsoft YaHei UI", 9.3f, FontStyle.Regular, GraphicsUnit.Point))
+            using (SolidBrush subBrush = new SolidBrush(_theme.OnSurfaceVariant))
             {
-                g.FillPath(df, dp);
-                g.DrawPath(dPen, dp);
+                string subtitle = _isUninstallMode
+                    ? "从本机移除 PhonAcq 桌面端程序"
+                    : "田野语音与方言字表采录系统";
+                g.DrawString(subtitle, subFont, subBrush, textLeft, logoY + S(33));
+            }
+        }
+
+        private void DrawInstallReadyBody(Graphics g, int w)
+        {
+            int cardX = S(28);
+            int cardW = w - S(56);
+
+            // Flat Material You SurfaceContainer card (20dp corner radius, zero border)
+            Rectangle cardRect = new Rectangle(cardX, S(104), cardW, S(172));
+            using (GraphicsPath cp = CreateRoundRect(cardRect, S(20)))
+            using (SolidBrush cb = new SolidBrush(_theme.SurfaceContainer))
+            {
+                g.FillPath(cb, cp);
             }
 
+            // 1. Install Location Field + Flat Tonal Button
             using (Font lblFont = new Font("Microsoft YaHei UI", 8.8f, FontStyle.Bold, GraphicsUnit.Point))
-            using (SolidBrush lblBrush = new SolidBrush(Color.FromArgb(71, 85, 105)))
+            using (SolidBrush lblBrush = new SolidBrush(_theme.OnSurfaceVariant))
             {
-                g.DrawString("安装目录", lblFont, lblBrush, contentX + S(4), drawerY + S(10));
+                g.DrawString("安装位置", lblFont, lblBrush, S(46), S(122));
             }
 
-            // Path Input Pill + Browse Button
-            int inputY = S(396);
-            int inputW = w - S(142);
-            Rectangle inputBoxRect = new Rectangle(contentX, inputY, inputW, S(34));
-            using (GraphicsPath ip = CreateRoundRect(inputBoxRect, S(8)))
-            using (SolidBrush ib = new SolidBrush(Color.White))
-            using (Pen iPen = new Pen(
-                _pathTextBox.Focused ? Color.FromArgb(2, 132, 199) : Color.FromArgb(203, 213, 225),
-                1.2f))
+            Rectangle inputRect = new Rectangle(S(46), S(148), S(330), S(38));
+            Color inputBorder = _pathTextBox.Focused ? _theme.Primary : _theme.OutlineVariant;
+            float inputBorderW = _pathTextBox.Focused ? 1.6f : 1.0f;
+            using (GraphicsPath ip = CreateRoundRect(inputRect, S(12)))
+            using (SolidBrush ib = new SolidBrush(_theme.InputSurface))
+            using (Pen iPen = new Pen(inputBorder, inputBorderW))
             {
                 g.FillPath(ib, ip);
                 g.DrawPath(iPen, ip);
             }
 
-            _rectBrowseBtn = new Rectangle(inputBoxRect.Right + S(8), inputY, S(62), S(34));
-            DrawSecondaryButton(g, _rectBrowseBtn, "浏览...", _hoveredId == "browse");
+            _rectBrowseBtn = new Rectangle(inputRect.Right + S(10), S(148), S(76), S(38));
+            DrawTonalButton(g, _rectBrowseBtn, "更改...", S(12), _hoveredId == "browse");
 
-            // 3 Checkboxes Row
-            int chkY = S(444);
-            _rectChkDesktop = DrawCustomCheckbox(g, contentX + S(2), chkY, "桌面快捷方式", _optDesktopShortcut, _hoveredId == "chk_desktop");
-            _rectChkStartMenu = DrawCustomCheckbox(g, _rectChkDesktop.Right + S(18), chkY, "开始菜单图标", _optStartMenuShortcut, _hoveredId == "chk_start");
-            _rectChkTeproj = DrawCustomCheckbox(g, _rectChkStartMenu.Right + S(18), chkY, "关联 .teproj 工程", _optAssociateTeproj, _hoveredId == "chk_teproj");
-        }
-
-        private void DrawUninstallReadyBody(Graphics g, int w, int headerH)
-        {
-            int contentX = S(40);
-            int contentW = w - S(80);
-
-            Rectangle cardRect = new Rectangle(contentX, headerH + S(28), contentW, S(74));
-            using (GraphicsPath cp = CreateRoundRect(cardRect, S(12)))
-            using (SolidBrush cf = new SolidBrush(Color.FromArgb(254, 242, 242)))
-            using (Pen cPen = new Pen(Color.FromArgb(254, 202, 202), 1f))
-            using (Font f = new Font("Microsoft YaHei UI", 9.2f, FontStyle.Regular, GraphicsUnit.Point))
-            using (SolidBrush tb = new SolidBrush(Color.FromArgb(127, 29, 29)))
+            // Subtle tonal divider inside card
+            using (Pen divPen = new Pen(_theme.OutlineVariant, 1f))
             {
-                g.FillPath(cf, cp);
-                g.DrawPath(cPen, cp);
-                RectangleF tr = new RectangleF(cardRect.X + S(14), cardRect.Y + S(10), cardRect.Width - S(28), cardRect.Height - S(16));
-                StringFormat sf = new StringFormat();
-                sf.LineAlignment = StringAlignment.Center;
-                g.DrawString(
-                    "即将移除 PhonAcq 程序文件、桌面快捷方式与系统关联。\n您保存在本地语料库中的历史录音 (.wav) 与调查字表数据不会被删除。",
-                    f, tb, tr, sf);
+                g.DrawLine(divPen, S(46), S(204), cardRect.Right - S(18), S(204));
             }
 
-            int btnW = S(176);
-            int btnH = S(46);
-            int gap = S(16);
-            int startX = (w - (btnW * 2 + gap)) / 2;
-            int btnY = headerH + S(126);
+            // 2. Shortcuts Row (No .teproj association — PhonTracer owns .teproj)
+            int chkY = S(224);
+            _rectChkDesktop = DrawMaterialCheckbox(g, S(46), chkY, "创建桌面快捷方式", _optDesktopShortcut, _hoveredId == "chk_desktop");
+            _rectChkStartMenu = DrawMaterialCheckbox(g, S(236), chkY, "添加到开始菜单", _optStartMenuShortcut, _hoveredId == "chk_start");
 
-            _rectSecondaryBtn = new Rectangle(startX, btnY, btnW, btnH);
-            _rectPrimaryBtn = new Rectangle(startX + btnW + gap, btnY, btnW, btnH);
+            // 3. Bottom M3 Dialog Footer Row
+            int btnY = S(306);
+            int btnH = S(42);
+            int primaryW = S(118);
+            int cancelW = S(76);
+            int rightEdge = w - S(28);
 
-            DrawSecondaryButton(g, _rectSecondaryBtn, "取消", _hoveredId == "secondary");
-            DrawPrimaryActionButton(g, _rectPrimaryBtn, "确认卸载 PhonAcq", _hoveredId == "primary", true);
-        }
+            _rectPrimaryBtn = new Rectangle(rightEdge - primaryW, btnY, primaryW, btnH);
+            _rectSecondaryBtn = new Rectangle(_rectPrimaryBtn.X - S(10) - cancelW, btnY, cancelW, btnH);
 
-        private void DrawWorkingProgressBody(Graphics g, int w, int headerH)
-        {
-            int contentX = S(48);
-            int contentW = w - S(96);
-
-            using (Font pctFont = new Font("Segoe UI", 24f, FontStyle.Bold, GraphicsUnit.Point))
-            using (SolidBrush pctBrush = new SolidBrush(Color.FromArgb(2, 132, 199)))
+            if (_isOverwriteUpgrade)
             {
-                string pctStr = String.Format("{0}%", _progressPercent);
-                StringFormat csf = new StringFormat();
-                csf.Alignment = StringAlignment.Center;
-                g.DrawString(pctStr, pctFont, pctBrush, new RectangleF(0, headerH + S(38), w, S(44)), csf);
-            }
-
-            // Progress Track
-            Rectangle trackRect = new Rectangle(contentX, headerH + S(94), contentW, S(14));
-            using (GraphicsPath tp = CreateRoundRect(trackRect, S(7)))
-            using (SolidBrush tb = new SolidBrush(Color.FromArgb(226, 232, 240)))
-            {
-                g.FillPath(tb, tp);
-            }
-
-            int fillW = Math.Max(S(14), (int)((contentW * _progressPercent) / 100.0));
-            if (_progressPercent > 0)
-            {
-                Rectangle fillRect = new Rectangle(contentX, headerH + S(94), Math.Min(contentW, fillW), S(14));
-                using (GraphicsPath fp = CreateRoundRect(fillRect, S(7)))
-                using (LinearGradientBrush fb = new LinearGradientBrush(
-                    trackRect,
-                    Color.FromArgb(2, 132, 199),
-                    Color.FromArgb(6, 182, 212),
-                    0f))
+                // Calm, non-intrusive left status indicator for overwrite updates
+                int dotSz = S(18);
+                Rectangle dotRect = new Rectangle(S(30), btnY + (btnH - dotSz) / 2, dotSz, dotSz);
+                using (SolidBrush db = new SolidBrush(_theme.PrimaryContainer))
+                using (Pen ckPen = new Pen(_theme.Primary, Math.Max(1.5f, 1.6f * _dpiScale)))
                 {
-                    g.FillPath(fb, fp);
-                }
-            }
-
-            using (Font stFont = new Font("Microsoft YaHei UI", 9.5f, FontStyle.Regular, GraphicsUnit.Point))
-            using (SolidBrush stBrush = new SolidBrush(Color.FromArgb(71, 85, 105)))
-            {
-                StringFormat csf = new StringFormat();
-                csf.Alignment = StringAlignment.Center;
-                g.DrawString(_statusMessage, stFont, stBrush, new RectangleF(S(30), headerH + S(124), w - S(60), S(28)), csf);
-            }
-        }
-
-        private void DrawCompletedBody(Graphics g, int w, int headerH)
-        {
-            // Emerald Success Circle
-            int cSize = S(52);
-            Rectangle circleRect = new Rectangle((w - cSize) / 2, headerH + S(24), cSize, cSize);
-            using (SolidBrush fill = new SolidBrush(Color.FromArgb(220, 252, 231)))
-            using (Pen ring = new Pen(Color.FromArgb(22, 163, 74), Math.Max(2f, 2.2f * _dpiScale)))
-            {
-                g.FillEllipse(fill, circleRect);
-                g.DrawEllipse(ring, circleRect);
-                ring.StartCap = LineCap.Round;
-                ring.EndCap = LineCap.Round;
-                ring.LineJoin = LineJoin.Round;
-                Point p1 = new Point(circleRect.X + S(15), circleRect.Y + S(27));
-                Point p2 = new Point(circleRect.X + S(23), circleRect.Y + S(35));
-                Point p3 = new Point(circleRect.X + S(38), circleRect.Y + S(18));
-                g.DrawLines(ring, new Point[] { p1, p2, p3 });
-            }
-
-            using (Font hFont = new Font("Microsoft YaHei UI", 13.5f, FontStyle.Bold, GraphicsUnit.Point))
-            using (SolidBrush hb = new SolidBrush(Color.FromArgb(15, 23, 42)))
-            {
-                StringFormat csf = new StringFormat();
-                csf.Alignment = StringAlignment.Center;
-                string title = _isUninstallMode ? "PhonAcq 已卸载完成" : String.Format("PhonAcq v{0} 安装成功", _appVersion);
-                g.DrawString(title, hFont, hb, new RectangleF(0, headerH + S(86), w, S(30)), csf);
-            }
-
-            if (_isUninstallMode)
-            {
-                int btnW = S(180);
-                _rectPrimaryBtn = new Rectangle((w - btnW) / 2, headerH + S(136), btnW, S(46));
-                DrawPrimaryActionButton(g, _rectPrimaryBtn, "完成并退出", _hoveredId == "primary", false);
-            }
-            else
-            {
-                int btnW1 = S(210);
-                int btnW2 = S(116);
-                int gap = S(14);
-                int startX = (w - (btnW1 + btnW2 + gap)) / 2;
-                int btnY = headerH + S(136);
-
-                _rectPrimaryBtn = new Rectangle(startX, btnY, btnW1, S(46));
-                _rectSecondaryBtn = new Rectangle(startX + btnW1 + gap, btnY, btnW2, S(46));
-
-                DrawPrimaryActionButton(g, _rectPrimaryBtn, "立即打开 PhonAcq", _hoveredId == "primary", false);
-                DrawSecondaryButton(g, _rectSecondaryBtn, "完成", _hoveredId == "secondary");
-            }
-        }
-
-        private void DrawErrorBody(Graphics g, int w, int headerH)
-        {
-            Rectangle errRect = new Rectangle(S(36), headerH + S(26), w - S(72), S(88));
-            using (GraphicsPath ep = CreateRoundRect(errRect, S(12)))
-            using (SolidBrush ef = new SolidBrush(Color.FromArgb(254, 242, 242)))
-            using (Pen ePen = new Pen(Color.FromArgb(248, 113, 113), 1f))
-            using (Font f = new Font("Microsoft YaHei UI", 9.0f, FontStyle.Regular, GraphicsUnit.Point))
-            using (SolidBrush tb = new SolidBrush(Color.FromArgb(153, 27, 27)))
-            {
-                g.FillPath(ef, ep);
-                g.DrawPath(ePen, ep);
-                RectangleF tr = new RectangleF(errRect.X + S(14), errRect.Y + S(10), errRect.Width - S(28), errRect.Height - S(20));
-                g.DrawString("安装遇到问题：" + _errorMessage, f, tb, tr);
-            }
-
-            int btnW = S(160);
-            int gap = S(14);
-            int startX = (w - (btnW * 2 + gap)) / 2;
-            _rectPrimaryBtn = new Rectangle(startX, headerH + S(136), btnW, S(44));
-            _rectSecondaryBtn = new Rectangle(startX + btnW + gap, headerH + S(136), btnW, S(44));
-
-            DrawPrimaryActionButton(g, _rectPrimaryBtn, "重试", _hoveredId == "primary", false);
-            DrawSecondaryButton(g, _rectSecondaryBtn, "退出", _hoveredId == "secondary");
-        }
-
-        private void DrawPrimaryActionButton(Graphics g, Rectangle r, string text, bool hovered, bool danger)
-        {
-            Color c1 = danger
-                ? (hovered ? Color.FromArgb(185, 28, 28) : Color.FromArgb(220, 38, 38))
-                : (hovered ? Color.FromArgb(3, 105, 161) : Color.FromArgb(2, 132, 199));
-            Color c2 = danger
-                ? (hovered ? Color.FromArgb(220, 38, 38) : Color.FromArgb(239, 68, 68))
-                : (hovered ? Color.FromArgb(2, 132, 199) : Color.FromArgb(14, 165, 233));
-
-            using (GraphicsPath p = CreateRoundRect(r, r.Height / 2))
-            using (LinearGradientBrush b = new LinearGradientBrush(r, c1, c2, 0f))
-            using (Font f = new Font("Microsoft YaHei UI", 11.2f, FontStyle.Bold, GraphicsUnit.Point))
-            using (SolidBrush tb = new SolidBrush(Color.White))
-            {
-                g.FillPath(b, p);
-                StringFormat sf = new StringFormat();
-                sf.Alignment = StringAlignment.Center;
-                sf.LineAlignment = StringAlignment.Center;
-                g.DrawString(text, f, tb, r, sf);
-            }
-        }
-
-        private void DrawSecondaryButton(Graphics g, Rectangle r, string text, bool hovered)
-        {
-            Color fill = hovered ? Color.FromArgb(224, 242, 254) : Color.White;
-            Color border = hovered ? Color.FromArgb(56, 189, 248) : Color.FromArgb(203, 213, 225);
-            Color fg = hovered ? Color.FromArgb(3, 105, 161) : Color.FromArgb(51, 65, 85);
-
-            using (GraphicsPath p = CreateRoundRect(r, S(9)))
-            using (SolidBrush b = new SolidBrush(fill))
-            using (Pen pen = new Pen(border, 1f))
-            using (Font f = new Font("Microsoft YaHei UI", 9.5f, FontStyle.Bold, GraphicsUnit.Point))
-            using (SolidBrush tb = new SolidBrush(fg))
-            {
-                g.FillPath(b, p);
-                g.DrawPath(pen, p);
-                StringFormat sf = new StringFormat();
-                sf.Alignment = StringAlignment.Center;
-                sf.LineAlignment = StringAlignment.Center;
-                g.DrawString(text, f, tb, r, sf);
-            }
-        }
-
-        private Rectangle DrawCustomCheckbox(Graphics g, int x, int y, string label, bool isChecked, bool hovered)
-        {
-            int boxSz = S(18);
-            Rectangle box = new Rectangle(x, y, boxSz, boxSz);
-            Color fill = isChecked
-                ? Color.FromArgb(2, 132, 199)
-                : (hovered ? Color.FromArgb(224, 242, 254) : Color.White);
-            Color border = (isChecked || hovered)
-                ? Color.FromArgb(2, 132, 199)
-                : Color.FromArgb(148, 163, 184);
-
-            using (GraphicsPath bp = CreateRoundRect(box, S(5)))
-            using (SolidBrush bf = new SolidBrush(fill))
-            using (Pen bPen = new Pen(border, 1.4f))
-            {
-                g.FillPath(bf, bp);
-                g.DrawPath(bPen, bp);
-            }
-
-            if (isChecked)
-            {
-                using (Pen ckPen = new Pen(Color.White, Math.Max(1.6f, 1.8f * _dpiScale)))
-                {
+                    g.FillEllipse(db, dotRect);
                     ckPen.StartCap = LineCap.Round;
                     ckPen.EndCap = LineCap.Round;
                     ckPen.LineJoin = LineJoin.Round;
                     g.DrawLines(ckPen, new Point[]
                     {
-                        new Point(box.X + S(4), box.Y + S(9)),
-                        new Point(box.X + S(8), box.Y + S(13)),
-                        new Point(box.X + S(14), box.Y + S(5))
+                        new Point(dotRect.X + S(4), dotRect.Y + S(9)),
+                        new Point(dotRect.X + S(8), dotRect.Y + S(13)),
+                        new Point(dotRect.X + S(14), dotRect.Y + S(5))
                     });
+                }
+
+                using (Font noteFont = new Font("Microsoft YaHei UI", 8.6f, FontStyle.Regular, GraphicsUnit.Point))
+                using (SolidBrush noteBrush = new SolidBrush(_theme.OnSurfaceVariant))
+                {
+                    string verHint = !string.IsNullOrEmpty(_existingVersion)
+                        ? String.Format("已安装 v{0} · 覆盖更新保留本地录音与字表", _existingVersion)
+                        : "已安装旧版 · 覆盖更新保留本地录音与字表";
+                    RectangleF nr = new RectangleF(dotRect.Right + S(7), btnY, _rectSecondaryBtn.X - dotRect.Right - S(14), btnH);
+                    StringFormat nsf = new StringFormat();
+                    nsf.LineAlignment = StringAlignment.Center;
+                    nsf.Trimming = StringTrimming.EllipsisCharacter;
+                    nsf.FormatFlags = StringFormatFlags.NoWrap;
+                    g.DrawString(verHint, noteFont, noteBrush, nr, nsf);
                 }
             }
 
-            using (Font f = new Font("Microsoft YaHei UI", 8.8f, FontStyle.Regular, GraphicsUnit.Point))
-            using (SolidBrush tb = new SolidBrush(Color.FromArgb(51, 65, 85)))
+            DrawTextButton(g, _rectSecondaryBtn, "取消", _hoveredId == "secondary");
+            string ctaLabel = _isOverwriteUpgrade ? "覆盖安装" : "开始安装";
+            DrawPrimaryFilledButton(g, _rectPrimaryBtn, ctaLabel, _hoveredId == "primary", false);
+        }
+
+        private void DrawUninstallReadyBody(Graphics g, int w)
+        {
+            Rectangle cardRect = new Rectangle(S(28), S(104), w - S(56), S(172));
+            using (GraphicsPath cp = CreateRoundRect(cardRect, S(20)))
+            using (SolidBrush cb = new SolidBrush(_theme.SurfaceContainer))
+            {
+                g.FillPath(cb, cp);
+            }
+
+            using (Font hFont = new Font("Microsoft YaHei UI", 10.5f, FontStyle.Bold, GraphicsUnit.Point))
+            using (SolidBrush hb = new SolidBrush(_theme.OnSurface))
+            {
+                g.DrawString("确认从本机卸载 PhonAcq？", hFont, hb, S(48), S(128));
+            }
+
+            using (Font bFont = new Font("Microsoft YaHei UI", 9.2f, FontStyle.Regular, GraphicsUnit.Point))
+            using (SolidBrush bb = new SolidBrush(_theme.OnSurfaceVariant))
+            {
+                RectangleF bodyLayout = new RectangleF(S(48), S(160), cardRect.Width - S(40), S(56));
+                g.DrawString(
+                    "将移除 PhonAcq 程序文件与桌面快捷方式。\n您在本地保存的所有录音 (.wav) 与调查字表工程将完整保留。",
+                    bFont, bb, bodyLayout);
+            }
+
+            using (Font pFont = new Font("Microsoft YaHei UI", 8.4f, FontStyle.Regular, GraphicsUnit.Point))
+            using (SolidBrush pb = new SolidBrush(_theme.Outline))
+            {
+                StringFormat psf = new StringFormat();
+                psf.Trimming = StringTrimming.EllipsisPath;
+                psf.FormatFlags = StringFormatFlags.NoWrap;
+                RectangleF pr = new RectangleF(S(48), S(232), cardRect.Width - S(40), S(22));
+                g.DrawString("安装目录：" + _installDir, pFont, pb, pr, psf);
+            }
+
+            int btnY = S(306);
+            int btnH = S(42);
+            int primaryW = S(104);
+            int cancelW = S(76);
+            int rightEdge = w - S(28);
+
+            _rectPrimaryBtn = new Rectangle(rightEdge - primaryW, btnY, primaryW, btnH);
+            _rectSecondaryBtn = new Rectangle(_rectPrimaryBtn.X - S(10) - cancelW, btnY, cancelW, btnH);
+
+            DrawTextButton(g, _rectSecondaryBtn, "取消", _hoveredId == "secondary");
+            DrawPrimaryFilledButton(g, _rectPrimaryBtn, "卸载", _hoveredId == "primary", true);
+        }
+
+        private void DrawWorkingProgressBody(Graphics g, int w)
+        {
+            Rectangle cardRect = new Rectangle(S(28), S(104), w - S(56), S(172));
+            using (GraphicsPath cp = CreateRoundRect(cardRect, S(20)))
+            using (SolidBrush cb = new SolidBrush(_theme.SurfaceContainer))
+            {
+                g.FillPath(cb, cp);
+            }
+
+            string workTitle = _isUninstallMode ? "正在卸载 PhonAcq" : "正在安装 PhonAcq";
+            using (Font tFont = new Font("Microsoft YaHei UI", 10.5f, FontStyle.Bold, GraphicsUnit.Point))
+            using (SolidBrush tb = new SolidBrush(_theme.OnSurface))
+            {
+                g.DrawString(workTitle, tFont, tb, S(48), S(138));
+            }
+
+            using (Font pctFont = new Font("Segoe UI Semibold", 11f, FontStyle.Bold, GraphicsUnit.Point))
+            using (SolidBrush pctBrush = new SolidBrush(_theme.Primary))
+            {
+                StringFormat rsf = new StringFormat();
+                rsf.Alignment = StringAlignment.Far;
+                g.DrawString(
+                    String.Format("{0}%", _progressPercent),
+                    pctFont,
+                    pctBrush,
+                    new RectangleF(S(48), S(137), cardRect.Width - S(40), S(26)),
+                    rsf);
+            }
+
+            // Pure flat Material 3 LinearProgressIndicator (Primary on PrimaryContainer track)
+            int trackX = S(48);
+            int trackY = S(178);
+            int trackW = cardRect.Width - S(40);
+            int trackH = S(8);
+            Rectangle trackRect = new Rectangle(trackX, trackY, trackW, trackH);
+            using (GraphicsPath tp = CreateRoundRect(trackRect, trackH / 2))
+            using (SolidBrush trkBrush = new SolidBrush(_theme.PrimaryContainer))
+            {
+                g.FillPath(trkBrush, tp);
+            }
+
+            if (_progressPercent > 0)
+            {
+                int fillW = Math.Max(trackH, (int)((trackW * _progressPercent) / 100.0));
+                Rectangle fillRect = new Rectangle(trackX, trackY, Math.Min(trackW, fillW), trackH);
+                using (GraphicsPath fp = CreateRoundRect(fillRect, trackH / 2))
+                using (SolidBrush fillBrush = new SolidBrush(_theme.Primary))
+                {
+                    g.FillPath(fillBrush, fp);
+                }
+            }
+
+            using (Font stFont = new Font("Microsoft YaHei UI", 9.0f, FontStyle.Regular, GraphicsUnit.Point))
+            using (SolidBrush stBrush = new SolidBrush(_theme.OnSurfaceVariant))
+            {
+                g.DrawString(_statusMessage, stFont, stBrush, S(48), S(204));
+            }
+        }
+
+        private void DrawCompletedBody(Graphics g, int w)
+        {
+            Rectangle cardRect = new Rectangle(S(28), S(104), w - S(56), S(172));
+            using (GraphicsPath cp = CreateRoundRect(cardRect, S(20)))
+            using (SolidBrush cb = new SolidBrush(_theme.SurfaceContainer))
+            {
+                g.FillPath(cb, cp);
+            }
+
+            // Flat Material You PrimaryContainer icon circle (no ring stroke, no gradient)
+            int cSize = S(48);
+            Rectangle circleRect = new Rectangle(S(48), S(146), cSize, cSize);
+            using (SolidBrush fill = new SolidBrush(_theme.PrimaryContainer))
+            using (Pen checkPen = new Pen(_theme.Primary, Math.Max(2.2f, 2.4f * _dpiScale)))
+            {
+                g.FillEllipse(fill, circleRect);
+                checkPen.StartCap = LineCap.Round;
+                checkPen.EndCap = LineCap.Round;
+                checkPen.LineJoin = LineJoin.Round;
+                g.DrawLines(checkPen, new Point[]
+                {
+                    new Point(circleRect.X + S(14), circleRect.Y + S(25)),
+                    new Point(circleRect.X + S(21), circleRect.Y + S(32)),
+                    new Point(circleRect.X + S(35), circleRect.Y + S(16))
+                });
+            }
+
+            int textX = circleRect.Right + S(18);
+            using (Font hFont = new Font("Microsoft YaHei UI", 12f, FontStyle.Bold, GraphicsUnit.Point))
+            using (SolidBrush hb = new SolidBrush(_theme.OnSurface))
+            {
+                string doneTitle = _isUninstallMode ? "PhonAcq 已卸载" : "安装完成";
+                g.DrawString(doneTitle, hFont, hb, textX, S(146));
+            }
+
+            using (Font dFont = new Font("Microsoft YaHei UI", 9.2f, FontStyle.Regular, GraphicsUnit.Point))
+            using (SolidBrush db = new SolidBrush(_theme.OnSurfaceVariant))
+            {
+                string doneDesc = _isUninstallMode
+                    ? "程序文件已移除，本地录音与调查字表数据均已保留。"
+                    : "PhonAcq 已准备就绪，现在可以开始语音采录与声学分析。";
+                RectangleF dr = new RectangleF(textX, S(176), cardRect.Right - textX - S(20), S(48));
+                g.DrawString(doneDesc, dFont, db, dr);
+            }
+
+            int btnY = S(306);
+            int btnH = S(42);
+            int rightEdge = w - S(28);
+
+            if (_isUninstallMode)
+            {
+                int btnW = S(104);
+                _rectPrimaryBtn = new Rectangle(rightEdge - btnW, btnY, btnW, btnH);
+                DrawPrimaryFilledButton(g, _rectPrimaryBtn, "完成", _hoveredId == "primary", false);
+            }
+            else
+            {
+                int openW = S(136);
+                int closeW = S(76);
+                _rectPrimaryBtn = new Rectangle(rightEdge - openW, btnY, openW, btnH);
+                _rectSecondaryBtn = new Rectangle(_rectPrimaryBtn.X - S(10) - closeW, btnY, closeW, btnH);
+
+                DrawTextButton(g, _rectSecondaryBtn, "关闭", _hoveredId == "secondary");
+                DrawPrimaryFilledButton(g, _rectPrimaryBtn, "打开 PhonAcq", _hoveredId == "primary", false);
+            }
+        }
+
+        private void DrawErrorBody(Graphics g, int w)
+        {
+            Rectangle errRect = new Rectangle(S(28), S(104), w - S(56), S(172));
+            using (GraphicsPath ep = CreateRoundRect(errRect, S(20)))
+            using (SolidBrush ef = new SolidBrush(_theme.ErrorContainer))
+            {
+                g.FillPath(ef, ep);
+            }
+
+            using (Font hFont = new Font("Microsoft YaHei UI", 10.5f, FontStyle.Bold, GraphicsUnit.Point))
+            using (SolidBrush hb = new SolidBrush(_theme.OnErrorContainer))
+            {
+                g.DrawString("未能完成操作", hFont, hb, S(48), S(128));
+            }
+
+            using (Font f = new Font("Microsoft YaHei UI", 9.0f, FontStyle.Regular, GraphicsUnit.Point))
+            using (SolidBrush tb = new SolidBrush(_theme.OnErrorContainer))
+            {
+                RectangleF tr = new RectangleF(S(48), S(158), errRect.Width - S(40), S(96));
+                g.DrawString(_errorMessage, f, tb, tr);
+            }
+
+            int btnY = S(306);
+            int btnH = S(42);
+            int retryW = S(96);
+            int closeW = S(76);
+            int rightEdge = w - S(28);
+
+            _rectPrimaryBtn = new Rectangle(rightEdge - retryW, btnY, retryW, btnH);
+            _rectSecondaryBtn = new Rectangle(_rectPrimaryBtn.X - S(10) - closeW, btnY, closeW, btnH);
+
+            DrawTextButton(g, _rectSecondaryBtn, "关闭", _hoveredId == "secondary");
+            DrawPrimaryFilledButton(g, _rectPrimaryBtn, "重试", _hoveredId == "primary", false);
+        }
+
+        private void DrawPrimaryFilledButton(Graphics g, Rectangle r, string text, bool hovered, bool danger)
+        {
+            Color fill = danger
+                ? (hovered ? _theme.ErrorHover : _theme.Error)
+                : (hovered ? _theme.PrimaryHover : _theme.Primary);
+            Color fg = danger ? _theme.OnError : _theme.OnPrimary;
+
+            using (GraphicsPath p = CreateRoundRect(r, r.Height / 2))
+            using (SolidBrush b = new SolidBrush(fill))
+            using (Font f = new Font("Microsoft YaHei UI", 9.8f, FontStyle.Bold, GraphicsUnit.Point))
+            using (SolidBrush tb = new SolidBrush(fg))
+            {
+                g.FillPath(b, p);
+                StringFormat sf = new StringFormat();
+                sf.Alignment = StringAlignment.Center;
+                sf.LineAlignment = StringAlignment.Center;
+                g.DrawString(text, f, tb, r, sf);
+            }
+        }
+
+        private void DrawTonalButton(Graphics g, Rectangle r, string text, int radius, bool hovered)
+        {
+            Color fill = hovered ? _theme.PrimaryContainerHover : _theme.PrimaryContainer;
+            using (GraphicsPath p = CreateRoundRect(r, radius))
+            using (SolidBrush b = new SolidBrush(fill))
+            using (Font f = new Font("Microsoft YaHei UI", 9.0f, FontStyle.Bold, GraphicsUnit.Point))
+            using (SolidBrush tb = new SolidBrush(_theme.OnPrimaryContainer))
+            {
+                g.FillPath(b, p);
+                StringFormat sf = new StringFormat();
+                sf.Alignment = StringAlignment.Center;
+                sf.LineAlignment = StringAlignment.Center;
+                g.DrawString(text, f, tb, r, sf);
+            }
+        }
+
+        private void DrawTextButton(Graphics g, Rectangle r, string text, bool hovered)
+        {
+            if (hovered)
+            {
+                using (GraphicsPath p = CreateRoundRect(r, r.Height / 2))
+                using (SolidBrush b = new SolidBrush(_theme.SurfaceContainerHigh))
+                {
+                    g.FillPath(b, p);
+                }
+            }
+            using (Font f = new Font("Microsoft YaHei UI", 9.5f, FontStyle.Bold, GraphicsUnit.Point))
+            using (SolidBrush tb = new SolidBrush(_theme.OnSurfaceVariant))
+            {
+                StringFormat sf = new StringFormat();
+                sf.Alignment = StringAlignment.Center;
+                sf.LineAlignment = StringAlignment.Center;
+                g.DrawString(text, f, tb, r, sf);
+            }
+        }
+
+        private Rectangle DrawMaterialCheckbox(Graphics g, int x, int y, string label, bool isChecked, bool hovered)
+        {
+            int boxSz = S(20);
+            Rectangle box = new Rectangle(x, y, boxSz, boxSz);
+
+            if (hovered)
+            {
+                Rectangle halo = new Rectangle(x - S(5), y - S(5), boxSz + S(10), boxSz + S(10));
+                using (SolidBrush hb = new SolidBrush(_theme.PrimaryContainer))
+                {
+                    g.FillEllipse(hb, halo);
+                }
+            }
+
+            using (GraphicsPath bp = CreateRoundRect(box, S(6)))
+            {
+                if (isChecked)
+                {
+                    using (SolidBrush bf = new SolidBrush(_theme.Primary))
+                    {
+                        g.FillPath(bf, bp);
+                    }
+                    using (Pen ckPen = new Pen(_theme.OnPrimary, Math.Max(1.8f, 2.0f * _dpiScale)))
+                    {
+                        ckPen.StartCap = LineCap.Round;
+                        ckPen.EndCap = LineCap.Round;
+                        ckPen.LineJoin = LineJoin.Round;
+                        g.DrawLines(ckPen, new Point[]
+                        {
+                            new Point(box.X + S(5), box.Y + S(10)),
+                            new Point(box.X + S(9), box.Y + S(14)),
+                            new Point(box.X + S(15), box.Y + S(6))
+                        });
+                    }
+                }
+                else
+                {
+                    Color borderCol = hovered ? _theme.Primary : _theme.Outline;
+                    using (Pen bPen = new Pen(borderCol, Math.Max(1.6f, 1.8f * _dpiScale)))
+                    {
+                        g.DrawPath(bPen, bp);
+                    }
+                }
+            }
+
+            using (Font f = new Font("Microsoft YaHei UI", 9.2f, FontStyle.Regular, GraphicsUnit.Point))
+            using (SolidBrush tb = new SolidBrush(_theme.OnSurface))
             {
                 SizeF sz = g.MeasureString(label, f);
-                g.DrawString(label, f, tb, box.Right + S(6), y + (boxSz - sz.Height) / 2f);
-                return new Rectangle(x, y - S(3), boxSz + S(8) + (int)sz.Width, boxSz + S(6));
+                g.DrawString(label, f, tb, box.Right + S(8), y + (boxSz - sz.Height) / 2f);
+                return new Rectangle(x - S(4), y - S(4), boxSz + S(14) + (int)sz.Width, boxSz + S(8));
             }
         }
 
@@ -1567,11 +1698,9 @@ namespace PhonAcqSetup
             if (_rectMinBtn.Contains(pt)) return "min";
             if (_rectPrimaryBtn.Contains(pt)) return "primary";
             if (_rectSecondaryBtn.Contains(pt)) return "secondary";
-            if (_rectExpandToggle.Contains(pt)) return "toggle";
             if (_rectBrowseBtn.Contains(pt)) return "browse";
             if (_rectChkDesktop.Contains(pt)) return "chk_desktop";
             if (_rectChkStartMenu.Contains(pt)) return "chk_start";
-            if (_rectChkTeproj.Contains(pt)) return "chk_teproj";
             return null;
         }
 
@@ -1604,9 +1733,8 @@ namespace PhonAcqSetup
             if (e.Button != MouseButtons.Left) return;
 
             string hit = HitTestId(e.Location);
-            if (hit == null && e.Y <= S(148))
+            if (hit == null && e.Y <= S(96))
             {
-                // Drag borderless studio window smoothly by its header
                 NativeMethods.ReleaseCapture();
                 NativeMethods.SendMessage(Handle, NativeMethods.WM_NCLBUTTONDOWN, NativeMethods.HTCAPTION, 0);
                 return;
@@ -1620,14 +1748,9 @@ namespace PhonAcqSetup
             {
                 if (_stage != SetupStage.Working) Close();
             }
-            else if (hit == "toggle")
-            {
-                _optionsExpanded = !_optionsExpanded;
-                ApplyWindowGeometry();
-            }
             else if (hit == "browse")
             {
-                string picked = ModernFolderBrowser.PickFolder(Handle, _installDir, "选择 PhonAcq 安装目录");
+                string picked = ModernFolderBrowser.PickFolder(Handle, _installDir, "选择 PhonAcq 安装位置");
                 if (!string.IsNullOrEmpty(picked))
                 {
                     if (!picked.EndsWith("PhonAcq", StringComparison.OrdinalIgnoreCase))
@@ -1647,11 +1770,6 @@ namespace PhonAcqSetup
             else if (hit == "chk_start")
             {
                 _optStartMenuShortcut = !_optStartMenuShortcut;
-                Invalidate();
-            }
-            else if (hit == "chk_teproj")
-            {
-                _optAssociateTeproj = !_optAssociateTeproj;
                 Invalidate();
             }
             else if (hit == "primary")
@@ -1681,20 +1799,21 @@ namespace PhonAcqSetup
             if (!_isUninstallMode && _payload == null)
             {
                 _stage = SetupStage.Error;
-                _errorMessage = "未找到安装包内嵌程序数据，请重新下载完整的 PhonAcq 安装程序。";
-                ApplyWindowGeometry();
+                _errorMessage = "安装包数据不完整，请重新下载 PhonAcq 安装程序。";
+                LayoutPathTextBox();
+                Invalidate();
                 return;
             }
 
             _stage = SetupStage.Working;
             _progressPercent = 2;
-            _statusMessage = _isUninstallMode ? "正在准备卸载 PhonAcq..." : "正在准备安装环境...";
-            ApplyWindowGeometry();
+            _statusMessage = _isUninstallMode ? "正在准备卸载..." : "正在准备安装...";
+            LayoutPathTextBox();
+            Invalidate();
 
             string targetDir = _installDir;
             bool mkDesktop = _optDesktopShortcut;
             bool mkStart = _optStartMenuShortcut;
-            bool assocTeproj = _optAssociateTeproj;
             string selfExe = Application.ExecutablePath;
 
             Thread worker = new Thread(delegate()
@@ -1713,7 +1832,6 @@ namespace PhonAcqSetup
                             targetDir,
                             mkDesktop,
                             mkStart,
-                            assocTeproj,
                             _legacyMsiCodes,
                             UpdateProgressSafe);
                     }
@@ -1723,6 +1841,7 @@ namespace PhonAcqSetup
                         BeginInvoke((MethodInvoker)delegate
                         {
                             _stage = SetupStage.Completed;
+                            LayoutPathTextBox();
                             Invalidate();
                         });
                     }
@@ -1735,6 +1854,7 @@ namespace PhonAcqSetup
                         {
                             _stage = SetupStage.Error;
                             _errorMessage = ex.Message;
+                            LayoutPathTextBox();
                             Invalidate();
                         });
                     }
@@ -1844,7 +1964,7 @@ namespace PhonAcqSetup
                         string target = !string.IsNullOrEmpty(customDir)
                             ? customDir
                             : InstallerEngine.GetDefaultInstallDir(detectedDir);
-                        InstallerEngine.PerformInstall(selfExe, payload, target, true, true, true, msiCodes, null);
+                        InstallerEngine.PerformInstall(selfExe, payload, target, true, true, msiCodes, null);
                         return 0;
                     }
                     return 2;

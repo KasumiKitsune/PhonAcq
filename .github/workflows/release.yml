@@ -310,8 +310,8 @@ jobs:
           | 平台 | 文件名 | 适用设备与安装说明 |
           | :--- | :--- | :--- |
           | **Android**（手机 / 平板） | \`${APK_FILENAME}\` | Android 7.0+ 通用安装包（含双机无线联动看读端/遥控端） |
-          | **Windows**（64 位） | \`PhonAcq-v${RAW_VERSION}-windows-x64-setup.exe\` | Windows 10 / 11 简体中文图形安装向导（支持同版本/跨版本直接覆盖升级，内置运行环境） |
-          | **macOS**（Apple Silicon） | \`PhonAcq-v${RAW_VERSION}-macos-arm64.dmg\` | 适用于 M1 / M2 / M3 / M4 系列芯片 Mac（内置运行环境） |
+          | **Windows**（64 位） | \`PhonAcq-v${RAW_VERSION}-windows-x64-setup.exe\` | Windows 10 / 11 简体中文安装程序（支持同版本/跨版本直接覆盖更新） |
+          | **macOS**（Apple Silicon） | \`PhonAcq-v${RAW_VERSION}-macos-arm64.dmg\` | 适用于 M1 / M2 / M3 / M4 系列芯片 Mac |
 
           > **macOS 首次打开提示**：由于安装包采用开源构建而未附加 Apple 付费商业公证，首次拖入「应用程序」打开若提示无法验证开发者，请前往 **系统设置 → 隐私与安全性** 底部点击 **「仍要打开」**，或在终端执行 \`xattr -cr /Applications/PhonAcq.app\` 即可正常使用。
           EOF

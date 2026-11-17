@@ -165,7 +165,7 @@ compose.desktop {
             targetFormats(TargetFormat.Msi, TargetFormat.Exe, TargetFormat.Deb, TargetFormat.Dmg)
             packageName = "PhonAcq"
             packageVersion = nativePkgVersion
-            description = "PhonAcq Acoustic Fieldwork Studio (PhonTracer .teproj / Praat .TextGrid)"
+            description = "PhonAcq 田野语音与方言字表采录系统"
             vendor = "KasumiKitsune"
             // Tier 1 JRE slimming: bundle ONLY the exact JDK modules used by PhonAcq, Compose/Skiko,
             // JavaSound WAV I/O, SQLite JDBC, XML (.xlsx/.docx), and GBK/GB18030 Chinese wordlist charsets
