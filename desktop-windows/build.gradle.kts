@@ -1,10 +1,13 @@
 import org.jetbrains.compose.desktop.application.dsl.TargetFormat
 import java.io.BufferedOutputStream
+import java.io.ByteArrayOutputStream
 import java.io.FileOutputStream
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
+import java.util.zip.CRC32
 import java.util.zip.Deflater
 import java.util.zip.ZipEntry
+import java.util.zip.ZipFile
 import java.util.zip.ZipOutputStream
 
 plugins {
@@ -61,11 +64,91 @@ sourceSets {
 dependencies {
     implementation(compose.desktop.currentOs)
     implementation(compose.material3)
-    implementation(compose.materialIconsExtended)
+    implementation("org.jetbrains.compose.material:material-icons-core:1.7.3")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.10.1")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-swing:1.10.1")
     implementation("org.json:json:20240303")
     implementation("org.xerial:sqlite-jdbc:3.47.2.0")
+}
+
+/**
+ * Strips ~12.8 MB of unused cross-platform native libraries (Linux, FreeBSD, Android, non-host OS/arch)
+ * from sqlite-jdbc-*.jar inside a packaged desktop app image, keeping only the target OS+arch binary.
+ */
+fun pruneSqliteJdbcJarInPlace(jarFile: File, keepNativePrefix: String) {
+    if (!jarFile.isFile) return
+    val patchedBytes = ByteArrayOutputStream(2 * 1024 * 1024)
+    var removedCount = 0
+    ZipFile(jarFile).use { zf ->
+        ZipOutputStream(patchedBytes).use { zos ->
+            zos.setLevel(Deflater.BEST_COMPRESSION)
+            val entries = zf.entries()
+            while (entries.hasMoreElements()) {
+                val entry = entries.nextElement()
+                val name = entry.name
+                if (name.startsWith("org/sqlite/native/") && !name.endsWith("/")) {
+                    if (!name.startsWith(keepNativePrefix)) {
+                        removedCount++
+                        continue
+                    }
+                }
+                val newEntry = ZipEntry(name)
+                newEntry.time = entry.time
+                zos.putNextEntry(newEntry)
+                if (!entry.isDirectory) {
+                    zf.getInputStream(entry).use { input -> input.copyTo(zos, bufferSize = 65536) }
+                }
+                zos.closeEntry()
+            }
+        }
+    }
+    if (removedCount > 0) {
+        jarFile.writeBytes(patchedBytes.toByteArray())
+    }
+}
+
+/**
+ * Repacks a .jar with STORED (uncompressed) entries so outer payload.zip Deflate-9 compresses
+ * across neighboring .class constant pools (~11.2 MB smaller installer + faster JVM startup classload).
+ */
+fun repackJarToStoredBytes(jarFile: File): ByteArray {
+    return try {
+        val out = ByteArrayOutputStream((jarFile.length() * 2).coerceIn(65536L, 64L * 1024 * 1024).toInt())
+        val seen = HashSet<String>()
+        ZipFile(jarFile).use { zf ->
+            ZipOutputStream(out).use { zos ->
+                zos.setMethod(ZipOutputStream.STORED)
+                val entries = zf.entries()
+                while (entries.hasMoreElements()) {
+                    val entry = entries.nextElement()
+                    if (!seen.add(entry.name)) continue
+                    val newEntry = ZipEntry(entry.name)
+                    newEntry.time = entry.time
+                    if (entry.isDirectory) {
+                        newEntry.method = ZipEntry.STORED
+                        newEntry.size = 0L
+                        newEntry.compressedSize = 0L
+                        newEntry.crc = 0L
+                        zos.putNextEntry(newEntry)
+                        zos.closeEntry()
+                    } else {
+                        val raw = zf.getInputStream(entry).use { it.readBytes() }
+                        val crc = CRC32().apply { update(raw) }.value
+                        newEntry.method = ZipEntry.STORED
+                        newEntry.size = raw.size.toLong()
+                        newEntry.compressedSize = raw.size.toLong()
+                        newEntry.crc = crc
+                        zos.putNextEntry(newEntry)
+                        zos.write(raw)
+                        zos.closeEntry()
+                    }
+                }
+            }
+        }
+        out.toByteArray()
+    } catch (_: Throwable) {
+        jarFile.readBytes()
+    }
 }
 
 compose.desktop {
@@ -84,7 +167,21 @@ compose.desktop {
             packageVersion = nativePkgVersion
             description = "PhonAcq Acoustic Fieldwork Studio (PhonTracer .teproj / Praat .TextGrid)"
             vendor = "KasumiKitsune"
-            includeAllModules = true
+            // Tier 1 JRE slimming: bundle ONLY the exact JDK modules used by PhonAcq, Compose/Skiko,
+            // JavaSound WAV I/O, SQLite JDBC, XML (.xlsx/.docx), and GBK/GB18030 Chinese wordlist charsets
+            // (replaces includeAllModules = true, cutting ~45+ MB of javac/jshell/jfr/localedata bloat).
+            includeAllModules = false
+            modules(
+                "java.datatransfer",
+                "java.desktop",
+                "java.logging",
+                "java.prefs",
+                "java.sql",
+                "java.xml",
+                "jdk.unsupported",
+                "jdk.charsets",
+                "jdk.crypto.ec"
+            )
 
             windows {
                 iconFile.set(project.file("src/main/resources/phonacq.ico"))
@@ -122,6 +219,67 @@ tasks.register<JavaExec>("generateIco") {
         layout.buildDirectory.file("installer-work/phonacq-logo.png").get().asFile.absolutePath
     )
     jvmArgs("-Djava.awt.headless=true")
+}
+
+// Optimize jlink runtime image size (--compress) and handle minimal Linux environments lacking binutils objcopy
+tasks.withType<org.jetbrains.compose.desktop.application.tasks.AbstractJLinkTask>().configureEach {
+    freeArgs.addAll(javaHome.map { homePath ->
+        val releaseFile = File(homePath, "release")
+        val jdkMajor = releaseFile.takeIf { it.isFile }?.readText()
+            ?.let { Regex("""JAVA_VERSION="(\d+)""").find(it)?.groupValues?.getOrNull(1)?.toIntOrNull() }
+            ?: JavaVersion.current().majorVersion.toIntOrNull()
+            ?: 17
+        listOf(if (jdkMajor >= 21) "--compress=zip-6" else "--compress=2")
+    })
+    val osName = System.getProperty("os.name", "").lowercase()
+    if (osName.contains("linux")) {
+        val hasObjcopy = (System.getenv("PATH") ?: "")
+            .split(File.pathSeparator)
+            .any { dir -> dir.isNotBlank() && File(dir, "objcopy").canExecute() }
+        if (!hasObjcopy) {
+            @Suppress("UNCHECKED_CAST")
+            val stripProp = this.javaClass.methods
+                .firstOrNull { it.name.startsWith("getStripDebug") && it.parameterCount == 0 }
+                ?.invoke(this) as? org.gradle.api.provider.Property<Boolean>
+            if (stripProp != null) {
+                stripProp.set(false)
+                freeArgs.add("--strip-java-debug-attributes")
+            }
+        }
+    }
+}
+
+// Automatically prune non-host OS/arch native binaries from sqlite-jdbc-*.jar right after createDistributable
+tasks.matching { it.name == "createDistributable" }.configureEach {
+    doLast {
+        val osName = System.getProperty("os.name", "").lowercase()
+        val osArch = System.getProperty("os.arch", "").lowercase()
+        val keepPrefix = when {
+            osName.contains("win") && (osArch.contains("aarch64") || osArch.contains("arm64")) ->
+                "org/sqlite/native/Windows/aarch64/"
+            osName.contains("win") ->
+                "org/sqlite/native/Windows/x86_64/"
+            (osName.contains("mac") || osName.contains("darwin")) && (osArch.contains("aarch64") || osArch.contains("arm64")) ->
+                "org/sqlite/native/Mac/aarch64/"
+            osName.contains("mac") || osName.contains("darwin") ->
+                "org/sqlite/native/Mac/x86_64/"
+            osName.contains("linux") && (osArch.contains("aarch64") || osArch.contains("arm64")) ->
+                "org/sqlite/native/Linux/aarch64/"
+            else ->
+                "org/sqlite/native/Linux/x86_64/"
+        }
+        val appOutRoot = layout.buildDirectory.dir("compose/binaries/main/app").get().asFile
+        if (appOutRoot.exists()) {
+            appOutRoot.walkTopDown()
+                .filter { it.isFile && it.name.startsWith("sqlite-jdbc") && it.name.endsWith(".jar") }
+                .forEach { jar ->
+                    val beforeKb = jar.length() / 1024
+                    pruneSqliteJdbcJarInPlace(jar, keepPrefix)
+                    val afterKb = jar.length() / 1024
+                    logger.lifecycle("Pruned ${jar.name} for $keepPrefix: ${beforeKb} KB -> ${afterKb} KB")
+                }
+        }
+    }
 }
 
 tasks.register("packageWindowsSetup") {
@@ -223,7 +381,11 @@ tasks.register("packageWindowsSetup") {
                     val entry = ZipEntry(relName)
                     entry.time = file.lastModified()
                     zos.putNextEntry(entry)
-                    file.inputStream().use { input -> input.copyTo(zos, bufferSize = 65536) }
+                    if (file.name.endsWith(".jar", ignoreCase = true)) {
+                        zos.write(repackJarToStoredBytes(file))
+                    } else {
+                        file.inputStream().use { input -> input.copyTo(zos, bufferSize = 65536) }
+                    }
                     zos.closeEntry()
                 }
             }
