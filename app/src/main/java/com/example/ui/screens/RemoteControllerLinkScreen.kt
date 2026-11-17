@@ -483,10 +483,10 @@ fun RemoteControllerLinkScreen(
         }
 
         // Project & Speaker Switcher Modal Dialog
-        if (projectSpeakerPickerTab != null) {
+        com.example.ui.components.AnimatedNullableDialogVisibility(value = projectSpeakerPickerTab) { tab ->
             ControllerProjectSpeakerDialog(
                 snapshot = snapshot,
-                initialTab = projectSpeakerPickerTab ?: 0,
+                initialTab = tab,
                 onSelectProject = { projId ->
                     wireless.requestSelectProject(projId)
                     projectSpeakerPickerTab = null
@@ -503,8 +503,8 @@ fun RemoteControllerLinkScreen(
         }
 
         // Headphone Anti-Feedback Guard Dialog
-        if (showHeadphoneGuardDialog) {
-            AlertDialog(
+        com.example.ui.components.AnimatedDialogVisibility(visible = showHeadphoneGuardDialog) {
+            com.example.ui.components.StudioAlertDialog(
                 onDismissRequest = { showHeadphoneGuardDialog = false },
                 title = { Text(S.wireless.noHeadphonesTitle, fontWeight = FontWeight.Bold) },
                 text = {
@@ -1800,7 +1800,7 @@ private fun ControllerProjectSpeakerDialog(
     var newSpkAge by remember { mutableStateOf("55") }
     var newSpkDialect by remember { mutableStateOf("") }
 
-    Dialog(
+    com.example.ui.components.StudioModalDialog(
         onDismissRequest = onDismiss,
         properties = DialogProperties(usePlatformDefaultWidth = false)
     ) {

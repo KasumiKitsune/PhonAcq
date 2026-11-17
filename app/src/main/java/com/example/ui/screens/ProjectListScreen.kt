@@ -660,8 +660,7 @@ fun ProjectListScreen(
                     }
                 }
 
-                if (selectedProjectForDetails != null) {
-                    val targetProj = selectedProjectForDetails!!
+                com.example.ui.components.AnimatedNullableDialogVisibility(value = selectedProjectForDetails) { targetProj ->
                     ProjectDetailEditDialog(
                         viewModel = viewModel,
                         project = targetProj,
@@ -699,8 +698,8 @@ fun ProjectListScreen(
             )
         }
 
-        homeCapsulePendingDelete?.let { targetCap ->
-            AlertDialog(
+        com.example.ui.components.AnimatedNullableDialogVisibility(value = homeCapsulePendingDelete) { targetCap ->
+            com.example.ui.components.StudioAlertDialog(
                 onDismissRequest = { homeCapsulePendingDelete = null },
                 title = { Text(S.wireless.deleteCapsuleDialogTitle, fontWeight = FontWeight.Bold) },
                 text = {
@@ -1076,8 +1075,8 @@ fun ProjectItemCard(
         }
     }
 
-    if (showDeleteConfirm) {
-        AlertDialog(
+    com.example.ui.components.AnimatedDialogVisibility(visible = showDeleteConfirm) {
+        com.example.ui.components.StudioAlertDialog(
             onDismissRequest = { showDeleteConfirm = false },
             title = { Text(S.project.deleteProjectDialogTitle, fontWeight = FontWeight.Bold) },
             text = { Text(S.project.deleteProjectDialogBody.withArgs("name" to project.name)) },
@@ -1646,7 +1645,7 @@ fun SpeakerManagerPage(
                                                         }
                                                     }
 
-                                                    if (showManualPitchDialog) {
+                                                    com.example.ui.components.AnimatedDialogVisibility(visible = showManualPitchDialog) {
                                                         ManualSpeakerPitchDialog(
                                                             speaker = speaker,
                                                             currentRange = pitchRange,
@@ -1725,8 +1724,8 @@ fun SpeakerManagerPage(
                                                     )
                                                 }
 
-                                                if (showDeleteConfirm) {
-                                                    AlertDialog(
+                                                com.example.ui.components.AnimatedDialogVisibility(visible = showDeleteConfirm) {
+                                                    com.example.ui.components.StudioAlertDialog(
                                                         onDismissRequest = { showDeleteConfirm = false },
                                                         title = { Text(S.speaker.deleteSpeakerTitle, fontWeight = FontWeight.Bold) },
                                                         text = { Text(S.speaker.deleteSpeakerBody.withArgs("name" to speaker.name)) },
@@ -1876,7 +1875,7 @@ fun ProjectDetailEditDialog(
     val startedCount = summary?.startedSpeakerCount ?: 0
     val completedCount = summary?.completedSpeakerCount ?: 0
 
-    Dialog(onDismissRequest = onDismiss) {
+    com.example.ui.components.StudioModalDialog(onDismissRequest = onDismiss) {
         com.example.ui.components.StudioDialogEnterAnimation {
             Card(
                 modifier = Modifier
@@ -2252,12 +2251,11 @@ fun ProjectDetailEditDialog(
     }
     }
 
-    if (wordBeingEdited != null) {
-        val target = wordBeingEdited!!
+    com.example.ui.components.AnimatedNullableDialogVisibility(value = wordBeingEdited) { target ->
         var editWText by remember(target.id) { mutableStateOf(target.text) }
         var editWRemark by remember(target.id) { mutableStateOf(target.remark) }
 
-        AlertDialog(
+        com.example.ui.components.StudioAlertDialog(
             onDismissRequest = { wordBeingEdited = null },
             title = { Text(S.project.editWordDialogTitle, fontWeight = FontWeight.Bold) },
             text = {

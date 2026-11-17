@@ -87,11 +87,22 @@ object FormantTrajectoryAndSpectrogramExtractor {
             decimated[i] = acc
         }
 
-        // 2. Scan frame RMS & ZCR to bound the voiced vowel rime core (excluding consonant burst/frication & coda tail)
+        // 2. Scan 5ms hops for RMS, ZCR, and harmonic periodicity to isolate the true voiced vowel rime
+        //    (excluding aspirated/fricative consonant bursts, stop release loci, and unvoiced tails).
         val scanHop = (fsLpc * 0.005).roundToInt().coerceAtLeast(16)
-        data class ScanFrame(val startIdx: Int, val rms: Double, val zcr: Double)
+        data class ScanFrame(
+            val startIdx: Int,
+            val rms: Double,
+            val zcr: Double,
+            val acfPeak: Double,
+            val localF0Hz: Float
+        )
         val scanFrames = ArrayList<ScanFrame>()
         var maxScanRms = 1e-6
+        var maxVoicedScanRms = 1e-6
+        val minF0Lag = (fsLpc / 460.0).roundToInt().coerceAtLeast(12)
+        val maxF0Lag = (fsLpc / 68.0).roundToInt().coerceAtMost((winLen * 3) / 4)
+
         var p = 0
         while (p <= decLen - winLen) {
             var sumSq = 0.0
@@ -104,25 +115,122 @@ object FormantTrajectoryAndSpectrogramExtractor {
             val rms = sqrt(sumSq / winLen)
             val zcr = zc.toDouble() / winLen
             if (rms > maxScanRms) maxScanRms = rms
-            scanFrames.add(ScanFrame(p, rms, zcr))
+
+            var acfPeak = 0.0
+            var estF0 = 0f
+            if (rms > 1e-5 && zcr <= 0.26) {
+                val corrLen = (winLen - maxF0Lag).coerceAtLeast(32)
+                var eLeft = 0.0
+                var k = 0
+                while (k < corrLen) {
+                    val v = decimated[p + k]
+                    eLeft += v * v
+                    k += 2
+                }
+                if (eLeft > 1e-10) {
+                    var bestLag = -1
+                    for (lag in minF0Lag..maxF0Lag step 2) {
+                        var num = 0.0
+                        var eRight = 0.0
+                        var j = 0
+                        while (j < corrLen) {
+                            val a = decimated[p + j]
+                            val b = decimated[p + j + lag]
+                            num += a * b
+                            eRight += b * b
+                            j += 2
+                        }
+                        val den = sqrt(eLeft * eRight)
+                        val r = if (den > 1e-10) num / den else 0.0
+                        if (r > acfPeak) {
+                            acfPeak = r
+                            bestLag = lag
+                        }
+                    }
+                    if (bestLag > 0 && acfPeak >= 0.36) {
+                        estF0 = (fsLpc.toFloat() / bestLag.toFloat()).coerceIn(65f, 460f)
+                    }
+                }
+            }
+            if (acfPeak >= 0.40 && zcr <= 0.22 && rms > maxVoicedScanRms) {
+                maxVoicedScanRms = rms
+            }
+            scanFrames.add(ScanFrame(p, rms, zcr, acfPeak, estF0))
             p += scanHop
         }
         if (scanFrames.isEmpty()) return emptyFallback
 
-        // Restrict to interior [16%..82%] and further trim low-energy/high-ZCR consonant edges
-        val minBoundIdx = (decLen * 0.16).toInt().coerceIn(0, decLen - winLen)
-        val maxBoundIdx = (decLen * 0.82).toInt().coerceIn(minBoundIdx, decLen - winLen)
-        val resonantFrames = scanFrames.filter {
-            it.startIdx in minBoundIdx..maxBoundIdx &&
-                it.rms >= maxScanRms * 0.20 &&
-                it.zcr <= 0.25
+        val refRms = if (maxVoicedScanRms > maxScanRms * 0.25) maxVoicedScanRms else maxScanRms
+        val isFrameVoicedVowel = BooleanArray(scanFrames.size) { idx ->
+            val sf = scanFrames[idx]
+            sf.rms >= refRms * 0.24 && sf.zcr <= 0.22 && (sf.acfPeak >= 0.38 || (sf.zcr <= 0.14 && sf.rms >= refRms * 0.34))
         }
 
-        val coreStartDec = resonantFrames.firstOrNull()?.startIdx ?: minBoundIdx
-        val coreEndDec = resonantFrames.lastOrNull()?.startIdx ?: maxBoundIdx
+        // Find the dominant contiguous voiced vowel core (bridging 1-2 frame creaky micro-dips)
+        var bestRunStart = -1
+        var bestRunEnd = -1
+        var bestRunEnergy = -1.0
+        var idxScan = 0
+        while (idxScan < scanFrames.size) {
+            if (!isFrameVoicedVowel[idxScan]) {
+                idxScan++
+                continue
+            }
+            val rStart = idxScan
+            var rEnd = idxScan
+            var rEnergy = 0.0
+            while (idxScan < scanFrames.size) {
+                if (isFrameVoicedVowel[idxScan]) {
+                    rEnd = idxScan
+                    rEnergy += scanFrames[idxScan].rms
+                    idxScan++
+                } else if (idxScan + 1 < scanFrames.size && isFrameVoicedVowel[idxScan + 1] &&
+                    scanFrames[idxScan].rms >= refRms * 0.16 && scanFrames[idxScan].zcr <= 0.18
+                ) {
+                    rEnd = idxScan + 1
+                    rEnergy += scanFrames[idxScan].rms
+                    idxScan++
+                } else {
+                    break
+                }
+            }
+            if (rEnergy > bestRunEnergy) {
+                bestRunEnergy = rEnergy
+                bestRunStart = rStart
+                bestRunEnd = rEnd
+            }
+        }
 
-        // Sample 7 time-normalized anchors across the voiced rime core
-        val anchorCount = 7
+        val voicedStartDec: Int
+        val voicedEndDec: Int
+        if (bestRunStart >= 0 && bestRunEnd >= bestRunStart) {
+            voicedStartDec = scanFrames[bestRunStart].startIdx
+            voicedEndDec = scanFrames[bestRunEnd].startIdx
+        } else {
+            voicedStartDec = (decLen * 0.20).toInt().coerceIn(0, decLen - winLen)
+            voicedEndDec = (decLen * 0.80).toInt().coerceIn(voicedStartDec, decLen - winLen)
+        }
+
+        val voicedSpanSamples = (voicedEndDec + winLen - voicedStartDec).coerceAtLeast(winLen)
+        val voicedDurMs = ((voicedSpanSamples * 1000L) / fsLpc.coerceAtLeast(1)).toInt()
+        val usableVoicedTravel = (voicedEndDec - voicedStartDec).coerceAtLeast(0)
+
+        // Trim consonant-locus onset transition (~25ms or 16% of voiced travel) and coda jaw relaxation (~20ms or 14%)
+        // while preserving ~68-70% of the voiced travel so both narrow ([ou, ei]) and wide ([ai, iau]) glides retain full arc.
+        val onsetLocusTrim = minOf(
+            maxOf((fsLpc * 0.025).roundToInt(), (usableVoicedTravel * 0.16).roundToInt()),
+            (usableVoicedTravel * 0.21).roundToInt()
+        )
+        val offsetRelaxTrim = minOf(
+            maxOf((fsLpc * 0.020).roundToInt(), (usableVoicedTravel * 0.14).roundToInt()),
+            (usableVoicedTravel * 0.19).roundToInt()
+        )
+
+        val coreStartDec = (voicedStartDec + onsetLocusTrim).coerceIn(0, decLen - winLen)
+        val coreEndDec = (voicedEndDec - offsetRelaxTrim).coerceIn(coreStartDec, decLen - winLen)
+
+        // Sample 9 time-normalized anchors across the pure voiced vowel rime core
+        val anchorCount = 9
         val anchorStarts = IntArray(anchorCount) { idx ->
             if (coreEndDec <= coreStartDec) {
                 coreStartDec
@@ -134,10 +242,13 @@ object FormantTrajectoryAndSpectrogramExtractor {
         }
 
         val preEmphAlpha = exp(-2.0 * Math.PI * 50.0 / fsLpc)
-        val lpcOrder = if (isHighRegister) 11 else if (isMidRegister) 12 else 12
+        // Odd LPC order 11 (or 12 for low male register) lets 1 real-axis root absorb steep back-vowel [u/o]
+        // spectral tilt while preserving all 5 complex-conjugate formant pairs below 5.5 kHz.
+        val lpcOrder = if (isHighRegister) 11 else 12
 
         val anchorCandidatesList = ArrayList<List<AnchorTupleCand>>(anchorCount)
         val anchorConfidences = FloatArray(anchorCount)
+        val anchorLocalF0 = FloatArray(anchorCount)
 
         for (aIdx in 0 until anchorCount) {
             val fStart = anchorStarts[aIdx]
@@ -147,7 +258,15 @@ object FormantTrajectoryAndSpectrogramExtractor {
                 rawSumSq += s * s
             }
             val localRms = sqrt(rawSumSq / winLen)
-            anchorConfidences[aIdx] = (localRms / maxScanRms).toFloat().coerceIn(0.15f, 1.0f)
+            anchorConfidences[aIdx] = (localRms / refRms).toFloat().coerceIn(0.15f, 1.0f)
+
+            val nearestScan = scanFrames.minByOrNull { abs(it.startIdx - fStart) }
+            val localF0 = if (nearestScan != null && nearestScan.localF0Hz > 60f) {
+                nearestScan.localF0Hz
+            } else {
+                syllableMeanF0
+            }
+            anchorLocalF0[aIdx] = localF0
 
             val cands = extractFrameFormantTuples(
                 decimated = decimated,
@@ -156,7 +275,7 @@ object FormantTrajectoryAndSpectrogramExtractor {
                 fsLpc = fsLpc,
                 preEmphAlpha = preEmphAlpha,
                 order = lpcOrder,
-                syllableMeanF0 = syllableMeanF0,
+                syllableMeanF0 = localF0,
                 isHighRegister = isHighRegister,
                 isMidRegister = isMidRegister
             )
@@ -167,10 +286,10 @@ object FormantTrajectoryAndSpectrogramExtractor {
             return emptyFallback
         }
 
-        // 3. Viterbi Dynamic Programming for smooth F1/F2/F3 track continuity across the 7 anchors
+        // 3. Viterbi Dynamic Programming for smooth F1/F2/F3 track continuity across the 9 anchors
         val chosenTuples = solveViterbiFormantTrack(anchorCandidatesList)
 
-        // 4. Light internal smoothing while preserving glide endpoints
+        // 4. 3-tap Hann smoothing to suppress single-frame harmonic crossings while preserving glide slopes
         val rawF1 = chosenTuples.map { it.f1 }.toIntArray()
         val rawF2 = chosenTuples.map { it.f2 }.toIntArray()
         val rawF3 = chosenTuples.map { it.f3 }.toIntArray()
@@ -181,20 +300,20 @@ object FormantTrajectoryAndSpectrogramExtractor {
         for (i in 0 until anchorCount) {
             when (i) {
                 0 -> {
-                    smoothF1[i] = (0.76 * rawF1[0] + 0.24 * rawF1[1]).roundToInt()
-                    smoothF2[i] = (0.76 * rawF2[0] + 0.24 * rawF2[1]).roundToInt()
-                    smoothF3[i] = (0.76 * rawF3[0] + 0.24 * rawF3[1]).roundToInt()
+                    smoothF1[i] = (0.84 * rawF1[0] + 0.16 * rawF1[1]).roundToInt()
+                    smoothF2[i] = (0.84 * rawF2[0] + 0.16 * rawF2[1]).roundToInt()
+                    smoothF3[i] = (0.84 * rawF3[0] + 0.16 * rawF3[1]).roundToInt()
                 }
                 anchorCount - 1 -> {
                     val last = anchorCount - 1
-                    smoothF1[i] = (0.24 * rawF1[last - 1] + 0.76 * rawF1[last]).roundToInt()
-                    smoothF2[i] = (0.24 * rawF2[last - 1] + 0.76 * rawF2[last]).roundToInt()
-                    smoothF3[i] = (0.24 * rawF3[last - 1] + 0.76 * rawF3[last]).roundToInt()
+                    smoothF1[i] = (0.16 * rawF1[last - 1] + 0.84 * rawF1[last]).roundToInt()
+                    smoothF2[i] = (0.16 * rawF2[last - 1] + 0.84 * rawF2[last]).roundToInt()
+                    smoothF3[i] = (0.16 * rawF3[last - 1] + 0.84 * rawF3[last]).roundToInt()
                 }
                 else -> {
-                    smoothF1[i] = (0.22 * rawF1[i - 1] + 0.56 * rawF1[i] + 0.22 * rawF1[i + 1]).roundToInt()
-                    smoothF2[i] = (0.22 * rawF2[i - 1] + 0.56 * rawF2[i] + 0.22 * rawF2[i + 1]).roundToInt()
-                    smoothF3[i] = (0.22 * rawF3[i - 1] + 0.56 * rawF3[i] + 0.22 * rawF3[i + 1]).roundToInt()
+                    smoothF1[i] = (0.25 * rawF1[i - 1] + 0.50 * rawF1[i] + 0.25 * rawF1[i + 1]).roundToInt()
+                    smoothF2[i] = (0.25 * rawF2[i - 1] + 0.50 * rawF2[i] + 0.25 * rawF2[i + 1]).roundToInt()
+                    smoothF3[i] = (0.25 * rawF3[i - 1] + 0.50 * rawF3[i] + 0.25 * rawF3[i + 1]).roundToInt()
                 }
             }
         }
@@ -212,27 +331,74 @@ object FormantTrajectoryAndSpectrogramExtractor {
             )
         }
 
-        // 5. Evaluate trajectory geometry in perceptual Bark space (B1, B2)
+        // 5. Pure Objective Trajectory Geometry in Perceptual Bark Space (B1, B2)
         val b1Arr = FloatArray(anchorCount) { PhoneticScaleUtils.hzToBark(smoothF1[it].toFloat()) }
         val b2Arr = FloatArray(anchorCount) { PhoneticScaleUtils.hzToBark(smoothF2[it].toFloat()) }
 
-        val dB1 = b1Arr.last() - b1Arr.first()
-        val dB2 = b2Arr.last() - b2Arr.first()
-        val netSpanBark = hypot(dB1, dB2)
+        // Edge-spike guard: only fall back inward to [1] or [7] if the boundary step has an unphysiological jump (> 0.58 Bark);
+        // otherwise preserve the full locus-trimmed [0 -> 8] vowel trajectory without double-shrinking narrow glides like [ou, ei].
+        val onsetEdgeJumpBark = hypot(b1Arr[1] - b1Arr[0], b2Arr[1] - b2Arr[0])
+        val offsetEdgeJumpBark = hypot(b1Arr[anchorCount - 1] - b1Arr[anchorCount - 2], b2Arr[anchorCount - 1] - b2Arr[anchorCount - 2])
+        val useCleanStart = onsetEdgeJumpBark <= 0.58f
+        val useCleanEnd = offsetEdgeJumpBark <= 0.58f
+
+        val b1Start = if (useCleanStart) b1Arr[0] else b1Arr[1]
+        val b2Start = if (useCleanStart) b2Arr[0] else b2Arr[1]
+        val b1End = if (useCleanEnd) b1Arr[anchorCount - 1] else b1Arr[anchorCount - 2]
+        val b2End = if (useCleanEnd) b2Arr[anchorCount - 1] else b2Arr[anchorCount - 2]
+
+        val rawDb1 = b1End - b1Start
+        val rawDb2 = b2End - b2Start
+        val rawNetSpanBark = hypot(rawDb1, rawDb2)
+
+        // Compensate sympathetic F1 harmonic pull during steep tone glides (e.g. [51] / [35] / [214]):
+        // physically, F0 drift can only pull F1 in the SAME sign as ΔF0 and when F2 is stationary (|ΔB2| < 0.38 Bark).
+        val f0StartValid = listOf(anchorLocalF0[0], anchorLocalF0[1]).filter { it > 60f }
+        val f0EndValid = listOf(anchorLocalF0[anchorCount - 2], anchorLocalF0[anchorCount - 1]).filter { it > 60f }
+        val f0SignedDeltaHz = if (f0StartValid.isNotEmpty() && f0EndValid.isNotEmpty()) {
+            f0EndValid.average().toFloat() - f0StartValid.average().toFloat()
+        } else 0f
+        val f0ExcursionHz = abs(f0SignedDeltaHz)
+        val sameSignAsF0 = (rawDb1 * f0SignedDeltaHz) > 0f
+        val f1HarmonicPullDiscountBark = if (sameSignAsF0 && f0ExcursionHz >= 30f && abs(rawDb2) < 0.38f) {
+            ((f0ExcursionHz - 26f) * 0.0042f).coerceIn(0f, 0.46f)
+        } else 0f
+        val adjDb1Mag = (abs(rawDb1) - f1HarmonicPullDiscountBark).coerceAtLeast(0f)
+        val effectiveNetSpanBark = hypot(adjDb1Mag, abs(rawDb2))
+
+        // Interior core movement across [1 -> 7] (~central 52%) and [2 -> 6] (~central 35%)
+        val coreSpan17Bark = hypot(b1Arr[7] - b1Arr[1], b2Arr[7] - b2Arr[1])
+        val coreSpanBark = hypot(b1Arr[6] - b1Arr[2], b2Arr[6] - b2Arr[2])
+
+        val dirNorm = rawNetSpanBark.coerceAtLeast(1e-4f)
+        val unitB1 = rawDb1 / dirNorm
+        val unitB2 = rawDb2 / dirNorm
 
         var pathLenBark = 0f
+        var steadyStepCount = 0
+        var forwardStepCount = 0
+        var maxSingleStepBark = 0f
         for (i in 0 until anchorCount - 1) {
-            pathLenBark += hypot(b1Arr[i + 1] - b1Arr[i], b2Arr[i + 1] - b2Arr[i])
+            val sb1 = b1Arr[i + 1] - b1Arr[i]
+            val sb2 = b2Arr[i + 1] - b2Arr[i]
+            val stepDist = hypot(sb1, sb2)
+            pathLenBark += stepDist
+            if (stepDist > maxSingleStepBark) maxSingleStepBark = stepDist
+            if (stepDist < 0.145f) steadyStepCount++
+            val forwardProj = sb1 * unitB1 + sb2 * unitB2
+            if (forwardProj >= 0.035f) forwardStepCount++
         }
+        val steadyStepRatio = steadyStepCount.toFloat() / (anchorCount - 1).toFloat()
+        // Reject unphysiological step-function pole jumps (where 1-2 steps account for almost all motion while >= 50% of steps are flat)
+        val isStepArtifact = steadyStepRatio >= 0.50f && pathLenBark > 0.5f && (maxSingleStepBark / pathLenBark) >= 0.46f
 
-        // Maximum perpendicular distance from internal points to the chord (Start -> End)
         var maxInflectionBark = 0f
         var inflectIdx = anchorCount / 2
-        for (i in 1 until anchorCount - 1) {
+        for (i in 2..(anchorCount - 3)) {
             val dist = pointToSegmentDistanceBark(
                 px = b2Arr[i], py = b1Arr[i],
-                x1 = b2Arr.first(), y1 = b1Arr.first(),
-                x2 = b2Arr.last(), y2 = b1Arr.last()
+                x1 = b2Start, y1 = b1Start,
+                x2 = b2End, y2 = b1End
             )
             if (dist > maxInflectionBark) {
                 maxInflectionBark = dist
@@ -240,18 +406,84 @@ object FormantTrajectoryAndSpectrogramExtractor {
             }
         }
 
-        // Monotonicity ratio prevents erratic noise wobble from masquerading as a diphthong
-        val directnessRatio = if (pathLenBark > 0.05f) netSpanBark / pathLenBark else 1f
+        val leg1ChordBark = hypot(b1Arr[inflectIdx] - b1Start, b2Arr[inflectIdx] - b2Start)
+        val leg2ChordBark = hypot(b1End - b1Arr[inflectIdx], b2End - b2Arr[inflectIdx])
+        var leg1Path = 0f
+        for (i in 0 until inflectIdx) {
+            leg1Path += hypot(b1Arr[i + 1] - b1Arr[i], b2Arr[i + 1] - b2Arr[i])
+        }
+        var leg2Path = 0f
+        for (i in inflectIdx until anchorCount - 1) {
+            leg2Path += hypot(b1Arr[i + 1] - b1Arr[i], b2Arr[i + 1] - b2Arr[i])
+        }
+        val leg1Directness = if (leg1Path > 0.05f) hypot(b1Arr[inflectIdx] - b1Arr[0], b2Arr[inflectIdx] - b2Arr[0]) / leg1Path else 1f
+        val leg2Directness = if (leg2Path > 0.05f) hypot(b1Arr.last() - b1Arr[inflectIdx], b2Arr.last() - b2Arr[inflectIdx]) / leg2Path else 1f
+
+        val fullChordBark = hypot(b1End - b1Start, b2End - b2Start)
+        val directnessRatio = if (pathLenBark > 0.05f) (fullChordBark / pathLenBark).coerceIn(0f, 1f) else 1f
+
+        val robustOnsetF1 = if (useCleanStart) smoothF1[0] else smoothF1[1]
+        val robustOnsetF2 = if (useCleanStart) smoothF2[0] else smoothF2[1]
+        val robustTargetF1 = if (useCleanEnd) smoothF1[anchorCount - 1] else smoothF1[anchorCount - 2]
+        val robustTargetF2 = if (useCleanEnd) smoothF2[anchorCount - 1] else smoothF2[anchorCount - 2]
+
+        val deltaF1Hz = abs(robustTargetF1 - robustOnsetF1)
+        val deltaF2Hz = abs(robustTargetF2 - robustOnsetF2)
+        val hasWideArticulatoryShift = deltaF1Hz >= 105 || deltaF2Hz >= 215 || (deltaF1Hz >= 75 && deltaF2Hz >= 155)
+
+        val isGenuineTriphthong = voicedDurMs >= 130 &&
+            pathLenBark >= 2.05f &&
+            maxInflectionBark >= 0.80f &&
+            leg1ChordBark >= 0.88f &&
+            leg2ChordBark >= 0.88f &&
+            leg1Directness >= 0.62f &&
+            leg2Directness >= 0.62f
+
+        val isStandardOrWideDiphthong = voicedDurMs >= 85 &&
+            !isStepArtifact &&
+            hasWideArticulatoryShift &&
+            effectiveNetSpanBark >= 1.22f &&
+            coreSpanBark >= 0.62f &&
+            directnessRatio >= 0.64f &&
+            !(steadyStepRatio >= 0.625f && effectiveNetSpanBark < 1.85f)
+
+        // Narrow closing diphthongs ([ou], [ei]) move 1 height tier continuously across the entire vowel core:
+        // require unidirectional forward steps, high linearity (>= 0.86), and sustained interior motion.
+        // Note: Above 1800 Hz (e.g. [ei]), Bark compresses F2 (~380 Hz/Bark), so opposing F1/F2 articulatory motion
+        // (tongue raising ΔF1 <= -55 Hz simultaneously with tongue fronting ΔF2 >= +165 Hz, impossible under pure F0 drift)
+        // produces ~0.55..0.95 Bark net span with near-1.0 linearity.
+        val hasOpposingArticulatoryGlide = (rawDb1 * rawDb2 < 0f) &&
+            abs(rawDb1) >= 0.38f &&
+            abs(rawDb2) >= 0.40f &&
+            deltaF1Hz >= 55 &&
+            deltaF2Hz >= 165
+
+        val isCoherentNarrowDiphthong = voicedDurMs >= 95 &&
+            !isStepArtifact &&
+            directnessRatio >= 0.78f &&
+            (
+                (effectiveNetSpanBark >= 0.98f &&
+                    coreSpan17Bark >= 0.72f &&
+                    coreSpanBark >= 0.45f &&
+                    forwardStepCount >= 7 &&
+                    (deltaF2Hz >= 165 || (adjDb1Mag >= 0.75f && deltaF1Hz >= 95))) ||
+                (hasOpposingArticulatoryGlide &&
+                    effectiveNetSpanBark >= 0.62f &&
+                    coreSpan17Bark >= 0.48f &&
+                    coreSpanBark >= 0.32f &&
+                    forwardStepCount >= 6)
+            )
+
+        val isGenuineDiphthong = isStandardOrWideDiphthong || isCoherentNarrowDiphthong
 
         val vowelType = when {
-            pathLenBark >= 1.80f && maxInflectionBark >= 0.72f -> VowelGlideType.TRIPHTHONG
-            netSpanBark >= 1.08f && directnessRatio >= 0.58f -> VowelGlideType.DIPHTHONG
-            pathLenBark >= 1.42f && netSpanBark >= 0.92f && directnessRatio >= 0.52f -> VowelGlideType.DIPHTHONG
+            isGenuineTriphthong -> VowelGlideType.TRIPHTHONG
+            isGenuineDiphthong -> VowelGlideType.DIPHTHONG
             else -> VowelGlideType.MONOPHTHONG
         }
 
-        // Steady-state median for monophthongs vs true Onset/Nucleus/Target for diphthongs & triphthongs
-        val midIndices = listOf(1, 2, 3, 4, 5)
+        // Steady-state median of central 5 anchors [2..6] for monophthongs vs Onset/Nucleus/Target for glides
+        val midIndices = listOf(2, 3, 4, 5, 6)
         val medF1 = midIndices.map { smoothF1[it] }.sorted()[2]
         val medF2 = midIndices.map { smoothF2[it] }.sorted()[2]
         val medF3 = midIndices.map { smoothF3[it] }.sorted()[2]
@@ -274,33 +506,33 @@ object FormantTrajectoryAndSpectrogramExtractor {
                 nucleusF3 = medF3
                 targetF1 = medF1
                 targetF2 = medF2
-                reportedGlideSpan = netSpanBark
+                reportedGlideSpan = effectiveNetSpanBark
             }
             VowelGlideType.DIPHTHONG -> {
-                onsetF1 = smoothF1.first()
-                onsetF2 = smoothF2.first()
+                onsetF1 = robustOnsetF1
+                onsetF2 = robustOnsetF2
                 nucleusF1 = smoothF1[anchorCount / 2]
                 nucleusF2 = smoothF2[anchorCount / 2]
                 nucleusF3 = smoothF3[anchorCount / 2]
-                targetF1 = smoothF1.last()
-                targetF2 = smoothF2.last()
-                reportedGlideSpan = netSpanBark
+                targetF1 = robustTargetF1
+                targetF2 = robustTargetF2
+                reportedGlideSpan = rawNetSpanBark
             }
             VowelGlideType.TRIPHTHONG -> {
-                onsetF1 = smoothF1.first()
-                onsetF2 = smoothF2.first()
+                onsetF1 = robustOnsetF1
+                onsetF2 = robustOnsetF2
                 nucleusF1 = smoothF1[inflectIdx]
                 nucleusF2 = smoothF2[inflectIdx]
                 nucleusF3 = smoothF3[inflectIdx]
-                targetF1 = smoothF1.last()
-                targetF2 = smoothF2.last()
+                targetF1 = robustTargetF1
+                targetF2 = robustTargetF2
                 reportedGlideSpan = pathLenBark
             }
         }
 
         // Angle in IPA vowel chart screen space (left = higher F2, down = higher F1)
-        val chartDx = -(b2Arr.last() - b2Arr.first())
-        val chartDy = (b1Arr.last() - b1Arr.first())
+        val chartDx = -(b2End - b2Start)
+        val chartDy = (b1End - b1Start)
         val angleDeg = Math.toDegrees(atan2(chartDy.toDouble(), chartDx.toDouble())).toFloat()
 
         val summary = when (vowelType) {
@@ -597,13 +829,13 @@ object FormantTrajectoryAndSpectrogramExtractor {
 
         val numPts = 15
         val preEmphAlpha = exp(-2.0 * Math.PI * 50.0 / fsLpc)
-        val order = if (isHighRegister) 11 else 12
+        val order = if (isHighRegister) 10 else 11
 
         var maxRms = 1e-6
         val frameRms = DoubleArray(numPts)
         val frameZcr = DoubleArray(numPts)
         val starts = IntArray(numPts) { idx ->
-            val frac = 0.08 + 0.84 * (idx.toDouble() / (numPts - 1.0))
+            val frac = 0.10 + 0.80 * (idx.toDouble() / (numPts - 1.0))
             ((decLen - winLen) * frac).roundToInt().coerceIn(0, decLen - winLen)
         }
 
@@ -624,7 +856,7 @@ object FormantTrajectoryAndSpectrogramExtractor {
         val candLists = ArrayList<List<AnchorTupleCand>>()
         val validIndices = ArrayList<Int>()
         for (i in 0 until numPts) {
-            if (frameRms[i] >= maxRms * 0.16 && frameZcr[i] <= 0.27) {
+            if (frameRms[i] >= maxRms * 0.18 && frameZcr[i] <= 0.25) {
                 val cands = extractFrameFormantTuples(
                     decimated = decimated,
                     frameStart = starts[i],
@@ -659,6 +891,102 @@ object FormantTrajectoryAndSpectrogramExtractor {
         }
     }
 
+    /**
+     * Solves all complex poles z_i of the LPC inverse filter polynomial
+     * P(z) = z^p - a[1]*z^{p-1} - ... - a[p] = 0 via simultaneous Durand-Kerner iteration.
+     * Complex root solving separates closely-spaced resonances (e.g. back rounded [u, o, ɑ])
+     * even when their spectral envelopes merge into a single peak.
+     */
+    private fun solveLpcComplexPolesDurandKerner(
+        a: DoubleArray,
+        order: Int,
+        fsLpc: Int
+    ): List<FormantPeakCand> {
+        if (order < 4) return emptyList()
+        val rootsRe = DoubleArray(order)
+        val rootsIm = DoubleArray(order)
+        val initRadius = 0.885
+        for (k in 0 until order) {
+            val angle = 2.0 * Math.PI * (k + 0.37) / order.toDouble()
+            rootsRe[k] = initRadius * cos(angle)
+            rootsIm[k] = initRadius * sin(angle)
+        }
+
+        val maxIter = 52
+        for (iter in 0 until maxIter) {
+            var maxDeltaSq = 0.0
+            for (i in 0 until order) {
+                val zRe = rootsRe[i]
+                val zIm = rootsIm[i]
+
+                // Horner evaluation of P(z) = z^p - a[1]*z^{p-1} - ... - a[p]
+                var pRe = 1.0
+                var pIm = 0.0
+                for (m in 1..order) {
+                    val nextRe = pRe * zRe - pIm * zIm - a[m]
+                    val nextIm = pRe * zIm + pIm * zRe
+                    pRe = nextRe
+                    pIm = nextIm
+                }
+
+                // Denominator product prod_{j != i} (z_i - z_j)
+                var dRe = 1.0
+                var dIm = 0.0
+                for (j in 0 until order) {
+                    if (j == i) continue
+                    var diffRe = zRe - rootsRe[j]
+                    var diffIm = zIm - rootsIm[j]
+                    if (abs(diffRe) < 1e-12 && abs(diffIm) < 1e-12) {
+                        diffRe = 1e-7 * (i - j)
+                        diffIm = 1e-7
+                    }
+                    val nextDRe = dRe * diffRe - dIm * diffIm
+                    val nextDIm = dRe * diffIm + dIm * diffRe
+                    dRe = nextDRe
+                    dIm = nextDIm
+                }
+
+                val dMagSq = dRe * dRe + dIm * dIm
+                if (dMagSq <= 1e-24 || !dMagSq.isFinite()) continue
+                val stepRe = (pRe * dRe + pIm * dIm) / dMagSq
+                val stepIm = (pIm * dRe - pRe * dIm) / dMagSq
+                rootsRe[i] -= stepRe
+                rootsIm[i] -= stepIm
+                val deltaSq = stepRe * stepRe + stepIm * stepIm
+                if (deltaSq > maxDeltaSq) maxDeltaSq = deltaSq
+            }
+            if (maxDeltaSq < 1e-16) break
+        }
+
+        val poles = ArrayList<FormantPeakCand>(order / 2 + 1)
+        for (i in 0 until order) {
+            val re = rootsRe[i]
+            val im = rootsIm[i]
+            if (!re.isFinite() || !im.isFinite() || im <= 1e-4) continue
+            val radius = hypot(re, im)
+            if (radius !in 0.52..0.9995) continue
+
+            val theta = atan2(im, re)
+            val freqHz = (theta * fsLpc / (2.0 * Math.PI)).roundToInt()
+            if (freqHz !in 185..4350) continue
+            val bandwidthHz = (-ln(radius) * fsLpc / Math.PI).coerceAtLeast(28.0)
+            if (bandwidthHz > 740.0) continue
+
+            var aRe = 1.0
+            var aIm = 0.0
+            for (k in 1..order) {
+                aRe -= a[k] * cos(theta * k)
+                aIm += a[k] * sin(theta * k)
+            }
+            val magSq = (aRe * aRe + aIm * aIm).coerceAtLeast(1e-10)
+            val powerDb = 10.0 * log10(1.0 / magSq)
+            val sharpnessProminence = (14.0 * (1.0 - (bandwidthHz / 740.0).coerceIn(0.0, 1.0))).coerceAtLeast(1.0)
+            poles.add(FormantPeakCand(freqHz, bandwidthHz, powerDb, sharpnessProminence))
+        }
+
+        return poles.sortedBy { it.freqHz }
+    }
+
     private fun extractFrameFormantTuples(
         decimated: DoubleArray,
         frameStart: Int,
@@ -670,13 +998,16 @@ object FormantTrajectoryAndSpectrogramExtractor {
         isHighRegister: Boolean,
         isMidRegister: Boolean
     ): List<AnchorTupleCand> {
+        // Praat-style Gaussian-like window + 50 Hz pre-emphasis
         val sig = DoubleArray(winLen)
+        val half = (winLen - 1) * 0.5
         for (i in 0 until winLen) {
             val curr = decimated[frameStart + i]
             val prev = decimated[(frameStart + i - 1).coerceAtLeast(0)]
             val pre = curr - preEmphAlpha * prev
-            val hamming = 0.54 - 0.46 * cos(2.0 * Math.PI * i / (winLen - 1))
-            sig[i] = pre * hamming
+            val x = (i - half) / half.coerceAtLeast(1.0)
+            val gaussWin = exp(-0.5 * (2.35 * x) * (2.35 * x))
+            sig[i] = pre * gaussWin
         }
 
         val r = DoubleArray(order + 1)
@@ -685,21 +1016,23 @@ object FormantTrajectoryAndSpectrogramExtractor {
             for (i in 0 until winLen - lag) {
                 sum += sig[i] * sig[i + lag]
             }
-            r[lag] = sum * (0.996).pow(lag.toDouble())
+            r[lag] = sum * (0.997).pow(lag.toDouble())
         }
         if (r[0] <= 1e-10) return emptyList()
 
         val a = DoubleArray(order + 1)
         val aPrev = DoubleArray(order + 1)
         var error = r[0]
+        var effectiveOrder = 0
         for (i in 1..order) {
             var lambda = 0.0
             for (j in 1 until i) lambda += aPrev[j] * r[i - j]
-            val k = (r[i] - lambda) / error
+            val k = ((r[i] - lambda) / error).coerceIn(-0.999, 0.999)
             a[i] = k
             for (j in 1 until i) a[j] = aPrev[j] - k * aPrev[i - j]
             for (j in 1..i) aPrev[j] = a[j]
             error *= (1.0 - k * k)
+            effectiveOrder = i
             if (error <= 1e-12) break
         }
 
@@ -708,13 +1041,12 @@ object FormantTrajectoryAndSpectrogramExtractor {
         val freqStep = 12
         val numBins = (maxFreq - minFreq) / freqStep + 1
         val envPowerDb = DoubleArray(numBins)
-
         for (b in 0 until numBins) {
             val freq = minFreq + b * freqStep
             val omega = 2.0 * Math.PI * freq / fsLpc
             var re = 1.0
             var im = 0.0
-            for (k in 1..order) {
+            for (k in 1..effectiveOrder) {
                 re -= a[k] * cos(omega * k)
                 im += a[k] * sin(omega * k)
             }
@@ -722,13 +1054,24 @@ object FormantTrajectoryAndSpectrogramExtractor {
             envPowerDb[b] = 10.0 * log10(1.0 / magSq)
         }
 
-        val peaks = extractSpectralPeaks(envPowerDb, minFreq, freqStep, numBins)
+        // Combine exact complex polynomial poles (Durand-Kerner) with any distinct spectral peaks
+        val rootPoles = solveLpcComplexPolesDurandKerner(a, effectiveOrder, fsLpc)
+        val specPeaks = extractSpectralPeaks(envPowerDb, minFreq, freqStep, numBins)
+        val mergedPoles = ArrayList<FormantPeakCand>(rootPoles.size + specPeaks.size)
+        mergedPoles.addAll(rootPoles)
+        for (sp in specPeaks) {
+            if (rootPoles.none { abs(it.freqHz - sp.freqHz) <= 85 }) {
+                mergedPoles.add(sp)
+            }
+        }
+        val peaks = mergedPoles.sortedBy { it.freqHz }
 
         val f1Floor = if (isHighRegister) 235 else if (isMidRegister) 220 else 210
         val f1Ceil = if (isHighRegister) 1040 else if (isMidRegister) 980 else 920
-        val f0VoiceBarLimit = (syllableMeanF0 * 1.18f).roundToInt().coerceIn(185, 290)
+        val f0VoiceBarLimit = (syllableMeanF0 * 1.15f).roundToInt().coerceIn(180, 285)
 
-        // Check low-vs-open vowel DFT energy ratio so strong H1 doesn't pull [a/ɛ/ɔ] F1 down to 280 Hz
+        // Check low-vs-open vowel DFT energy ratio (with 1/f^2 compensation for pre-emphasis +6 dB/oct tilt)
+        // so strong H1 doesn't pull [a/ɛ/ɔ] F1 down to F0, while back-vowel [u/o] F2 (650..980 Hz) doesn't masquerade as open F1.
         var closePower = 1e-12
         var closeCnt = 0
         var openPower = 1e-12
@@ -744,55 +1087,87 @@ object FormantTrajectoryAndSpectrogramExtractor {
                 im -= sig[n] * sin(omega * n)
                 n += 2
             }
-            val p = re * re + im * im
-            if (fTest <= 385) {
-                closePower += p * (if (fTest <= f0VoiceBarLimit) 0.35 else 1.0)
+            val tiltComp = (400.0 * 400.0) / (fTest.toDouble() * fTest.toDouble())
+            val p = (re * re + im * im) * tiltComp
+            if (fTest <= 395) {
+                closePower += p * (if (fTest <= f0VoiceBarLimit) 0.30 else 1.0)
                 closeCnt++
-            } else if (fTest >= 430) {
+            } else if (fTest >= 440) {
                 openPower += p
                 openCnt++
             }
             fTest += 35
         }
-        val isMidOrOpen = (openPower / openCnt.coerceAtLeast(1)) > (closePower / closeCnt.coerceAtLeast(1)) * 0.56
+        val rawMidOrOpen = (openPower / openCnt.coerceAtLeast(1)) > (closePower / closeCnt.coerceAtLeast(1)) * 0.85
 
-        val f1Pool = peaks.filter { it.freqHz in f1Floor..f1Ceil && it.bandwidthHz <= 640.0 }
+        // Physical two-pole disambiguation: if a genuine vocal-tract resonance pole already exists in
+        // (f0VoiceBarLimit + 20)..430 Hz alongside a second pole >= +250 Hz higher (e.g. [u/o/ou] with F1 ~320 Hz, F2 ~760 Hz),
+        // the lower pole is F1 and any pole >= lowerPole + 250 Hz is F2 (cannot be F1).
+        val lowResonantPole = peaks.firstOrNull { p ->
+            p.freqHz in (f0VoiceBarLimit + 20)..430 &&
+                p.bandwidthHz <= 360.0 &&
+                p.prominenceDb >= 1.2
+        }
+        val hasBackTwoPoleSignature = lowResonantPole != null && peaks.any { p2 ->
+            p2.freqHz in (lowResonantPole.freqHz + 240)..1120 &&
+                p2.bandwidthHz <= 560.0 &&
+                lowResonantPole.powerDb >= p2.powerDb - 8.5
+        }
+        val isMidOrOpen = rawMidOrOpen && !hasBackTwoPoleSignature
+
+        fun higherFormantAsF1Penalty(cand: FormantPeakCand): Double {
+            val hasValidLowerF1 = peaks.any { lower ->
+                lower.freqHz in (f0VoiceBarLimit + 20)..580 &&
+                    cand.freqHz >= lower.freqHz + 250 &&
+                    lower.bandwidthHz <= 360.0 &&
+                    lower.prominenceDb >= 1.4 &&
+                    lower.powerDb >= cand.powerDb - 8.5
+            }
+            return if (hasValidLowerF1) -7.0 else 0.0
+        }
+
+        val f1Pool = peaks.filter { it.freqHz in f1Floor..f1Ceil && it.bandwidthHz <= 500.0 }
+            .ifEmpty { peaks.filter { it.freqHz in f1Floor..f1Ceil && it.bandwidthHz <= 720.0 } }
             .sortedByDescending { p ->
-                val openBonus = if (isMidOrOpen && p.freqHz >= 385) 4.0 else if (!isMidOrOpen && p.freqHz <= 415) 3.5 else 0.0
-                p.powerDb + p.prominenceDb * 1.5 - 0.014 * p.bandwidthHz + openBonus
+                val openBonus = if (isMidOrOpen && p.freqHz >= 395) 4.2 else if (!isMidOrOpen && p.freqHz <= 430) 3.8 else 0.0
+                val voiceBarPenalty = if (isMidOrOpen && p.freqHz <= f0VoiceBarLimit) -5.5 else 0.0
+                p.powerDb * 0.55 + p.prominenceDb * 1.25 - 0.020 * p.bandwidthHz + openBonus + voiceBarPenalty + higherFormantAsF1Penalty(p)
             }
             .take(3)
             .ifEmpty {
                 val fallbackF1 = if (isMidOrOpen) 560 else 310
-                listOf(FormantPeakCand(fallbackF1, 180.0, 0.0, 1.0))
+                listOf(FormantPeakCand(fallbackF1, 160.0, 0.0, 2.0))
             }
 
-        val tuples = ArrayList<AnchorTupleCand>(8)
+        val tuples = ArrayList<AnchorTupleCand>(9)
         for (f1Cand in f1Pool) {
             val f1 = f1Cand.freqHz
-            val f2Min = maxOf(if (isHighRegister) 720 else 660, f1 + 210)
-            val f2Max = (2850 - ((f1 - 260).coerceAtLeast(0) * 1.25).toInt())
-                .coerceIn(1550, if (isHighRegister) 2920 else 2680)
+            // Back close rounded vowels [u, o] routinely have F2 in 560..850 Hz even in female voices!
+            val f2Min = maxOf(560, f1 + 180)
+            val f2Max = (2880 - ((f1 - 260).coerceAtLeast(0) * 1.20).toInt())
+                .coerceIn(1550, if (isHighRegister) 2950 else 2700)
 
-            val f2Pool = peaks.filter { it.freqHz in f2Min..f2Max && it.bandwidthHz <= 800.0 }
-                .sortedByDescending { it.powerDb + it.prominenceDb * 1.55 - 0.012 * it.bandwidthHz }
+            val f2Pool = peaks.filter { it.freqHz in f2Min..f2Max && it.bandwidthHz <= 720.0 }
+                .sortedByDescending { it.powerDb * 0.55 + it.prominenceDb * 1.30 - 0.016 * it.bandwidthHz }
                 .take(3)
                 .ifEmpty {
-                    val shF2 = findShoulderFreq(envPowerDb, minFreq, freqStep, numBins, f2Min, f2Max)
-                    listOf(FormantPeakCand(shF2, 240.0, -4.0, 0.8))
+                    // Locate actual spectral maximum/shoulder in [f2Min..f2Max] — NEVER jump to a hardcoded 1650 Hz!
+                    val envBestF2 = findShoulderFreq(envPowerDb, minFreq, freqStep, numBins, f2Min, f2Max)
+                    listOf(FormantPeakCand(envBestF2, 240.0, -3.0, 1.0))
                 }
 
             for (f2Cand in f2Pool) {
                 val f2 = f2Cand.freqHz
-                val f3Min = maxOf(f2 + 320, if (isHighRegister) 2150 else 1900)
-                val f3Max = if (isHighRegister) 4100 else 3750
+                val f3Min = maxOf(f2 + 300, if (isHighRegister) 2100 else 1880)
+                val f3Max = if (isHighRegister) 4150 else 3800
                 val f3Best = peaks.filter { it.freqHz in f3Min..f3Max }
-                    .maxByOrNull { it.powerDb + it.prominenceDb * 1.2 - 0.01 * it.bandwidthHz }
-                    ?.freqHz ?: (if (isHighRegister) 2950 else 2620).coerceAtLeast(f2 + 380)
+                    .maxByOrNull { it.powerDb * 0.5 + it.prominenceDb * 1.1 - 0.014 * it.bandwidthHz }
+                    ?.freqHz ?: (if (isHighRegister) 2950 else 2620).coerceAtLeast(f2 + 360)
 
-                val openBonus = if (isMidOrOpen && f1 >= 385) 3.5 else if (!isMidOrOpen && f1 <= 415) 3.0 else -1.5
-                val emitScore = (f1Cand.powerDb * 0.45 + f1Cand.prominenceDb * 1.4 + openBonus) +
-                    (f2Cand.powerDb * 0.45 + f2Cand.prominenceDb * 1.5)
+                val openBonus = if (isMidOrOpen && f1 >= 395) 3.8 else if (!isMidOrOpen && f1 <= 430) 3.4 else -1.2
+                val voiceBarPenalty = if (isMidOrOpen && f1 <= f0VoiceBarLimit) -5.0 else 0.0
+                val emitScore = (f1Cand.powerDb * 0.42 + f1Cand.prominenceDb * 1.25 - 0.016 * f1Cand.bandwidthHz + openBonus + voiceBarPenalty + higherFormantAsF1Penalty(f1Cand)) +
+                    (f2Cand.powerDb * 0.42 + f2Cand.prominenceDb * 1.30 - 0.014 * f2Cand.bandwidthHz)
                 tuples.add(AnchorTupleCand(f1 = f1, f2 = f2, f3 = f3Best, emitScore = emitScore))
             }
         }
@@ -827,8 +1202,9 @@ object FormantTrajectoryAndSpectrogramExtractor {
                     val db1 = abs(b1Curr - PhoneticScaleUtils.hzToBark(prev.f1.toFloat()))
                     val db2 = abs(b2Curr - PhoneticScaleUtils.hzToBark(prev.f2.toFloat()))
                     val db3 = abs(b3Curr - PhoneticScaleUtils.hzToBark(prev.f3.toFloat()))
-                    // Quadratic jump penalty suppresses spurious pole switching while allowing smooth glides
-                    val jumpCost = 3.4 * db1 * db1 + 2.8 * db2 * db2 + 0.8 * db3 * db3 + 1.5 * (db1 + db2)
+                    // Strong quadratic jump penalty eliminates abrupt pole-hopping (> 0.6 Bark/step)
+                    // while allowing continuous diphthong glides (~0.20..0.42 Bark/step across 9 anchors).
+                    val jumpCost = 4.6 * db1 * db1 + 3.8 * db2 * db2 + 0.9 * db3 * db3 + 1.8 * (db1 + db2)
                     val total = dp[t - 1][i] + curr.emitScore - jumpCost
                     if (total > bestPrevScore) {
                         bestPrevScore = total

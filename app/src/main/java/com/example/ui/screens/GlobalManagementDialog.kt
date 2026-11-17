@@ -696,8 +696,8 @@ private fun RecordingStatsAndCleanupBody(
     }
 
     // 1. 全局清理重录旧录音确认弹窗
-    if (showGlobalCleanBackupsConfirm) {
-        AlertDialog(
+    com.example.ui.components.AnimatedDialogVisibility(visible = showGlobalCleanBackupsConfirm) {
+        com.example.ui.components.StudioAlertDialog(
             onDismissRequest = { showGlobalCleanBackupsConfirm = false },
             icon = {
                 Icon(
@@ -762,8 +762,8 @@ private fun RecordingStatsAndCleanupBody(
     }
 
     // 2. 单项目清理重录旧录音确认弹窗
-    projectForBackupClean?.let { stat ->
-        AlertDialog(
+    com.example.ui.components.AnimatedNullableDialogVisibility(value = projectForBackupClean) { stat ->
+        com.example.ui.components.StudioAlertDialog(
             onDismissRequest = { projectForBackupClean = null },
             icon = {
                 Icon(
@@ -814,8 +814,8 @@ private fun RecordingStatsAndCleanupBody(
     }
 
     // 3. 清空某位发音人在某项目下的录音确认弹窗（防止误触！）
-    speakerRecordingsToDelete?.let { (proj, spkStat) ->
-        AlertDialog(
+    com.example.ui.components.AnimatedNullableDialogVisibility(value = speakerRecordingsToDelete) { (proj, spkStat) ->
+        com.example.ui.components.StudioAlertDialog(
             onDismissRequest = { speakerRecordingsToDelete = null },
             icon = {
                 Icon(
@@ -868,9 +868,9 @@ private fun RecordingStatsAndCleanupBody(
     }
 
     // 4. 删除单个字表项目确认弹窗
-    projectToDeleteSingle?.let { project ->
+    com.example.ui.components.AnimatedNullableDialogVisibility(value = projectToDeleteSingle) { project ->
         val sizeStr = formatStorageSize(storageReport.projectStats[project.id]?.totalBytes ?: 0L)
-        AlertDialog(
+        com.example.ui.components.StudioAlertDialog(
             onDismissRequest = { projectToDeleteSingle = null },
             icon = {
                 Icon(
@@ -912,8 +912,8 @@ private fun RecordingStatsAndCleanupBody(
     }
 
     // 5. 批量删除项目确认弹窗
-    if (showBatchDeleteConfirm) {
-        AlertDialog(
+    com.example.ui.components.AnimatedDialogVisibility(visible = showBatchDeleteConfirm) {
+        com.example.ui.components.StudioAlertDialog(
             onDismissRequest = { showBatchDeleteConfirm = false },
             icon = {
                 Icon(

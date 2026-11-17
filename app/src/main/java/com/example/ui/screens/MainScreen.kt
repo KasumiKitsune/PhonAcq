@@ -1272,7 +1272,7 @@ fun MainScreen(
             }
         }
 
-        if (showWirelessPairingDialog) {
+        com.example.ui.components.AnimatedDialogVisibility(visible = showWirelessPairingDialog) {
             WirelessLinkPairingDialog(
                 viewModel = viewModel,
                 onDismiss = { showWirelessPairingDialog = false },
@@ -1286,7 +1286,7 @@ fun MainScreen(
             )
         }
 
-        if (showRecordingTips || !hasSeenRecordingTips) {
+        com.example.ui.components.AnimatedDialogVisibility(visible = showRecordingTips || !hasSeenRecordingTips) {
             RecordingTipsDialog(
                 isFirstLaunch = !hasSeenRecordingTips,
                 isSimpleMode = isSimpleMode,
@@ -1297,7 +1297,7 @@ fun MainScreen(
             )
         }
 
-        if (showAboutDialog) {
+        com.example.ui.components.AnimatedDialogVisibility(visible = showAboutDialog) {
             AboutPhonAcqDialog(
                 onDismiss = { showAboutDialog = false }
             )

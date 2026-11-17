@@ -1852,8 +1852,8 @@ fun WordListEditorScreen(
     }
 
     // 1. Built-in Word List Templates Picker Dialog
-    if (showTemplateDialog) {
-        AlertDialog(
+    com.example.ui.components.AnimatedDialogVisibility(visible = showTemplateDialog) {
+        com.example.ui.components.StudioAlertDialog(
             onDismissRequest = { showTemplateDialog = false },
             icon = { Icon(Icons.AutoMirrored.Filled.LibraryBooks, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
             title = { Text(S.wordEditor.chooseTemplateDialogTitle, fontWeight = FontWeight.Bold) },
@@ -1939,10 +1939,9 @@ fun WordListEditorScreen(
     }
 
     // 2. Replace vs Append Confirmation Dialog when importing into non-empty editor
-    if (pendingImportParsedWords != null) {
-        val incoming = pendingImportParsedWords!!
+    com.example.ui.components.AnimatedNullableDialogVisibility(value = pendingImportParsedWords) { incoming ->
         val meta = pendingTemplateMeta
-        AlertDialog(
+        com.example.ui.components.StudioAlertDialog(
             onDismissRequest = {
                 pendingImportParsedWords = null
                 pendingTemplateMeta = null
@@ -2002,7 +2001,7 @@ fun WordListEditorScreen(
     }
 
     // 3. Add or Edit Single Word Dialog
-    if (showAddOrEditWordDialog) {
+    com.example.ui.components.AnimatedDialogVisibility(visible = showAddOrEditWordDialog) {
         val idx = editingWordIndex
         val existingItem = idx?.let { draftItems.getOrNull(it) }
         var wordText by remember(existingItem) { mutableStateOf(existingItem?.text ?: "") }
@@ -2015,7 +2014,7 @@ fun WordListEditorScreen(
         }
         var wordImagePath by remember(existingItem) { mutableStateOf(existingItem?.imagePath ?: "") }
 
-        AlertDialog(
+        com.example.ui.components.StudioAlertDialog(
             onDismissRequest = { showAddOrEditWordDialog = false },
             title = {
                 Text(
@@ -2219,7 +2218,7 @@ fun WordListEditorScreen(
                 WordImageManager.resolveWordImageFile(context, targetProject?.id ?: 0L, rowItem.imagePath)
             }
             val rowBitmap by rememberWordImageBitmap(rowImgFile, maxEdgePx = 720)
-            AlertDialog(
+            com.example.ui.components.StudioAlertDialog(
                 onDismissRequest = { activeImageMenuRowIndex = null },
                 title = {
                     Text(
@@ -2363,13 +2362,12 @@ fun WordListEditorScreen(
     }
 
     // 3c. Full-Size Image Preview Dialog (supports two-finger pinch-to-zoom & pan)
-    if (previewImageTarget != null) {
-        val (titleText, imgPath) = previewImageTarget!!
+    com.example.ui.components.AnimatedNullableDialogVisibility(value = previewImageTarget) { (titleText, imgPath) ->
         val fullFile = remember(imgPath, targetProject?.id) {
             WordImageManager.resolveWordImageFile(context, targetProject?.id ?: 0L, imgPath)
         }
         val fullBitmap by rememberWordImageBitmap(fullFile, maxEdgePx = 1280)
-        AlertDialog(
+        com.example.ui.components.StudioAlertDialog(
             onDismissRequest = { previewImageTarget = null },
             title = { Text(S.wordEditor.previewImageDialogTitle.withArgs("word" to titleText), fontWeight = FontWeight.Bold) },
             text = {
@@ -2413,8 +2411,8 @@ fun WordListEditorScreen(
     }
 
     // 4. TXT Format Help Dialog
-    if (showFormatHelpDialog) {
-        AlertDialog(
+    com.example.ui.components.AnimatedDialogVisibility(visible = showFormatHelpDialog) {
+        com.example.ui.components.StudioAlertDialog(
             onDismissRequest = { showFormatHelpDialog = false },
             icon = { Icon(Icons.AutoMirrored.Filled.HelpOutline, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
             title = { Text(S.wordEditor.txtFormatHelpTitle, fontWeight = FontWeight.Bold) },
@@ -2453,8 +2451,8 @@ fun WordListEditorScreen(
     }
 
     // 5. Clear All Confirm Dialog
-    if (showClearConfirmDialog) {
-        AlertDialog(
+    com.example.ui.components.AnimatedDialogVisibility(visible = showClearConfirmDialog) {
+        com.example.ui.components.StudioAlertDialog(
             onDismissRequest = { showClearConfirmDialog = false },
             title = { Text(S.wordEditor.clearConfirmTitle, fontWeight = FontWeight.Bold) },
             text = { Text(S.wordEditor.clearConfirmBody) },
@@ -2481,8 +2479,8 @@ fun WordListEditorScreen(
     }
 
     // 6. Unsaved Changes Confirmation Dialog (Back or Project Switch)
-    if (showDiscardConfirmDialog || pendingSwitchTargetProject != null) {
-        AlertDialog(
+    com.example.ui.components.AnimatedDialogVisibility(visible = showDiscardConfirmDialog || pendingSwitchTargetProject != null) {
+        com.example.ui.components.StudioAlertDialog(
             onDismissRequest = {
                 showDiscardConfirmDialog = false
                 pendingSwitchTargetProject = null

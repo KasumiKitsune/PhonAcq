@@ -857,8 +857,8 @@ fun ArchiveExplorerScreen(
         )
     }
 
-    wordPendingDelete?.let { targetWord ->
-        AlertDialog(
+    com.example.ui.components.AnimatedNullableDialogVisibility(value = wordPendingDelete) { targetWord ->
+        com.example.ui.components.StudioAlertDialog(
             onDismissRequest = { wordPendingDelete = null },
             icon = {
                 Icon(
@@ -1240,9 +1240,11 @@ fun PhoneticDetailsBottomSheet(
     viewModel: RecordingViewModel? = null,
     onDismiss: () -> Unit
 ) {
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val sheetScope = rememberCoroutineScope()
     ModalBottomSheet(
         onDismissRequest = onDismiss,
-        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+        sheetState = sheetState,
         containerColor = MaterialTheme.colorScheme.surface,
         dragHandle = { BottomSheetDefaults.DragHandle() }
     ) {
@@ -1250,7 +1252,11 @@ fun PhoneticDetailsBottomSheet(
             word = word,
             speaker = speaker,
             viewModel = viewModel,
-            onDismiss = onDismiss,
+            onDismiss = {
+                sheetScope.launch { sheetState.hide() }.invokeOnCompletion {
+                    if (!sheetState.isVisible) onDismiss()
+                }
+            },
             isDockedPane = false
         )
     }
@@ -1881,8 +1887,11 @@ fun PhoneticDetailsContent(
                                         }
                                     }
 
-                                    if (showManualPitchDialog && viewModel != null && speaker != null) {
-                                        ManualSpeakerPitchDialog(
+                                    com.example.ui.components.AnimatedDialogVisibility(
+                                        visible = showManualPitchDialog && viewModel != null && speaker != null
+                                    ) {
+                                        if (viewModel != null && speaker != null) {
+                                            ManualSpeakerPitchDialog(
                                             speaker = speaker,
                                             currentRange = activeSpeakerPitchRange,
                                             onSave = { minHz, maxHz ->
@@ -1909,7 +1918,8 @@ fun PhoneticDetailsContent(
                                                 ).show()
                                             },
                                             onDismiss = { showManualPitchDialog = false }
-                                        )
+                                            )
+                                        }
                                     }
                                     Text(
                                         text = if (analysis.isValidVoiced) {

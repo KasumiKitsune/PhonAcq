@@ -60,7 +60,7 @@ object CorpusPhonologyAnalyzer {
             .filter { it.isRecorded && !it.recordingFile.isNullOrEmpty() }
             .sortedBy { it.originalIndex }
 
-        val sigHash = recordedWords.fold(17) { acc, w ->
+        val sigHash = recordedWords.fold(37) { acc, w ->
             31 * acc + w.id.hashCode() + (w.recordingFile?.hashCode() ?: 0) + w.groupName.hashCode()
         }
         val cacheKey = ReportCacheKey(projectId, speakerId, recordedWords.size, sigHash)

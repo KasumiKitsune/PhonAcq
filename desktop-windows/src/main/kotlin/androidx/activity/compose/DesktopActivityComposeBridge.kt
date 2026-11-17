@@ -6,19 +6,15 @@ import android.net.Uri
 import androidx.activity.BackEventCompat
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.Composable
-import com.example.i18n.S
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
+import com.example.i18n.S
+import com.example.ui.filepicker.DesktopFilePickerController
+import java.util.concurrent.CopyOnWriteArrayList
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.launch
-import java.awt.FileDialog
-import java.awt.Frame
-import java.io.File
-import java.io.FilenameFilter
-import java.util.concurrent.CopyOnWriteArrayList
-import javax.swing.SwingUtilities
 
 class ManagedActivityResultLauncher<I, O>(
     private val onLaunch: (I) -> Unit
@@ -29,8 +25,9 @@ class ManagedActivityResultLauncher<I, O>(
 }
 
 /**
- * Maps Android's `rememberLauncherForActivityResult` directly to native Windows OS File Dialogs
- * (`java.awt.FileDialog` which invokes Windows `IFileDialog` / Explorer dialogs).
+ * Maps Android's `rememberLauncherForActivityResult` on Desktop to PhonAcq's built-in
+ * Material 3 Studio File Picker (with instant 1-click handoff to the latest native OS
+ * Common Item Dialog / Cocoa NSOpenPanel / XDG Portal dialog).
  */
 @Composable
 fun <I, O> rememberLauncherForActivityResult(
@@ -49,24 +46,12 @@ fun <I, O> rememberLauncherForActivityResult(
 
                 is ActivityResultContracts.CreateDocument -> {
                     val suggestedName = (input as? String) ?: "phonacq_export.zip"
-                    SwingUtilities.invokeLater {
-                        val dialog = FileDialog(null as Frame?, S.desktop.dialogSaveLocationTitle, FileDialog.SAVE)
-                        val homeDir = System.getProperty("user.home")?.let { File(it) }
-                        val defaultSaveDir = listOfNotNull(
-                            homeDir?.let { File(it, "Desktop") },
-                            homeDir?.let { File(it, "Documents") },
-                            homeDir
-                        ).firstOrNull { it.exists() && it.isDirectory }
-                        if (defaultSaveDir != null) {
-                            dialog.directory = defaultSaveDir.absolutePath
-                        }
-                        dialog.file = suggestedName
-                        dialog.isVisible = true
-                        val dir = dialog.directory
-                        val file = dialog.file
-                        val uri = if (dir != null && file != null) {
-                            Uri.fromFile(File(dir, file))
-                        } else null
+                    DesktopFilePickerController.launchSaveFile(
+                        title = S.desktop.dialogSaveLocationTitle,
+                        suggestedFileName = suggestedName,
+                        mimeType = contract.mimeType
+                    ) { file ->
+                        val uri = file?.let { Uri.fromFile(it) }
                         @Suppress("UNCHECKED_CAST")
                         currentOnResult.value(uri as O)
                     }
@@ -74,83 +59,40 @@ fun <I, O> rememberLauncherForActivityResult(
 
                 is ActivityResultContracts.GetContent,
                 is ActivityResultContracts.OpenDocument -> {
-                    SwingUtilities.invokeLater {
-                        val wantImageOnly = (input as? String)?.startsWith("image/") == true
-                        val dialogTitle = if (wantImageOnly) {
-                            S.desktop.dialogPickImageTitle
-                        } else {
-                            S.desktop.dialogPickFileTitle
-                        }
-                        val dialog = FileDialog(null as Frame?, dialogTitle, FileDialog.LOAD)
-                        dialog.filenameFilter = FilenameFilter { _, name ->
-                            val lower = name.lowercase()
-                            if (wantImageOnly) {
-                                lower.endsWith(".jpg") ||
-                                    lower.endsWith(".jpeg") ||
-                                    lower.endsWith(".png") ||
-                                    lower.endsWith(".webp") ||
-                                    lower.endsWith(".bmp") ||
-                                    lower.endsWith(".gif")
-                            } else {
-                                lower.endsWith(".xlsx") ||
-                                    lower.endsWith(".docx") ||
-                                    lower.endsWith(".csv") ||
-                                    lower.endsWith(".tsv") ||
-                                    lower.endsWith(".txt") ||
-                                    lower.endsWith(".json") ||
-                                    lower.endsWith(".zip") ||
-                                    lower.endsWith(".teproj") ||
-                                    lower.endsWith(".textgrid")
-                            }
-                        }
-                        dialog.isVisible = true
-                        val dir = dialog.directory
-                        val file = dialog.file
-                        val uri = if (dir != null && file != null) {
-                            Uri.fromFile(File(dir, file))
-                        } else null
+                    val wantImageOnly = (input as? String)?.startsWith("image/") == true
+                    val dialogTitle = if (wantImageOnly) {
+                        S.desktop.dialogPickImageTitle
+                    } else {
+                        S.desktop.dialogPickFileTitle
+                    }
+                    DesktopFilePickerController.launchOpenSingle(
+                        title = dialogTitle,
+                        wantImageOnly = wantImageOnly
+                    ) { file ->
+                        val uri = file?.let { Uri.fromFile(it) }
                         @Suppress("UNCHECKED_CAST")
                         currentOnResult.value(uri as O)
                     }
                 }
 
                 is ActivityResultContracts.PickVisualMedia -> {
-                    SwingUtilities.invokeLater {
-                        val dialog = FileDialog(null as Frame?, S.desktop.dialogPickWordImageTitle, FileDialog.LOAD)
-                        dialog.filenameFilter = FilenameFilter { _, name ->
-                            val lower = name.lowercase()
-                            lower.endsWith(".jpg") ||
-                                lower.endsWith(".jpeg") ||
-                                lower.endsWith(".png") ||
-                                lower.endsWith(".bmp") ||
-                                lower.endsWith(".gif")
-                        }
-                        dialog.isVisible = true
-                        val dir = dialog.directory
-                        val file = dialog.file
-                        val uri = if (dir != null && file != null) {
-                            Uri.fromFile(File(dir, file))
-                        } else null
+                    DesktopFilePickerController.launchOpenSingle(
+                        title = S.desktop.dialogPickWordImageTitle,
+                        wantImageOnly = true
+                    ) { file ->
+                        val uri = file?.let { Uri.fromFile(it) }
                         @Suppress("UNCHECKED_CAST")
                         currentOnResult.value(uri as O)
                     }
                 }
 
                 is ActivityResultContracts.PickMultipleVisualMedia -> {
-                    SwingUtilities.invokeLater {
-                        val dialog = FileDialog(null as Frame?, S.desktop.dialogBatchPickImagesTitle, FileDialog.LOAD)
-                        dialog.isMultipleMode = true
-                        dialog.filenameFilter = FilenameFilter { _, name ->
-                            val lower = name.lowercase()
-                            lower.endsWith(".jpg") ||
-                                lower.endsWith(".jpeg") ||
-                                lower.endsWith(".png") ||
-                                lower.endsWith(".bmp") ||
-                                lower.endsWith(".gif")
-                        }
-                        dialog.isVisible = true
-                        val selectedFiles = dialog.files?.toList().orEmpty()
-                        val uris = selectedFiles
+                    DesktopFilePickerController.launchOpenMultiple(
+                        title = S.desktop.dialogBatchPickImagesTitle,
+                        wantImageOnly = true,
+                        maxItems = contract.maxItems.coerceAtLeast(1)
+                    ) { files ->
+                        val uris = files
                             .take(contract.maxItems.coerceAtLeast(1))
                             .map { Uri.fromFile(it) }
                         @Suppress("UNCHECKED_CAST")

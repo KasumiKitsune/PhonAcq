@@ -255,7 +255,7 @@ object AcousticAnalyzer {
         val normGender = speakerGender?.trim() ?: ""
         val labelSig = segmentLabels.joinToString("|")
         val key = CacheKey(
-            path = "$normGender|$labelSig|${file.absolutePath}",
+            path = "v3|$normGender|$labelSig|${file.absolutePath}",
             lastModified = file.lastModified(),
             genderKey = normGender,
             segmentCount = segmentCount,
@@ -1033,7 +1033,7 @@ object AcousticAnalyzer {
     private fun extractQuickPitchSummary(file: File, speakerGender: String?): QuickPitchSummary? {
         if (!file.exists() || file.length() <= 1024L) return null
         val normGender = speakerGender?.trim() ?: ""
-        val qKey = "${file.absolutePath}_${file.lastModified()}_$normGender"
+        val qKey = "v3_${file.absolutePath}_${file.lastModified()}_$normGender"
         quickPitchCache[qKey]?.let { return it }
 
         val pcm = loadWavPcm(file) ?: return null
@@ -1259,7 +1259,7 @@ object AcousticAnalyzer {
             if (parsedTs > latestMod) latestMod = parsedTs
         }
 
-        val cacheKey = "${projDir.absolutePath}_${speakerId}_${manualRange?.first?.toInt() ?: -1}_${manualRange?.second?.toInt() ?: -1}"
+        val cacheKey = "v3_${projDir.absolutePath}_${speakerId}_${manualRange?.first?.toInt() ?: -1}_${manualRange?.second?.toInt() ?: -1}"
         autoPitchCache[cacheKey]?.let { cached ->
             if (cached.fileCount == speakerFiles.size && cached.latestModified == latestMod) {
                 return cached
@@ -1648,33 +1648,96 @@ object AcousticAnalyzer {
 
     private val ERHUA_NON_FUSING_PREFIXES = setOf("女", "童", "婴", "嬰", "幼", "孤", "胎", "宠", "寵", "健", "少")
     private val PAREN_GLOSS_REGEX = Regex("(\\([^)]*\\)|（[^）]*）|\\[[^\\]]*\\]|【[^】]*】|\\{[^}]*\\})")
-    private val LEADING_INDEX_REGEX = Regex("^\\d+[.、:：\\-)）\\s]+(?=\\S)")
-    private val EXPLICIT_SYLLABLE_SPLIT_REGEX = Regex("[/|｜·•]+")
-    private val LATIN_VOWEL_REGEX = Regex("[aeiouyvüɑɛəɔɪʊɯɤɨɐɒæøœāáǎàēéěèīíǐìōóǒòūúǔùǖǘǚǜ]+", RegexOption.IGNORE_CASE)
-    private val PINYIN_TONE_SYL_REGEX = Regex("[a-zA-ZüÜvV]+[1-5]")
+    private val SLASH_IPA_GLOSS_REGEX = Regex("/[^/]+/")
+    private val HASH_TAG_REGEX = Regex("#\\S+")
+    private val PIPE_GLOSS_SPLIT_REGEX = Regex("\\s*[|｜]\\s*")
+    private val LEADING_INDEX_REGEX = Regex("^\\d+[.、:：\\-)）_\\s]+(?=\\S)")
+    private val TRAILING_HOMOPHONE_DIGIT_REGEX = Regex("(?<=\\p{IsHan})[0-9₀₁₂₃₄₅₆₇₈₉¹²³⁴⁵]+$")
+    private val EXPLICIT_SYLLABLE_DOT_SPLIT_REGEX = Regex("[·•]+")
+    private val COMBINING_OR_SUPRASEGMENTAL_REGEX = Regex("[\\p{M}ːˑˈˌ˥˦˧˨˩¹²³⁴⁵⁰⁶⁷⁸⁹₀₁₂₃₄₅₆₇₈₉͜͡]+")
+    private val IPA_OR_LATIN_VOWEL_CLUSTER_REGEX = Regex(
+        "[aeiouyvüɑɛəɔɪʊɯɤɨɐɒæøœɶɜɞʌʉɘɵʏɿʅʮʯɚɝāáǎàēéěèīíǐìōóǒòūúǔùǖǘǚǜ]+",
+        RegexOption.IGNORE_CASE
+    )
+    private val PINYIN_TONE_SYL_REGEX = Regex("[a-zA-ZüÜvVɑɛəɔɪʊɯɤɿʅʮʯʰŋɲɕʑʂʐʈɖʔ]+[1-5]{1,3}")
+    private val UPPERCASE_ASCII_PREFIX_COMPOUND_REGEX = Regex("^[A-Z]{1,3}(?=\\p{IsHan})")
 
     /**
-     * Parses orthographic text into clean syllable unit labels without blindly treating punctuation,
-     * parenthetical glosses (e.g. `日头(白读)`), numbering (`01. 葡萄`), or alphabetic words (`apple`, `putao`)
-     * as 1-character-per-syllable.
+     * Parses orthographic text into clean syllable unit labels without falsely counting:
+     * - Unbracketed Pinyin / IPA annotations next to Hanzi (e.g. `啊 a`, `哀 ai`, `葡萄 putao`, `衣: i`),
+     * - Slash-enclosed IPA transcriptions (`衣 /i/`, `/ai/`, `/aːi/`),
+     * - Pipe remarks (`衣 | [i]`), `#tags`, parenthetical glosses (`日头(白读)`), or numbering (`01. 葡萄`, `01 衣`, `衣1`),
+     * - Apical vowels (`ɿ`, `ʅ`, `ʮ`, `ʯ`), IPA length marks (`ː`), or Chao tone letters (`˥˦˧˨˩`).
      */
     fun extractSyllableUnits(rawText: String): List<String> {
-        val trimmed = rawText.trim()
-        if (trimmed.isEmpty()) return listOf(S.common.syllableFallback.withArgs("index" to 1))
+        val normalizedRaw = java.text.Normalizer.normalize(rawText.trim(), java.text.Normalizer.Form.NFC)
+        if (normalizedRaw.isEmpty()) return listOf(S.common.syllableFallback.withArgs("index" to 1))
 
-        // Strip parenthetical annotations unless the entire label was enclosed in brackets
-        val strippedGloss = PAREN_GLOSS_REGEX.replace(trimmed, " ").trim()
-        val baseText = (if (strippedGloss.isNotEmpty()) strippedGloss else trimmed.trim('(', ')', '（', '）', '[', ']', '【', '】'))
-            .let { LEADING_INDEX_REGEX.replace(it, "").trim() }
-            .ifEmpty { trimmed }
+        // 1. Keep primary headword before pipe gloss (`衣 | i | clothes` -> `衣`), strip `#tags`
+        val headBeforePipe = normalizedRaw.split(PIPE_GLOSS_SPLIT_REGEX).firstOrNull()?.trim().orEmpty()
+            .let { HASH_TAG_REGEX.replace(it, " ").trim() }
+            .ifEmpty { normalizedRaw }
 
-        if (EXPLICIT_SYLLABLE_SPLIT_REGEX.containsMatchIn(baseText)) {
-            val explicitParts = baseText.split(EXPLICIT_SYLLABLE_SPLIT_REGEX)
+        // 2. Strip bracketed glosses `(...)`, `[...]`, `【...】` unless the entire item is inside brackets
+        val strippedParens = PAREN_GLOSS_REGEX.replace(headBeforePipe, " ").trim()
+        val afterParens = if (strippedParens.isNotEmpty()) {
+            strippedParens
+        } else {
+            headBeforePipe.trim('(', ')', '（', '）', '[', ']', '【', '】', '{', '}').trim()
+        }
+
+        // 3. Strip slash-enclosed IPA `/.../` when accompanied by orthographic text (e.g. `衣 /i/` -> `衣`),
+        //    or unwrap pure IPA `/ai/` -> `ai` when the item itself is an IPA token.
+        val strippedSlashes = SLASH_IPA_GLOSS_REGEX.replace(afterParens, " ").trim()
+        val afterSlashes = if (strippedSlashes.isNotEmpty()) {
+            strippedSlashes
+        } else {
+            afterParens.trim('/').trim()
+        }
+
+        // 4. Strip leading item numbers (`01. `, `01 `, `1、`) and trailing homophone digits (`衣1`)
+        val baseText = LEADING_INDEX_REGEX.replace(afterSlashes, "")
+            .trim()
+            .let { TRAILING_HOMOPHONE_DIGIT_REGEX.replace(it, "").trim() }
+            .ifEmpty { afterSlashes.ifEmpty { normalizedRaw } }
+
+        // 5. Explicit interpunct syllable separator (`·` / `•`) when user intentionally wrote syllable dots
+        if (EXPLICIT_SYLLABLE_DOT_SPLIT_REGEX.containsMatchIn(baseText)) {
+            val explicitParts = baseText.split(EXPLICIT_SYLLABLE_DOT_SPLIT_REGEX)
                 .map { it.trim() }
                 .filter { it.isNotEmpty() }
             if (explicitParts.isNotEmpty()) return explicitParts
         }
 
+        // 6. If the headword contains Hanzi characters:
+        //    Unbracketed lowercase Pinyin / IPA annotations (`啊 a`, `哀 ai`, `葡萄 putao`, `衣 i`, `衣: i`)
+        //    are phonetic glosses for the Hanzi, NOT extra spoken syllables!
+        //    Only preserve attached uppercase ASCII letter prefixes in genuine compounds (`T恤`, `U盘`, `B超`).
+        val hasHan = baseText.any { Character.UnicodeScript.of(it.code) == Character.UnicodeScript.HAN }
+        if (hasHan) {
+            val hanUnits = ArrayList<String>()
+            val prefixMatch = UPPERCASE_ASCII_PREFIX_COMPOUND_REGEX.find(baseText)
+            val scanStart = if (prefixMatch != null) {
+                // e.g. "T恤" -> ["T", "恤"], "U盘" -> ["U", "盘"]
+                for (ch in prefixMatch.value) {
+                    hanUnits.add(ch.toString())
+                }
+                prefixMatch.range.last + 1
+            } else 0
+
+            var idx = scanStart
+            while (idx < baseText.length) {
+                val cp = baseText.codePointAt(idx)
+                val charCnt = Character.charCount(cp)
+                if (Character.UnicodeScript.of(cp) == Character.UnicodeScript.HAN) {
+                    hanUnits.add(String(Character.toChars(cp)))
+                }
+                idx += charCnt
+            }
+            if (hanUnits.isNotEmpty()) return hanUnits
+        }
+
+        // 7. Pure alphabetic / Pinyin / IPA item (no Hanzi present)
         val units = mutableListOf<String>()
         val alphaBuffer = StringBuilder()
 
@@ -1685,23 +1748,30 @@ object AcousticAnalyzer {
             units.addAll(splitAlphabeticOrPinyinIntoSyllables(wordChunk))
         }
 
-        for (ch in baseText) {
-            when {
-                Character.UnicodeScript.of(ch.code) == Character.UnicodeScript.HAN -> {
-                    flushAlphaBuffer()
-                    units.add(ch.toString())
-                }
-                ch.isLetterOrDigit() || ch in "ɑɛəɔɪʊɯɤɨɐɒæøœüʰŋɲɕʑʂʐʈɖʔ" -> {
-                    alphaBuffer.append(ch)
-                }
-                else -> {
-                    flushAlphaBuffer()
-                }
+        var i = 0
+        while (i < baseText.length) {
+            val cp = baseText.codePointAt(i)
+            val charCnt = Character.charCount(cp)
+            val ch = baseText[i]
+            val isPhoneticOrWordChar = Character.isLetterOrDigit(cp) ||
+                Character.getType(cp).let {
+                    it == Character.NON_SPACING_MARK.toInt() ||
+                        it == Character.MODIFIER_LETTER.toInt() ||
+                        it == Character.MODIFIER_SYMBOL.toInt()
+                } ||
+                ch in "ɑɛəɔɪʊɯɤɨɐɒæøœɶɜɞʌʉɘɵʏɿʅʮʯɚɝüʰŋɲɕʑʂʐʈɖʔːˑ˥˦˧˨˩"
+            if (isPhoneticOrWordChar) {
+                alphaBuffer.append(baseText, i, i + charCnt)
+            } else {
+                flushAlphaBuffer()
             }
+            i += charCnt
         }
         flushAlphaBuffer()
 
-        return units.ifEmpty { listOf(trimmed.take(8).ifBlank { S.common.syllableFallback.withArgs("index" to 1) }) }
+        return units.ifEmpty {
+            listOf(normalizedRaw.take(8).ifBlank { S.common.syllableFallback.withArgs("index" to 1) })
+        }
     }
 
     private fun splitAlphabeticOrPinyinIntoSyllables(token: String): List<String> {
@@ -1709,23 +1779,31 @@ object AcousticAnalyzer {
         if (clean.isEmpty()) return emptyList()
         if (clean.all { it.isDigit() }) return listOf(clean)
 
-        // 1. Pinyin / Jyutping with explicit tone digits (e.g. "ma1ma2" or "pu2tao5")
+        // 1. Pinyin / Jyutping / IPA with explicit tone digits per syllable (e.g. "ma1ma2", "pu35tau2", vs single "ma214")
         val toneMatches = PINYIN_TONE_SYL_REGEX.findAll(clean).map { it.value }.toList()
         if (toneMatches.size >= 2 && toneMatches.sumOf { it.length } >= clean.length - 1) {
             return toneMatches
         }
+        if (toneMatches.size == 1 && toneMatches.first().length == clean.length) {
+            return listOf(clean)
+        }
 
-        // 2. Count vowel-cluster nuclei for alphabetic / IPA words (e.g. "apple" -> 2, "banana" -> 3, "cake" -> 1)
-        val vowelMatches = LATIN_VOWEL_REGEX.findAll(clean).toList()
+        // 2. Strip combining diacritics, length marks (`ː`), and Chao tone letters (`˥˦˧˨˩`) before counting
+        //    vowel-cluster nuclei so `/aːi/`, `ɑ̃`, `ma˥˩`, `ɿ`, `ʅ`, `iau` each count as 1 contiguous nucleus!
+        val skeleton = COMBINING_OR_SUPRASEGMENTAL_REGEX.replace(clean, "")
+        if (skeleton.isEmpty()) return listOf(clean)
+
+        // Syllabic nasals (`m`, `n`, `ŋ`, `ng`, `hm`, `hng`) without oral vowels are 1 syllable
+        val vowelMatches = IPA_OR_LATIN_VOWEL_CLUSTER_REGEX.findAll(skeleton).toList()
         if (vowelMatches.size <= 1) return listOf(clean)
 
         val effectiveVowelSpans = if (
             vowelMatches.size >= 2 &&
-            clean.length >= 4 &&
-            (clean.endsWith("e", ignoreCase = true)) &&
-            vowelMatches.last().range.last == clean.lastIndex &&
+            skeleton.length >= 4 &&
+            skeleton.endsWith("e", ignoreCase = true) &&
+            vowelMatches.last().range.last == skeleton.lastIndex &&
             vowelMatches.last().value.length == 1 &&
-            !(clean.length >= 4 && clean.endsWith("le", ignoreCase = true) && clean[clean.length - 3] !in "aeiouAEIOU")
+            !(skeleton.length >= 4 && skeleton.endsWith("le", ignoreCase = true) && skeleton[skeleton.length - 3] !in "aeiouAEIOU")
         ) {
             // Trailing silent '-e' in words like "cake", "time", "stone" (excluding syllabic "-Cle" like "apple", "table")
             vowelMatches.dropLast(1)
@@ -1736,37 +1814,39 @@ object AcousticAnalyzer {
         val sylCount = effectiveVowelSpans.size.coerceIn(1, 6)
         if (sylCount <= 1) return listOf(clean)
 
-        // Slice readable orthographic chunks at midpoints between consecutive vowel nuclei
+        // Slice readable chunks proportionally across `clean`
         val cuts = ArrayList<Int>(sylCount + 1)
         cuts.add(0)
-        for (i in 0 until sylCount - 1) {
-            val leftEnd = effectiveVowelSpans[i].range.last + 1
-            val rightStart = effectiveVowelSpans[i + 1].range.first
-            val cut = ((leftEnd + rightStart + 1) / 2).coerceIn(cuts.last() + 1, clean.length - 1)
-            cuts.add(cut)
+        for (idx in 0 until sylCount - 1) {
+            val leftEnd = effectiveVowelSpans[idx].range.last + 1
+            val rightStart = effectiveVowelSpans[idx + 1].range.first
+            val skelCut = ((leftEnd + rightStart + 1) / 2).coerceIn(1, skeleton.length - 1)
+            val mappedCut = ((skelCut.toDouble() / skeleton.length.toDouble()) * clean.length)
+                .roundToInt()
+                .coerceIn(cuts.last() + 1, clean.length - 1)
+            cuts.add(mappedCut)
         }
         cuts.add(clean.length)
 
         val res = ArrayList<String>(sylCount)
-        for (i in 0 until cuts.size - 1) {
-            if (cuts[i + 1] > cuts[i]) {
-                res.add(clean.substring(cuts[i], cuts[i + 1]))
+        for (idx in 0 until cuts.size - 1) {
+            if (cuts[idx + 1] > cuts[idx]) {
+                res.add(clean.substring(cuts[idx], cuts[idx + 1]))
             }
         }
         return res.ifEmpty { listOf(clean) }
     }
 
     /**
-     * Hybrid Acoustic + Orthographic Syllable Detector & Boundary Aligner:
-     * - Builds a 10ms sonorant/voiced-weighted energy envelope (suppressing high-ZCR voiceless fricatives
-     *   so sibilants never masquerade as vowel nuclei and intervocalic consonants form deep valleys).
-     * - Fuses orthographic expectation (`expectedCountHint`) with prominent acoustic syllable nuclei:
-     *   * Prevents multi-syllable speech from being collapsed into 1 syllable even if labeled as 1 unit
-     *     (e.g. dialect disyllable under a single-char gloss, numeric code, or `segmentCount <= 1`),
-     *     while protecting genuine monosyllabic diphthongs (`[ai]`) and dipping tones (`[214]`).
-     *   * Handles monosyllabic rhotacized fusion (`花儿` -> 1 syllable when unimodal, or 2 when pronounced separately).
-     * - Aligns syllable boundaries to actual inter-nuclear consonant/voicing valleys across arbitrary uneven
-     *   syllable durations (e.g. 80ms checked tone + 320ms smooth tone) instead of rigid equal `1/N` windows.
+     * Hybrid Acoustic + Orthographic Syllable Detector & Boundary Aligner with Creaky-Voice Protection:
+     * - Builds both a 10ms sonorant-weighted envelope and a low-pass (`<= 900 Hz`) glottal continuity detector
+     *   so mid-syllable creaky voice / vocal fry (`[214]`, `[313]`, glottalized tones where ACF drops `< 0.48`
+     *   while low-frequency glottal pulses remain active) is recognized as continuous sonorant voicing rather than
+     *   a voiceless consonant break!
+     * - When `expectedCountHint == 1` (single-syllable wordlist item), NEVER splits into multiple syllables unless
+     *   there is a genuine silent/stop-closure pause (`>= 60ms` at `<= 14%` of both flanking syllable peaks)
+     *   separating two independent sustained (`>= 80ms`) voiced vowel nuclei.
+     * - Aligns multi-syllable boundaries to true inter-nuclear consonant/voicing valleys across uneven durations.
      */
     private fun detectAndAlignSyllableSegments(
         pcm: FloatArray,
@@ -1788,45 +1868,90 @@ object AcousticAnalyzer {
 
         val step = (sampleRate / 100).coerceAtLeast(80) // 10ms step
         val numSteps = (activeLen / step).coerceAtLeast(8)
-        val rawSonorant = FloatArray(numSteps)
-        val stepVoiced = BooleanArray(numSteps)
+        val rawRmsStep = FloatArray(numSteps)
+        val rawZcrStep = FloatArray(numSteps)
+        val lowBandRatioStep = FloatArray(numSteps)
+        val periodicVoicedStep = BooleanArray(numSteps)
+
+        // 1st-order low-pass filter (~900 Hz cutoff) distinguishes low-frequency creaky glottal pulses
+        // from high-frequency voiceless fricatives/aspiration and silent closures.
+        val lpAlpha = exp(-2.0 * Math.PI * 900.0 / sampleRate.coerceAtLeast(8000)).toFloat()
+        val oneMinusLpAlpha = 1.0f - lpAlpha
+        var maxStepRawRms = 1e-6f
 
         for (i in 0 until numSteps) {
             val s = startSample + i * step
             val e = (s + step * 2).coerceAtMost(endSample)
             val winN = (e - s).coerceAtLeast(1)
             var sumSq = 0.0
+            var lpSumSq = 0.0
+            var lpState = pcm[s]
             var zc = 0
             for (k in s until e) {
                 val v = pcm[k]
                 sumSq += v * v
-                if (k > s && (pcm[k] >= 0f) != (pcm[k - 1] >= 0f)) zc++
+                lpState = oneMinusLpAlpha * v + lpAlpha * lpState
+                lpSumSq += lpState * lpState
+                if (k > s && (v >= 0f) != (pcm[k - 1] >= 0f)) zc++
             }
             val rms = sqrt(sumSq / winN).toFloat()
+            val lpRms = sqrt(lpSumSq / winN).toFloat()
             val zcr = zc.toFloat() / winN
+
+            rawRmsStep[i] = rms
+            rawZcrStep[i] = zcr
+            lowBandRatioStep[i] = if (rms > 1e-6f) (lpRms / rms).coerceIn(0f, 1.2f) else 0f
+            if (rms > maxStepRawRms) maxStepRawRms = rms
+
             val fIdx = if (hopSize > 0 && frameIsVoicedSeq.isNotEmpty()) {
                 (((s + e) / 2) / hopSize).coerceIn(0, frameIsVoicedSeq.lastIndex)
             } else -1
-            val isVoiced = if (fIdx >= 0) frameIsVoicedSeq[fIdx] else (zcr < 0.24f)
-            stepVoiced[i] = isVoiced
+            periodicVoicedStep[i] = if (fIdx >= 0) frameIsVoicedSeq[fIdx] else (zcr < 0.22f)
+        }
+
+        val rawSonorant = FloatArray(numSteps)
+        val stepVoiced = BooleanArray(numSteps)
+        for (i in 0 until numSteps) {
+            val rms = rawRmsStep[i]
+            val zcr = rawZcrStep[i]
+            val lpRatio = lowBandRatioStep[i]
+            val isPeriodic = periodicVoicedStep[i]
+            // Creaky / vocal-fry continuity: irregular glottal pulses lose ACF periodicity (`!isPeriodic`)
+            // yet retain active vowel energy, low ZCR (`<= 0.16`), and dominant low-band energy (`>= 0.58`).
+            val isCreakySonorant = !isPeriodic &&
+                rms >= maxStepRawRms * 0.15f &&
+                zcr <= 0.165f &&
+                lpRatio >= 0.58f
+
+            val isSonorant = isPeriodic || isCreakySonorant
+            stepVoiced[i] = isSonorant
 
             val zcrWeight = (1.0f - ((zcr - 0.17f).coerceAtLeast(0f) * 3.0f)).coerceIn(0.12f, 1.0f)
-            val voiceWeight = if (isVoiced) 1.0f else 0.30f
+            val voiceWeight = when {
+                isPeriodic -> 1.0f
+                isCreakySonorant -> 0.88f
+                else -> 0.28f
+            }
             rawSonorant[i] = rms * zcrWeight * voiceWeight
         }
 
-        // 5-tap Gaussian smoothing (~40ms effective kernel)
+        // 5-tap Gaussian smoothing (~40ms effective kernel) on both sonorant and raw amplitude envelopes
         val kernel = floatArrayOf(0.12f, 0.22f, 0.32f, 0.22f, 0.12f)
         val smoothEnv = FloatArray(numSteps)
+        val smoothRawRms = FloatArray(numSteps)
         var maxEnv = 1e-6f
         for (i in 0 until numSteps) {
-            var acc = 0f
+            var accSon = 0f
+            var accRaw = 0f
             for (k in -2..2) {
                 val idx = (i + k).coerceIn(0, numSteps - 1)
-                acc += rawSonorant[idx] * kernel[k + 2]
+                val w = kernel[k + 2]
+                accSon += rawSonorant[idx] * w
+                accRaw += rawRmsStep[idx] * w
             }
-            smoothEnv[i] = acc
-            if (acc > maxEnv) maxEnv = acc
+            smoothEnv[i] = accSon
+            smoothRawRms[i] = accRaw
+            if (accSon > maxEnv) maxEnv = accSon
         }
 
         // Locate candidate local maxima (vowel nuclei)
@@ -1872,6 +1997,35 @@ object AcousticAnalyzer {
             return Triple(minStep, dipRatio, unvoicedCount)
         }
 
+        fun sustainedSonorantCoreSteps(peakIdx: Int): Int {
+            val thresh = smoothEnv[peakIdx] * 0.34f
+            var left = peakIdx
+            while (left > 0 && smoothEnv[left - 1] >= thresh && stepVoiced[left - 1]) left--
+            var right = peakIdx
+            while (right < numSteps - 1 && smoothEnv[right + 1] >= thresh && stepVoiced[right + 1]) right++
+            return (right - left + 1)
+        }
+
+        fun hasGenuinePauseBetween(pLeft: Int, pRight: Int): Boolean {
+            if (pRight - pLeft < 18) return false
+            if (sustainedSonorantCoreSteps(pLeft) < 8 || sustainedSonorantCoreSteps(pRight) < 8) return false
+            val flankRefRms = minOf(smoothRawRms[pLeft], smoothRawRms[pRight]).coerceAtLeast(1e-6f)
+            val silenceCeiling = flankRefRms * 0.15f
+            var maxQuietRun = 0
+            var curQuietRun = 0
+            for (k in (pLeft + 1) until pRight) {
+                val isSilentOrVoicelessClosure = rawRmsStep[k] <= silenceCeiling ||
+                    (!stepVoiced[k] && smoothRawRms[k] <= flankRefRms * 0.18f)
+                if (isSilentOrVoicelessClosure) {
+                    curQuietRun++
+                    if (curQuietRun > maxQuietRun) maxQuietRun = curQuietRun
+                } else {
+                    curQuietRun = 0
+                }
+            }
+            return maxQuietRun >= 6 // >= 60ms genuine silent/closure pause between independent vowel nuclei
+        }
+
         // Prune micro-ripples within a single vowel plateau (dipRatio > 0.76 and zero unvoiced break)
         val candidatePeaks = ArrayList<Int>(rawPeaks)
         var changed = true
@@ -1881,7 +2035,7 @@ object AcousticAnalyzer {
                 val pA = candidatePeaks[i]
                 val pB = candidatePeaks[i + 1]
                 val (_, dipRatio, unvCnt) = valleyStatsBetween(pA, pB)
-                if ((pB - pA) < 9 || (dipRatio > 0.78f && unvCnt == 0)) {
+                if ((pB - pA) < 9 || (dipRatio > 0.72f && unvCnt <= 1)) {
                     val dropIdx = if (smoothEnv[pA] >= smoothEnv[pB]) i + 1 else i
                     candidatePeaks.removeAt(dropIdx)
                     changed = true
@@ -1890,49 +2044,70 @@ object AcousticAnalyzer {
             }
         }
 
-        // Count strictly separated acoustic syllables (requiring deep consonant/closure valley so [ai] & [214] never split)
+        // Count strictly separated acoustic syllables (for expectedCountHint >= 2 promotion)
         val strongPeaks = ArrayList<Int>()
         for (p in candidatePeaks) {
-            if (smoothEnv[p] < maxEnv * 0.24f) continue
+            if (smoothEnv[p] < maxEnv * 0.26f || sustainedSonorantCoreSteps(p) < 6) continue
             if (strongPeaks.isEmpty()) {
                 strongPeaks.add(p)
             } else {
                 val prev = strongPeaks.last()
                 val (_, dipRatio, unvCnt) = valleyStatsBetween(prev, p)
-                val clearConsonantOrPauseBreak = (p - prev) >= 13 &&
-                    (dipRatio <= 0.32f || (unvCnt >= 4 && dipRatio <= 0.48f))
+                val clearConsonantOrPauseBreak = (p - prev) >= 15 &&
+                    (dipRatio <= 0.24f || (unvCnt >= 5 && dipRatio <= 0.38f))
                 if (clearConsonantOrPauseBreak) {
                     strongPeaks.add(p)
-                } else if (smoothEnv[p] > smoothEnv[prev] && dipRatio > 0.60f) {
+                } else if (smoothEnv[p] > smoothEnv[prev] && dipRatio > 0.55f) {
                     strongPeaks[strongPeaks.lastIndex] = p
                 }
             }
         }
         val strongAcousticCount = strongPeaks.size.coerceIn(1, 6)
 
+        // Strict pause-separated peaks exclusively for expectedCountHint == 1 (monosyllabic items):
+        // Protects dipping tones ([214], [313]) with mid-vowel creaky voice from EVER splitting unless
+        // the speaker genuinely uttered multiple syllables separated by a >= 60ms silent/closure gap.
+        val pauseSeparatedSingleOverridePeaks = ArrayList<Int>()
+        for (p in candidatePeaks) {
+            if (smoothEnv[p] < maxEnv * 0.28f || sustainedSonorantCoreSteps(p) < 8) continue
+            if (pauseSeparatedSingleOverridePeaks.isEmpty()) {
+                pauseSeparatedSingleOverridePeaks.add(p)
+            } else {
+                val prev = pauseSeparatedSingleOverridePeaks.last()
+                if (hasGenuinePauseBetween(prev, p)) {
+                    pauseSeparatedSingleOverridePeaks.add(p)
+                } else if (smoothEnv[p] > smoothEnv[prev]) {
+                    pauseSeparatedSingleOverridePeaks[pauseSeparatedSingleOverridePeaks.lastIndex] = p
+                }
+            }
+        }
+        val pauseSeparatedCount = pauseSeparatedSingleOverridePeaks.size.coerceIn(1, 6)
+
         // Fuse orthographic hint with acoustic syllable evidence
         val targetCount = when {
             expectedCountHint <= 0 -> {
-                // Pure acoustic auto-detection mode (e.g. corpus stats scan)
+                // Unsupervised mode (e.g. corpus median syllable duration scan)
                 val medPeaks = ArrayList<Int>()
                 for (p in candidatePeaks) {
-                    if (smoothEnv[p] < maxEnv * 0.22f) continue
+                    if (smoothEnv[p] < maxEnv * 0.26f || sustainedSonorantCoreSteps(p) < 7) continue
                     if (medPeaks.isEmpty()) {
                         medPeaks.add(p)
                     } else {
                         val prev = medPeaks.last()
                         val (_, dipRatio, unvCnt) = valleyStatsBetween(prev, p)
-                        if ((p - prev) >= 11 && (dipRatio <= 0.44f || (unvCnt >= 3 && dipRatio <= 0.56f))) {
+                        if ((p - prev) >= 15 && (dipRatio <= 0.26f || (unvCnt >= 5 && dipRatio <= 0.40f))) {
                             medPeaks.add(p)
+                        } else if (smoothEnv[p] > smoothEnv[prev] && dipRatio > 0.55f) {
+                            medPeaks[medPeaks.lastIndex] = p
                         }
                     }
                 }
                 medPeaks.size.coerceIn(1, 6)
             }
             expectedCountHint == 1 -> {
-                // Upgrade from 1 to N if audio unmistakably contains multiple separated syllables!
-                if (activeDurMs >= 360 && strongAcousticCount >= 2) {
-                    strongAcousticCount
+                // Only promote a single-syllable item when genuine silent/closure pauses separate >= 2 vowel nuclei!
+                if (activeDurMs >= 450 && pauseSeparatedCount >= 2) {
+                    pauseSeparatedCount
                 } else {
                     1
                 }
@@ -1941,7 +2116,7 @@ object AcousticAnalyzer {
                 // expectedCountHint >= 2
                 if (hasErhuaSuffix && candidatePeaks.size < expectedCountHint && activeDurMs < expectedCountHint * 245) {
                     (expectedCountHint - 1).coerceAtLeast(1)
-                } else if (strongAcousticCount > expectedCountHint && activeDurMs >= strongAcousticCount * 220) {
+                } else if (strongAcousticCount > expectedCountHint && activeDurMs >= strongAcousticCount * 240) {
                     strongAcousticCount
                 } else {
                     expectedCountHint
@@ -1977,16 +2152,18 @@ object AcousticAnalyzer {
         // Place (targetCount - 1) boundaries at true inter-nuclear valleys!
         val boundarySteps = ArrayList<Int>(targetCount - 1)
         if (candidatePeaks.size >= targetCount) {
-            // Select top-`targetCount` prominent peaks sorted chronologically
-            val chosenPeaks = if (candidatePeaks.size == targetCount) {
-                candidatePeaks.sorted()
-            } else if (strongPeaks.size == targetCount) {
-                strongPeaks.sorted()
-            } else {
-                candidatePeaks
-                    .sortedByDescending { smoothEnv[it] }
-                    .take(targetCount)
-                    .sorted()
+            val chosenPeaks = when {
+                expectedCountHint == 1 && pauseSeparatedSingleOverridePeaks.size == targetCount ->
+                    pauseSeparatedSingleOverridePeaks.sorted()
+                candidatePeaks.size == targetCount ->
+                    candidatePeaks.sorted()
+                strongPeaks.size == targetCount ->
+                    strongPeaks.sorted()
+                else ->
+                    candidatePeaks
+                        .sortedByDescending { smoothEnv[it] }
+                        .take(targetCount)
+                        .sorted()
             }
             for (m in 0 until targetCount - 1) {
                 val pLeft = chosenPeaks[m]
@@ -2006,8 +2183,6 @@ object AcousticAnalyzer {
                 boundarySteps.add(bestStep)
             }
         } else {
-            // Fewer distinct peaks than expected syllables (e.g. vocalic hiatus without stops):
-            // search wide flexible regions [b/K - 0.30/K .. b/K + 0.30/K] enforcing >= 6 steps spacing
             var prevStep = 0
             for (b in 1 until targetCount) {
                 val remaining = targetCount - b

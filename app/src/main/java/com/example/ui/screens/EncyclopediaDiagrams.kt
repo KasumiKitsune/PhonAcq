@@ -233,8 +233,8 @@ internal fun EncyclopediaDynamicDiagramCard(
         }
     }
 
-    if (showZoomLightbox) {
-        Dialog(
+    com.example.ui.components.AnimatedDialogVisibility(visible = showZoomLightbox) {
+        com.example.ui.components.StudioModalDialog(
             onDismissRequest = { showZoomLightbox = false },
             properties = DialogProperties(usePlatformDefaultWidth = false)
         ) {

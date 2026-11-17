@@ -29,16 +29,16 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.example.i18n.S
+import com.example.ui.components.StudioModalDialog
 import com.example.ui.components.rememberStudioInteraction
 
 @Composable
 fun ModeSelectionOnboardingDialog(
     onSelectMode: (isSimpleMode: Boolean) -> Unit
 ) {
-    Dialog(
+    StudioModalDialog(
         onDismissRequest = { /* Mandatory initial mode choice */ },
         properties = DialogProperties(
             dismissOnBackPress = false,

@@ -219,9 +219,10 @@ fun ProjectAcousticSummarySheet(
         }
     }
 
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     ModalBottomSheet(
         onDismissRequest = onDismiss,
-        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+        sheetState = sheetState,
         containerColor = MaterialTheme.colorScheme.surface,
         dragHandle = { BottomSheetDefaults.DragHandle() }
     ) {
@@ -288,7 +289,11 @@ fun ProjectAcousticSummarySheet(
                         }
                     }
                     FilledTonalIconButton(
-                        onClick = onDismiss,
+                        onClick = {
+                            scope.launch { sheetState.hide() }.invokeOnCompletion {
+                                if (!sheetState.isVisible) onDismiss()
+                            }
+                        },
                         modifier = Modifier.size(36.dp)
                     ) {
                         Icon(Icons.Default.Close, contentDescription = S.acoustics.closeMacroReportDesc, modifier = Modifier.size(18.dp))

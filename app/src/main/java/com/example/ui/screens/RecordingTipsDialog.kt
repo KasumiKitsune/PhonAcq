@@ -49,7 +49,6 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.compose.foundation.hoverable
 import androidx.compose.ui.input.pointer.PointerIcon
@@ -57,6 +56,7 @@ import androidx.compose.ui.input.pointer.pointerHoverIcon
 import com.example.i18n.S
 import com.example.ui.components.DesktopAdaptiveState
 import com.example.ui.components.KeycapBadge
+import com.example.ui.components.StudioModalDialog
 import com.example.ui.components.rememberStudioInteraction
 import kotlinx.coroutines.launch
 import kotlin.math.abs
@@ -175,24 +175,7 @@ fun RecordingTipsDialog(
         lerp(colorScheme.surfaceVariant.copy(alpha = 0.55f), colorScheme.primaryContainer.copy(alpha = 0.45f), 0.5f)
     }
 
-    val dialogEnterScale = remember { Animatable(0.94f) }
-    val dialogEnterAlpha = remember { Animatable(0f) }
-    LaunchedEffect(Unit) {
-        launch {
-            dialogEnterScale.animateTo(
-                targetValue = 1f,
-                animationSpec = spring(dampingRatio = 0.78f, stiffness = Spring.StiffnessMedium)
-            )
-        }
-        launch {
-            dialogEnterAlpha.animateTo(
-                targetValue = 1f,
-                animationSpec = tween(180)
-            )
-        }
-    }
-
-    Dialog(
+    StudioModalDialog(
         onDismissRequest = onDismiss,
         properties = DialogProperties(usePlatformDefaultWidth = false)
     ) {
@@ -218,11 +201,6 @@ fun RecordingTipsDialog(
                     )
                     .heightIn(max = maxHeight)
                     .fillMaxWidth()
-                    .graphicsLayer {
-                        scaleX = dialogEnterScale.value
-                        scaleY = dialogEnterScale.value
-                        alpha = dialogEnterAlpha.value
-                    }
                     .focusRequester(focusRequester)
                     .focusable()
                     .onPreviewKeyEvent { keyEvent ->

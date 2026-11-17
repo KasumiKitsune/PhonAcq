@@ -19,6 +19,8 @@ import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.togetherWith
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.launch
 import com.example.ui.components.DesktopAdaptiveState
 import com.example.ui.components.KeycapBadge
 import com.example.ui.components.PredictiveBackGestureHandler
@@ -1080,8 +1082,8 @@ fun RecordingScreen(
                 }
             }
 
-            if (showOverwriteConfirmDialog) {
-                AlertDialog(
+            com.example.ui.components.AnimatedDialogVisibility(visible = showOverwriteConfirmDialog) {
+                com.example.ui.components.StudioAlertDialog(
                     onDismissRequest = { showOverwriteConfirmDialog = false },
                     title = { Text(S.recording.overwriteDialogTitle, fontWeight = FontWeight.Bold) },
                     text = {
@@ -1106,8 +1108,8 @@ fun RecordingScreen(
             }
 
             // Confirm Delete Single Recording Dialog
-            if (showDeleteConfirmDialog) {
-                AlertDialog(
+            com.example.ui.components.AnimatedDialogVisibility(visible = showDeleteConfirmDialog) {
+                com.example.ui.components.StudioAlertDialog(
                     onDismissRequest = { showDeleteConfirmDialog = false },
                     icon = { Icon(Icons.Default.Delete, contentDescription = null, tint = MaterialTheme.colorScheme.error) },
                     title = { Text(S.recording.deleteCurrentTakeTitle) },
@@ -1139,8 +1141,8 @@ fun RecordingScreen(
             }
 
             // Confirm Clear All Speaker Recordings in Project Dialog
-            if (showClearAllConfirmDialog) {
-                AlertDialog(
+            com.example.ui.components.AnimatedDialogVisibility(visible = showClearAllConfirmDialog) {
+                com.example.ui.components.StudioAlertDialog(
                     onDismissRequest = { showClearAllConfirmDialog = false },
                     icon = { Icon(Icons.Default.DeleteSweep, contentDescription = null, tint = MaterialTheme.colorScheme.error) },
                     title = { Text(S.recording.clearSpeakerRecordingsTitle) },
@@ -1176,8 +1178,8 @@ fun RecordingScreen(
         }
 
         // Fieldwork Guide Dialog (Plain, human-friendly tips without geeky jargon)
-        if (showOnboardingTip) {
-            AlertDialog(
+        com.example.ui.components.AnimatedDialogVisibility(visible = showOnboardingTip) {
+            com.example.ui.components.StudioAlertDialog(
                 onDismissRequest = { showOnboardingTip = false },
                 icon = { Icon(Icons.Default.Lightbulb, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
                 title = { Text(S.recording.quickTipsDialogTitle, fontWeight = FontWeight.Bold) },
@@ -1210,7 +1212,7 @@ fun RecordingScreen(
         }
 
         // Speaker Management Dialog
-        if (showSpeakerDialog) {
+        com.example.ui.components.AnimatedDialogVisibility(visible = showSpeakerDialog) {
             val speakerGroups by viewModel.speakerGroups.collectAsState()
             val projectSummary = viewModel.projectSummaries.collectAsState().value[activeProject?.id]
             SpeakerSelectionAndManagementDialog(
@@ -1238,9 +1240,11 @@ fun RecordingScreen(
 
         // Acoustic & VAD Settings BottomSheet
         if (showSettingsSheet) {
+            val vadSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+            val vadSheetScope = rememberCoroutineScope()
             ModalBottomSheet(
                 onDismissRequest = { showSettingsSheet = false },
-                sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+                sheetState = vadSheetState,
                 containerColor = MaterialTheme.colorScheme.surface,
                 dragHandle = { BottomSheetDefaults.DragHandle() },
                 modifier = Modifier.testTag("vad_settings_sheet")
@@ -1282,7 +1286,11 @@ fun RecordingScreen(
                         showSettingsSheet = false
                         onOpenFullSettings()
                     },
-                    onClose = { showSettingsSheet = false },
+                    onClose = {
+                        vadSheetScope.launch { vadSheetState.hide() }.invokeOnCompletion {
+                            showSettingsSheet = false
+                        }
+                    },
                     isSimpleMode = isSimpleMode
                 )
             }
@@ -1810,7 +1818,7 @@ private fun RecordingStagePane(
             wordForTakeSwitcher != null
     )
 
-    wordForQuickRemark?.let { targetWord ->
+    com.example.ui.components.AnimatedNullableDialogVisibility(value = wordForQuickRemark) { targetWord ->
         QuickRemarkEditorDialog(
             word = targetWord,
             speakerName = activeSpeaker?.name ?: S.recording.currentSpeakerFallback,
@@ -1843,7 +1851,7 @@ private fun RecordingStagePane(
         )
     }
 
-    if (showInlineQuickNoteSettings) {
+    com.example.ui.components.AnimatedDialogVisibility(visible = showInlineQuickNoteSettings) {
         QuickNoteCustomizationDialog(
             toneSymbols = quickToneSymbols,
             ipaInitials = quickIpaInitials,
@@ -1865,7 +1873,7 @@ private fun RecordingStagePane(
         )
     }
 
-    wordForTakeSwitcher?.let { targetWord ->
+    com.example.ui.components.AnimatedNullableDialogVisibility(value = wordForTakeSwitcher) { targetWord ->
         val pid = activeProject?.id
         val sid = activeSpeaker?.id
         if (pid != null && sid != null) {
@@ -3002,7 +3010,7 @@ private fun QuickRemarkEditorDialog(
 
     val simpleBasicTags = S.recording.quickNoteDialogTagsFallback
 
-    AlertDialog(
+    com.example.ui.components.StudioAlertDialog(
         onDismissRequest = onDismiss,
         icon = { Icon(Icons.Default.EditNote, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
         title = {
@@ -3288,7 +3296,7 @@ private fun MultiTakeSwitcherDialog(
     onDeriveTakeAsVariant: ((File) -> Unit)? = null,
     onDismiss: () -> Unit
 ) {
-    AlertDialog(
+    com.example.ui.components.StudioAlertDialog(
         onDismissRequest = onDismiss,
         icon = { Icon(Icons.Default.History, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
         title = {
@@ -4283,8 +4291,8 @@ fun RecordingQuickSettingsSidebarPane(
         )
     }
 
-    if (showClearAllConfirmDialog) {
-        AlertDialog(
+    com.example.ui.components.AnimatedDialogVisibility(visible = showClearAllConfirmDialog) {
+        com.example.ui.components.StudioAlertDialog(
             onDismissRequest = { showClearAllConfirmDialog = false },
             icon = { Icon(Icons.Default.DeleteSweep, contentDescription = null, tint = MaterialTheme.colorScheme.error) },
             title = { Text(S.recording.clearSpeakerRecordingsTitle) },
@@ -4935,7 +4943,7 @@ fun SpeakerSelectionAndManagementDialog(
         }
     }
 
-    Dialog(onDismissRequest = onDismiss) {
+    com.example.ui.components.StudioModalDialog(onDismissRequest = onDismiss) {
         com.example.ui.components.StudioDialogEnterAnimation {
             Surface(
                 shape = RoundedCornerShape(28.dp),
@@ -5395,8 +5403,8 @@ fun SpeakerSelectionAndManagementDialog(
                     }
                 }
 
-                speakerPendingDelete?.let { pending ->
-                    AlertDialog(
+                com.example.ui.components.AnimatedNullableDialogVisibility(value = speakerPendingDelete) { pending ->
+                    com.example.ui.components.StudioAlertDialog(
                         onDismissRequest = { speakerPendingDelete = null },
                         icon = {
                             Icon(
@@ -5427,7 +5435,7 @@ fun SpeakerSelectionAndManagementDialog(
                         }
                     )
                 }
-                speakerForManualPitch?.let { targetSpk ->
+                com.example.ui.components.AnimatedNullableDialogVisibility(value = speakerForManualPitch) { targetSpk ->
                     if (viewModel != null) {
                         ManualSpeakerPitchDialog(
                             speaker = targetSpk,
@@ -5475,7 +5483,7 @@ internal fun ManualSpeakerPitchDialog(
     var minText by remember(speaker.id, currentRange) { mutableStateOf(defaultMin.toString()) }
     var maxText by remember(speaker.id, currentRange) { mutableStateOf(defaultMax.toString()) }
 
-    AlertDialog(
+    com.example.ui.components.StudioAlertDialog(
         onDismissRequest = onDismiss,
         title = {
             Text(

@@ -1902,7 +1902,7 @@ fun QuickNoteCustomizationDialog(
     onAddIpaFinal: (String) -> Unit = {},
     onRemoveIpaFinal: (String) -> Unit = {}
 ) {
-    Dialog(
+    com.example.ui.components.StudioModalDialog(
         onDismissRequest = onDismiss,
         properties = DialogProperties(
             usePlatformDefaultWidth = false

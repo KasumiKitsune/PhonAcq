@@ -573,5 +573,286 @@ class SpeechQualityAndWirelessArchiveTest {
             db.close()
         }
     }
+
+    private fun synthesizeDynamicKlattSyllable(
+        durMs: Int,
+        sampleRate: Int = 44100,
+        f0At: (Double) -> Double,
+        f1At: (Double) -> Double,
+        f2At: (Double) -> Double,
+        f3At: (Double) -> Double = { 2650.0 },
+        ampAt: (Double) -> Double = { t -> kotlin.math.sqrt(kotlin.math.sin(PI * t.coerceIn(0.0, 1.0))) },
+        creakyMidRegion: Boolean = false
+    ): ShortArray {
+        val nSamples = (sampleRate * durMs) / 1000
+        val glottal = DoubleArray(nSamples)
+        var phase = 0.0
+        var cycleCount = 0
+        for (i in 0 until nSamples) {
+            val tNorm = i.toDouble() / nSamples.coerceAtLeast(1)
+            val baseF0 = f0At(tNorm)
+            val inCreak = creakyMidRegion && tNorm in 0.34..0.64
+            // Simulate realistic vocal fry: period alternation (subharmonics) + cycle-to-cycle jitter
+            val effF0 = if (inCreak) {
+                val subFactor = if (cycleCount % 2 == 0) 0.62 else 1.18
+                baseF0 * subFactor
+            } else {
+                baseF0
+            }
+            phase += effF0 / sampleRate
+            if (phase >= 1.0) {
+                phase -= 1.0
+                cycleCount++
+            }
+            val pulse = when {
+                phase < 0.38 -> 0.5 * (1.0 - kotlin.math.cos(PI * phase / 0.38))
+                phase < 0.54 -> kotlin.math.cos(PI * (phase - 0.38) / (2.0 * 0.16))
+                else -> 0.0
+            }
+            val creakAmpScale = if (inCreak) {
+                if (cycleCount % 2 == 0) 0.36 else 0.52
+            } else 1.0
+            glottal[i] = (pulse + 0.08 * sin(2.0 * PI * phase)) * ampAt(tNorm) * creakAmpScale
+        }
+
+        // Time-varying 2-pole cascade resonators (F1 -> F2 -> F3)
+        fun cascadeResonator(inp: DoubleArray, freqFn: (Double) -> Double, bwHz: Double): DoubleArray {
+            val out = DoubleArray(inp.size)
+            val r = kotlin.math.exp(-PI * bwHz / sampleRate)
+            val a2 = -r * r
+            var y1 = 0.0
+            var y2 = 0.0
+            for (i in inp.indices) {
+                val tNorm = i.toDouble() / inp.size.coerceAtLeast(1)
+                val freq = freqFn(tNorm).coerceIn(180.0, sampleRate * 0.44)
+                val a1 = 2.0 * r * kotlin.math.cos(2.0 * PI * freq / sampleRate)
+                val b0 = 1.0 - a1 - a2
+                val y = b0 * inp[i] + a1 * y1 + a2 * y2
+                out[i] = y
+                y2 = y1
+                y1 = y
+            }
+            return out
+        }
+
+        val r1 = cascadeResonator(glottal, f1At, 75.0)
+        val r2 = cascadeResonator(r1, f2At, 105.0)
+        val r3 = cascadeResonator(r2, f3At, 150.0)
+
+        // Lip radiation (+6 dB/oct) & peak normalization
+        val radiated = DoubleArray(nSamples)
+        var peak = 1e-6
+        for (i in 1 until nSamples) {
+            radiated[i] = r3[i] - 0.95 * r3[i - 1]
+            val a = kotlin.math.abs(radiated[i])
+            if (a > peak) peak = a
+        }
+        return ShortArray(nSamples) { idx ->
+            ((radiated[idx] / peak) * 18500.0).toInt().coerceIn(-32767, 32767).toShort()
+        }
+    }
+
+    @Test
+    fun `extractSyllableUnits strips Pinyin IPA slashes numbering and keeps single-syllable items as 1 unit`() {
+        assertEquals(listOf("啊"), com.example.audio.AcousticAnalyzer.extractSyllableUnits("啊 a"))
+        assertEquals(listOf("哀"), com.example.audio.AcousticAnalyzer.extractSyllableUnits("哀 ai"))
+        assertEquals(listOf("衣"), com.example.audio.AcousticAnalyzer.extractSyllableUnits("衣 /i/"))
+        assertEquals(listOf("衣"), com.example.audio.AcousticAnalyzer.extractSyllableUnits("衣 | [i55]"))
+        assertEquals(listOf("衣"), com.example.audio.AcousticAnalyzer.extractSyllableUnits("01 衣"))
+        assertEquals(listOf("衣"), com.example.audio.AcousticAnalyzer.extractSyllableUnits("衣1"))
+        assertEquals(1, com.example.audio.AcousticAnalyzer.extractSyllableUnits("/ai/").size)
+        assertEquals(1, com.example.audio.AcousticAnalyzer.extractSyllableUnits("/aːi/").size)
+        assertEquals(1, com.example.audio.AcousticAnalyzer.extractSyllableUnits("ɿ").size)
+        assertEquals(1, com.example.audio.AcousticAnalyzer.extractSyllableUnits("ʅ").size)
+        assertEquals(1, com.example.audio.AcousticAnalyzer.extractSyllableUnits("ma214").size)
+        assertEquals(1, com.example.audio.AcousticAnalyzer.extractSyllableUnits("ma˥˩").size)
+        assertEquals(listOf("葡", "萄"), com.example.audio.AcousticAnalyzer.extractSyllableUnits("葡萄 putao"))
+        assertEquals(listOf("T", "恤"), com.example.audio.AcousticAnalyzer.extractSyllableUnits("T恤"))
+    }
+
+    @Test
+    fun `creaky dipping 214 monosyllable stays 1 syllable while pause-separated utterance promotes to 2`() {
+        // 1. Long 540ms Tone [214] monosyllable with mid-syllable creaky voice (vocal fry) & amplitude dip
+        val creaky214 = generateRoomTone(110, amp = 25, seed = 11) +
+            synthesizeDynamicKlattSyllable(
+                durMs = 540,
+                f0At = { t ->
+                    when {
+                        t < 0.45 -> 185.0 - (185.0 - 96.0) * (t / 0.45)
+                        else -> 96.0 + (215.0 - 96.0) * ((t - 0.45) / 0.55)
+                    }
+                },
+                f1At = { 740.0 },
+                f2At = { 1280.0 },
+                creakyMidRegion = true
+            ) +
+            generateRoomTone(120, amp = 25, seed = 12)
+
+        val creakyWav = File(tempDir, "mono_creaky_214.wav")
+        writePcmWav(creakyWav, creaky214)
+
+        val parts = com.example.audio.AcousticAnalyzer.extractSyllableUnits("马 ma214")
+        assertEquals(1, parts.size)
+
+        val creakyRes = com.example.audio.AcousticAnalyzer.analyzeByGender(
+            file = creakyWav,
+            speakerGender = "女",
+            segmentCount = parts.size,
+            pitchRange = Pair(105f, 235f),
+            segmentLabels = parts
+        )
+        assertNotNull(creakyRes)
+        assertEquals(
+            "Creaky [214] monosyllable must NEVER be split into multiple syllables",
+            1,
+            creakyRes!!.segmentCount
+        )
+
+        // 2. Genuine 2-syllable utterance separated by 85ms silent closure still promotes cleanly when hint == 1
+        val genuineTwo = generateRoomTone(100, amp = 20, seed = 21) +
+            synthesizeDynamicKlattSyllable(durMs = 240, f0At = { 215.0 }, f1At = { 750.0 }, f2At = { 1280.0 }) +
+            generateRoomTone(85, amp = 20, seed = 22) +
+            synthesizeDynamicKlattSyllable(durMs = 250, f0At = { t -> 225.0 - 75.0 * t }, f1At = { 310.0 }, f2At = { 2260.0 }) +
+            generateRoomTone(100, amp = 20, seed = 23)
+        val twoWav = File(tempDir, "genuine_two_pause.wav")
+        writePcmWav(twoWav, genuineTwo)
+
+        val twoRes = com.example.audio.AcousticAnalyzer.analyzeByGender(
+            file = twoWav,
+            speakerGender = "女",
+            segmentCount = 1,
+            pitchRange = Pair(135f, 245f),
+            segmentLabels = listOf("单条")
+        )
+        assertNotNull(twoRes)
+        assertEquals(2, twoRes!!.segmentCount)
+    }
+
+    @Test
+    fun `pure objective formant trajectory classifies steady vowels with consonant locus and steep 51 tone as MONOPHTHONG and real glides as DIPHTHONG or TRIPHTHONG`() {
+        // 1. Monophthongs [a], [i], [u], [ɤ] with 35ms initial consonant F2 locus transition + steep [51] falling F0 (255 -> 115 Hz)
+        data class MonoSpec(val name: String, val f1: Double, val f2: Double, val locusF2: Double)
+        val monoSpecs = listOf(
+            MonoSpec("a", f1 = 760.0, f2 = 1280.0, locusF2 = 1720.0),
+            MonoSpec("i", f1 = 295.0, f2 = 2310.0, locusF2 = 1820.0),
+            MonoSpec("u", f1 = 325.0, f2 = 820.0, locusF2 = 1320.0),
+            MonoSpec("e_back", f1 = 485.0, f2 = 1240.0, locusF2 = 1680.0)
+        )
+
+        for (spec in monoSpecs) {
+            val samples = generateRoomTone(100, amp = 20) +
+                synthesizeDynamicKlattSyllable(
+                    durMs = 340,
+                    f0At = { t -> 255.0 - 140.0 * t }, // Steep [51] falling F0!
+                    f1At = { t -> if (t < 0.10) (spec.f1 * 0.78 + spec.f1 * 0.22 * (t / 0.10)) else spec.f1 },
+                    f2At = { t ->
+                        when {
+                            t < 0.11 -> spec.locusF2 + (spec.f2 - spec.locusF2) * (t / 0.11) // 37ms consonant locus
+                            t > 0.90 -> spec.f2 + (1450.0 - spec.f2) * ((t - 0.90) / 0.10) * 0.25 // slight coda relaxation
+                            else -> spec.f2
+                        }
+                    }
+                ) +
+                generateRoomTone(100, amp = 20)
+
+            val wav = File(tempDir, "mono_${spec.name}.wav")
+            writePcmWav(wav, samples)
+            val res = com.example.audio.AcousticAnalyzer.analyzeByGender(
+                file = wav,
+                speakerGender = "女",
+                segmentCount = 1,
+                segmentLabels = listOf(spec.name)
+            )
+            assertNotNull(res)
+            val traj = res!!.formantTrajectories.first()
+            assertEquals(
+                "Expected monophthong [${spec.name}] to be MONOPHTHONG, got ${traj.vowelType} (span=${traj.barkGlideSpan}, anchors=${traj.anchors.map { it.f1Hz to it.f2Hz }})",
+                com.example.audio.VowelGlideType.MONOPHTHONG,
+                traj.vowelType
+            )
+        }
+
+        // 2. Genuine Diphthong [ai]: continuous movement across vowel core (770, 1260) -> (310, 2260)
+        val aiSamples = generateRoomTone(100, amp = 20) +
+            synthesizeDynamicKlattSyllable(
+                durMs = 360,
+                f0At = { t -> 235.0 - 15.0 * t },
+                f1At = { t -> 770.0 + (310.0 - 770.0) * t.coerceIn(0.0, 1.0) },
+                f2At = { t -> 1260.0 + (2260.0 - 1260.0) * t.coerceIn(0.0, 1.0) }
+            ) +
+            generateRoomTone(100, amp = 20)
+        val aiWav = File(tempDir, "diph_ai.wav")
+        writePcmWav(aiWav, aiSamples)
+        val aiRes = com.example.audio.AcousticAnalyzer.analyzeByGender(aiWav, "女", 1, segmentLabels = listOf("哀"))!!
+        val aiTraj = aiRes.formantTrajectories.first()
+        assertEquals(
+            "Expected [ai] to be DIPHTHONG, got ${aiTraj.vowelType} (span=${aiTraj.barkGlideSpan}, anchors=${aiTraj.anchors.map { it.f1Hz to it.f2Hz }})",
+            com.example.audio.VowelGlideType.DIPHTHONG,
+            aiTraj.vowelType
+        )
+
+        // 3. Genuine Back Diphthong [ou]: (560, 1140) -> (325, 760)
+        val ouSamples = generateRoomTone(100, amp = 20) +
+            synthesizeDynamicKlattSyllable(
+                durMs = 360,
+                f0At = { t -> 225.0 - 10.0 * t },
+                f1At = { t -> 560.0 + (325.0 - 560.0) * t.coerceIn(0.0, 1.0) },
+                f2At = { t -> 1140.0 + (760.0 - 1140.0) * t.coerceIn(0.0, 1.0) }
+            ) +
+            generateRoomTone(100, amp = 20)
+        val ouWav = File(tempDir, "diph_ou.wav")
+        writePcmWav(ouWav, ouSamples)
+        val ouRes = com.example.audio.AcousticAnalyzer.analyzeByGender(ouWav, "女", 1, segmentLabels = listOf("欧"))!!
+        val ouTraj = ouRes.formantTrajectories.first()
+        assertEquals(
+            "Expected [ou] to be DIPHTHONG, got ${ouTraj.vowelType} (span=${ouTraj.barkGlideSpan}, anchors=${ouTraj.anchors.map { it.f1Hz to it.f2Hz }})",
+            com.example.audio.VowelGlideType.DIPHTHONG,
+            ouTraj.vowelType
+        )
+
+        // 3b. Genuine Narrow Front Diphthong [ei]: (465, 1940) -> (295, 2295)
+        val eiSamples = generateRoomTone(100, amp = 20) +
+            synthesizeDynamicKlattSyllable(
+                durMs = 360,
+                f0At = { t -> 225.0 - 10.0 * t },
+                f1At = { t -> 465.0 + (295.0 - 465.0) * t.coerceIn(0.0, 1.0) },
+                f2At = { t -> 1940.0 + (2295.0 - 1940.0) * t.coerceIn(0.0, 1.0) }
+            ) +
+            generateRoomTone(100, amp = 20)
+        val eiWav = File(tempDir, "diph_ei.wav")
+        writePcmWav(eiWav, eiSamples)
+        val eiRes = com.example.audio.AcousticAnalyzer.analyzeByGender(eiWav, "女", 1, segmentLabels = listOf("杯"))!!
+        val eiTraj = eiRes.formantTrajectories.first()
+        assertEquals(
+            "Expected [ei] to be DIPHTHONG, got ${eiTraj.vowelType} (span=${eiTraj.barkGlideSpan}, anchors=${eiTraj.anchors.map { it.f1Hz to it.f2Hz }})",
+            com.example.audio.VowelGlideType.DIPHTHONG,
+            eiTraj.vowelType
+        )
+
+        // 4. Genuine Triphthong [iau]: (310, 2260) -> (760, 1320) -> (340, 820)
+        val iauSamples = generateRoomTone(100, amp = 20) +
+            synthesizeDynamicKlattSyllable(
+                durMs = 420,
+                f0At = { 220.0 },
+                f1At = { t ->
+                    if (t < 0.5) 310.0 + (760.0 - 310.0) * (t / 0.5)
+                    else 760.0 + (340.0 - 760.0) * ((t - 0.5) / 0.5)
+                },
+                f2At = { t ->
+                    if (t < 0.5) 2260.0 + (1320.0 - 2260.0) * (t / 0.5)
+                    else 1320.0 + (820.0 - 1320.0) * ((t - 0.5) / 0.5)
+                }
+            ) +
+            generateRoomTone(100, amp = 20)
+        val iauWav = File(tempDir, "tri_iau.wav")
+        writePcmWav(iauWav, iauSamples)
+        val iauRes = com.example.audio.AcousticAnalyzer.analyzeByGender(iauWav, "女", 1, segmentLabels = listOf("腰"))!!
+        val iauTraj = iauRes.formantTrajectories.first()
+        assertEquals(
+            "Expected [iau] to be TRIPHTHONG, got ${iauTraj.vowelType} (span=${iauTraj.barkGlideSpan}, anchors=${iauTraj.anchors.map { it.f1Hz to it.f2Hz }})",
+            com.example.audio.VowelGlideType.TRIPHTHONG,
+            iauTraj.vowelType
+        )
+    }
 }
 

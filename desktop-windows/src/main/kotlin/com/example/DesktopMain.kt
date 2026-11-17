@@ -53,9 +53,15 @@ import com.example.data.AppDatabase
 import com.example.data.ProjectRepository
 import com.example.i18n.S
 import com.example.i18n.withArgs
+import com.example.ui.components.AnimatedDialogVisibility
 import com.example.ui.components.DesktopAdaptiveState
+import com.example.ui.components.DesktopModalHost
+import com.example.ui.components.DesktopModalManager
 import com.example.ui.components.KeycapBadge
+import com.example.ui.components.StudioModalDialog
 import com.example.ui.components.studioTactile
+import com.example.ui.filepicker.DesktopFilePickerController
+import com.example.ui.filepicker.DesktopStudioFilePickerHost
 import com.example.ui.screens.MainScreen
 import com.example.ui.theme.MyApplicationTheme
 import com.example.viewmodel.RecordingViewModel
@@ -112,6 +118,11 @@ fun main() = application {
                         if (viewModel.isRecording.value) {
                             viewModel.triggerStopRecording()
                             return@Window true
+                        }
+                        if (DesktopModalManager.entries.any { !it.isExiting }) {
+                            if (DesktopBackDispatcher.dispatchBack()) {
+                                return@Window true
+                            }
                         }
                         if (DesktopAdaptiveState.showShortcutCheatSheet) {
                             DesktopAdaptiveState.showShortcutCheatSheet = false
@@ -212,11 +223,15 @@ fun main() = application {
         }
     ) {
         // Apply multi-resolution AWT Window icons (16, 24, 32, 48, 64, 128, 256) for crisp Windows taskbar & titlebar
-        LaunchedEffect(Unit) {
+        DisposableEffect(window) {
+            DesktopFilePickerController.attachMainWindow(window)
             try {
                 window.minimumSize = Dimension(960, 640)
                 window.iconImages = DesktopIconRenderer.getMultiResolutionWindowIcons()
             } catch (_: Exception) {
+            }
+            onDispose {
+                DesktopFilePickerController.attachMainWindow(null)
             }
         }
 
@@ -251,11 +266,17 @@ fun main() = application {
                     modifier = Modifier.fillMaxSize()
                 )
 
-                if (DesktopAdaptiveState.showShortcutCheatSheet) {
+                AnimatedDialogVisibility(visible = DesktopAdaptiveState.showShortcutCheatSheet) {
                     DesktopShortcutCheatSheetDialog(
                         onDismiss = { DesktopAdaptiveState.showShortcutCheatSheet = false }
                     )
                 }
+
+                // Built-in Studio File Picker (mounts into DesktopModalHost with smooth spring enter/exit)
+                DesktopStudioFilePickerHost()
+
+                // Unified Desktop Modal Overlay Stack (renders all StudioModalDialog & StudioAlertDialog entries)
+                DesktopModalHost(modifier = Modifier.fillMaxSize())
 
                 // Floating Desktop Toast Overlay
                 AnimatedVisibility(
@@ -689,7 +710,7 @@ private fun DesktopShortcutCheatSheetDialog(
 ) {
     val shortcuts = remember(S) { S.desktop.shortcutRows }
 
-    androidx.compose.ui.window.Dialog(onDismissRequest = onDismiss) {
+    StudioModalDialog(onDismissRequest = onDismiss) {
         com.example.ui.components.StudioDialogEnterAnimation {
             Surface(
                 shape = RoundedCornerShape(24.dp),

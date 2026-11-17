@@ -59,10 +59,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.example.BuildConfig
 import com.example.i18n.S
+import com.example.ui.components.StudioModalDialog
 import com.example.i18n.withArgs
 import com.example.ui.components.StudioDialogEnterAnimation
 
@@ -80,11 +80,11 @@ fun AboutCategoryContent() {
 fun AboutPhonAcqDialog(
     onDismiss: () -> Unit
 ) {
-    Dialog(
+    StudioModalDialog(
         onDismissRequest = onDismiss,
         properties = DialogProperties(usePlatformDefaultWidth = false)
     ) {
-        StudioDialogEnterAnimation(
+        com.example.ui.components.StudioDialogEnterAnimation(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 16.dp, vertical = 24.dp)

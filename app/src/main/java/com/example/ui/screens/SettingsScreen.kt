@@ -775,8 +775,8 @@ fun SettingsScreen(
                 }
             }
 
-            if (showResetConfirm) {
-                AlertDialog(
+            com.example.ui.components.AnimatedDialogVisibility(visible = showResetConfirm) {
+                com.example.ui.components.StudioAlertDialog(
                     onDismissRequest = { showResetConfirm = false },
                     title = { Text(S.settings.resetConfirmTitle, fontWeight = FontWeight.Bold) },
                     text = {
@@ -801,7 +801,7 @@ fun SettingsScreen(
                 )
             }
 
-            if (showPairingDialogInSettings) {
+            com.example.ui.components.AnimatedDialogVisibility(visible = showPairingDialogInSettings) {
                 WirelessLinkPairingDialog(
                     viewModel = viewModel,
                     onDismiss = { showPairingDialogInSettings = false }

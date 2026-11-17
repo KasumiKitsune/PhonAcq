@@ -540,8 +540,8 @@ fun MultiDeviceLinkCategoryContent(
         }
     }
 
-    capsulePendingDelete?.let { targetCap ->
-        AlertDialog(
+    com.example.ui.components.AnimatedNullableDialogVisibility(value = capsulePendingDelete) { targetCap ->
+        com.example.ui.components.StudioAlertDialog(
             onDismissRequest = { capsulePendingDelete = null },
             title = { Text(S.wireless.deleteCapsuleDialogTitle) },
             text = {
