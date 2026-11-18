@@ -15,6 +15,7 @@ import kotlinx.coroutines.withContext
 enum class DesktopFilePickerMode {
     OPEN_SINGLE,
     OPEN_MULTIPLE,
+    OPEN_DIRECTORY,
     SAVE_FILE
 }
 
@@ -168,42 +169,60 @@ object ModernNativeFileDialogs {
                         """.trimIndent()
                     )
                 }
-                if (mode == DesktopFilePickerMode.SAVE_FILE) {
-                    appendLine("\$dlg = New-Object System.Windows.Forms.SaveFileDialog")
-                    appendLine("\$dlg.OverwritePrompt = \$true")
-                    appendLine("\$dlg.AddExtension = \$true")
-                    if (defaultExt.isNotEmpty()) {
-                        appendLine("\$dlg.DefaultExt = '${escapePsSingleQuoted(defaultExt)}'")
+                if (mode == DesktopFilePickerMode.OPEN_DIRECTORY) {
+                    appendLine("\$dlg = New-Object System.Windows.Forms.FolderBrowserDialog")
+                    appendLine("\$dlg.Description = '${escapePsSingleQuoted(title)}'")
+                    appendLine("\$dlg.SelectedPath = '${escapePsSingleQuoted(startDir.absolutePath)}'")
+                    appendLine("\$dlg.ShowNewFolderButton = \$false")
+                    if (hwndValue != 0L) {
+                        appendLine("\$owner = New-Object PhonAcqWinOwner($hwndValue)")
+                        appendLine("\$res = \$dlg.ShowDialog(\$owner)")
+                    } else {
+                        appendLine("\$res = \$dlg.ShowDialog()")
                     }
-                    if (suggestedFileName.isNotBlank()) {
-                        appendLine("\$dlg.FileName = '${escapePsSingleQuoted(suggestedFileName)}'")
-                    }
+                    appendLine("if (\$res -eq [System.Windows.Forms.DialogResult]::OK) {")
+                    appendLine("  [Console]::Out.WriteLine('PATH:' + \$dlg.SelectedPath)")
+                    appendLine("} else {")
+                    appendLine("  [Console]::Out.WriteLine('CANCELLED')")
+                    appendLine("}")
                 } else {
-                    appendLine("\$dlg = New-Object System.Windows.Forms.OpenFileDialog")
-                    appendLine("\$dlg.CheckFileExists = \$true")
-                    appendLine("\$dlg.Multiselect = ${if (mode == DesktopFilePickerMode.OPEN_MULTIPLE) "\$true" else "\$false"}")
-                }
-                appendLine("\$dlg.AutoUpgradeEnabled = \$true")
-                appendLine("\$dlg.RestoreDirectory = \$true")
-                appendLine("\$dlg.Title = '${escapePsSingleQuoted(title)}'")
-                appendLine("\$dlg.InitialDirectory = '${escapePsSingleQuoted(startDir.absolutePath)}'")
-                appendLine("\$dlg.Filter = '${escapePsSingleQuoted(winFilterSpec)}'")
+                    if (mode == DesktopFilePickerMode.SAVE_FILE) {
+                        appendLine("\$dlg = New-Object System.Windows.Forms.SaveFileDialog")
+                        appendLine("\$dlg.OverwritePrompt = \$true")
+                        appendLine("\$dlg.AddExtension = \$true")
+                        if (defaultExt.isNotEmpty()) {
+                            appendLine("\$dlg.DefaultExt = '${escapePsSingleQuoted(defaultExt)}'")
+                        }
+                        if (suggestedFileName.isNotBlank()) {
+                            appendLine("\$dlg.FileName = '${escapePsSingleQuoted(suggestedFileName)}'")
+                        }
+                    } else {
+                        appendLine("\$dlg = New-Object System.Windows.Forms.OpenFileDialog")
+                        appendLine("\$dlg.CheckFileExists = \$true")
+                        appendLine("\$dlg.Multiselect = ${if (mode == DesktopFilePickerMode.OPEN_MULTIPLE) "\$true" else "\$false"}")
+                    }
+                    appendLine("\$dlg.AutoUpgradeEnabled = \$true")
+                    appendLine("\$dlg.RestoreDirectory = \$true")
+                    appendLine("\$dlg.Title = '${escapePsSingleQuoted(title)}'")
+                    appendLine("\$dlg.InitialDirectory = '${escapePsSingleQuoted(startDir.absolutePath)}'")
+                    appendLine("\$dlg.Filter = '${escapePsSingleQuoted(winFilterSpec)}'")
 
-                if (hwndValue != 0L) {
-                    appendLine("\$owner = New-Object PhonAcqWinOwner($hwndValue)")
-                    appendLine("\$res = \$dlg.ShowDialog(\$owner)")
-                } else {
-                    appendLine("\$res = \$dlg.ShowDialog()")
+                    if (hwndValue != 0L) {
+                        appendLine("\$owner = New-Object PhonAcqWinOwner($hwndValue)")
+                        appendLine("\$res = \$dlg.ShowDialog(\$owner)")
+                    } else {
+                        appendLine("\$res = \$dlg.ShowDialog()")
+                    }
+                    appendLine("if (\$res -eq [System.Windows.Forms.DialogResult]::OK) {")
+                    if (mode == DesktopFilePickerMode.OPEN_MULTIPLE) {
+                        appendLine("  foreach (\$f in \$dlg.FileNames) { [Console]::Out.WriteLine('PATH:' + \$f) }")
+                    } else {
+                        appendLine("  [Console]::Out.WriteLine('PATH:' + \$dlg.FileName)")
+                    }
+                    appendLine("} else {")
+                    appendLine("  [Console]::Out.WriteLine('CANCELLED')")
+                    appendLine("}")
                 }
-                appendLine("if (\$res -eq [System.Windows.Forms.DialogResult]::OK) {")
-                if (mode == DesktopFilePickerMode.OPEN_MULTIPLE) {
-                    appendLine("  foreach (\$f in \$dlg.FileNames) { [Console]::Out.WriteLine('PATH:' + \$f) }")
-                } else {
-                    appendLine("  [Console]::Out.WriteLine('PATH:' + \$dlg.FileName)")
-                }
-                appendLine("} else {")
-                appendLine("  [Console]::Out.WriteLine('CANCELLED')")
-                appendLine("}")
             }
 
             val encoded = Base64.getEncoder().encodeToString(psScript.toByteArray(StandardCharsets.UTF_16LE))
@@ -379,6 +398,19 @@ object ModernNativeFileDialogs {
                     end run
                 """.trimIndent()
 
+                DesktopFilePickerMode.OPEN_DIRECTORY -> """
+                    on run argv
+                        set promptText to item 1 of argv
+                        set startFolder to POSIX file (item 2 of argv) as alias
+                        try
+                            set chosenFolder to choose folder with prompt promptText default location startFolder
+                            return POSIX path of chosenFolder
+                        on error number -128
+                            return "__CANCELLED__"
+                        end try
+                    end run
+                """.trimIndent()
+
                 DesktopFilePickerMode.OPEN_SINGLE -> """
                     on run argv
                         set promptText to item 1 of argv
@@ -481,6 +513,9 @@ object ModernNativeFileDialogs {
                     DesktopFilePickerMode.OPEN_MULTIPLE -> {
                         cmd += listOf("--getopenfilename", startDir.absolutePath, kFilter, "--multiple", "--separate-output")
                     }
+                    DesktopFilePickerMode.OPEN_DIRECTORY -> {
+                        cmd += listOf("--getexistingdirectory", startDir.absolutePath)
+                    }
                     DesktopFilePickerMode.OPEN_SINGLE -> {
                         cmd += listOf("--getopenfilename", startDir.absolutePath, kFilter)
                     }
@@ -523,20 +558,25 @@ object ModernNativeFileDialogs {
                 cmd += "--multiple"
                 cmd += "--separator=\n"
             }
+            DesktopFilePickerMode.OPEN_DIRECTORY -> {
+                cmd += "--directory"
+            }
             DesktopFilePickerMode.OPEN_SINGLE -> Unit
         }
-        for (cat in filters) {
-            if (cat.extensions.isEmpty()) {
-                cmd += "--file-filter=${cat.label} | *"
-            } else {
-                val patterns = cat.extensions.flatMap { ext ->
-                    listOf("*.${ext.lowercase()}", "*.${ext.uppercase()}")
-                }.distinct().joinToString(" ")
-                cmd += "--file-filter=${cat.label} | $patterns"
+        if (mode != DesktopFilePickerMode.OPEN_DIRECTORY) {
+            for (cat in filters) {
+                if (cat.extensions.isEmpty()) {
+                    cmd += "--file-filter=${cat.label} | *"
+                } else {
+                    val patterns = cat.extensions.flatMap { ext ->
+                        listOf("*.${ext.lowercase()}", "*.${ext.uppercase()}")
+                    }.distinct().joinToString(" ")
+                    cmd += "--file-filter=${cat.label} | $patterns"
+                }
             }
-        }
-        if (filters.none { it.extensions.isEmpty() }) {
-            cmd += "--file-filter=所有文件 (*.*) | *"
+            if (filters.none { it.extensions.isEmpty() }) {
+                cmd += "--file-filter=所有文件 (*.*) | *"
+            }
         }
         return cmd
     }
@@ -559,7 +599,7 @@ object ModernNativeFileDialogs {
                 }
 
                 val osName = System.getProperty("os.name", "").lowercase()
-                if (osName.contains("mac") || osName.contains("darwin")) {
+                if ((osName.contains("mac") || osName.contains("darwin")) && mode != DesktopFilePickerMode.OPEN_DIRECTORY) {
                     val dialogMode = if (mode == DesktopFilePickerMode.SAVE_FILE) FileDialog.SAVE else FileDialog.LOAD
                     val dialog = FileDialog(ownerFrame, title, dialogMode)
                     dialog.directory = startDir.absolutePath
@@ -583,21 +623,26 @@ object ModernNativeFileDialogs {
                 } else {
                     val chooser = JFileChooser(startDir).apply {
                         dialogTitle = title
-                        isAcceptAllFileFilterUsed = true
-                        isMultiSelectionEnabled = (mode == DesktopFilePickerMode.OPEN_MULTIPLE)
-                        var firstExtFilter: FileNameExtensionFilter? = null
-                        for (cat in filters) {
-                            if (cat.extensions.isNotEmpty()) {
-                                val f = FileNameExtensionFilter(cat.label, *cat.extensions.toTypedArray())
-                                addChoosableFileFilter(f)
-                                if (firstExtFilter == null) firstExtFilter = f
+                        if (mode == DesktopFilePickerMode.OPEN_DIRECTORY) {
+                            fileSelectionMode = JFileChooser.DIRECTORIES_ONLY
+                            isAcceptAllFileFilterUsed = false
+                        } else {
+                            isAcceptAllFileFilterUsed = true
+                            isMultiSelectionEnabled = (mode == DesktopFilePickerMode.OPEN_MULTIPLE)
+                            var firstExtFilter: FileNameExtensionFilter? = null
+                            for (cat in filters) {
+                                if (cat.extensions.isNotEmpty()) {
+                                    val f = FileNameExtensionFilter(cat.label, *cat.extensions.toTypedArray())
+                                    addChoosableFileFilter(f)
+                                    if (firstExtFilter == null) firstExtFilter = f
+                                }
                             }
-                        }
-                        if (firstExtFilter != null) {
-                            fileFilter = firstExtFilter
-                        }
-                        if (mode == DesktopFilePickerMode.SAVE_FILE && suggestedFileName.isNotBlank()) {
-                            selectedFile = File(startDir, suggestedFileName)
+                            if (firstExtFilter != null) {
+                                fileFilter = firstExtFilter
+                            }
+                            if (mode == DesktopFilePickerMode.SAVE_FILE && suggestedFileName.isNotBlank()) {
+                                selectedFile = File(startDir, suggestedFileName)
+                            }
                         }
                     }
                     val status = if (mode == DesktopFilePickerMode.SAVE_FILE) {

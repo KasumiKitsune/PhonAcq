@@ -87,27 +87,30 @@ fun ProjectListScreen(
     var showSpeakerManagerScreen by remember { mutableStateOf(false) }
     var initialSpeakerGroupFilter by remember { mutableStateOf<String?>(null) }
     var selectedProjectForDetails by remember { mutableStateOf<Project?>(null) }
-    var isImportingZip by remember { mutableStateOf(false) }
+    var showSmartImportHub by remember { mutableStateOf(false) }
+    var pendingSmartImportUris by remember { mutableStateOf<List<android.net.Uri>>(emptyList()) }
+    var pendingMergeTargetProject by remember { mutableStateOf<Project?>(null) }
+    var isGlobalDropHovering by remember { mutableStateOf(false) }
 
-    SuspendDesktopShortcutsWhen(showSpeakerManagerScreen || selectedProjectForDetails != null)
+    SuspendDesktopShortcutsWhen(showSpeakerManagerScreen || selectedProjectForDetails != null || showSmartImportHub)
 
-    val importZipLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.OpenDocument()
-    ) { uri ->
-        if (uri != null) {
-            isImportingZip = true
-            val inputStream = context.contentResolver.openInputStream(uri)
-            if (inputStream != null) {
-                viewModel.importProjectZip(inputStream) { summary ->
-                    isImportingZip = false
-                    Toast.makeText(context, summary.message, Toast.LENGTH_LONG).show()
-                }
-            } else {
-                isImportingZip = false
-                Toast.makeText(context, S.project.cannotReadArchive, Toast.LENGTH_SHORT).show()
+    val canAcceptHomeGlobalDrop = com.example.ui.components.DesktopAdaptiveState.isDesktopPlatform &&
+        !showSmartImportHub &&
+        !showSpeakerManagerScreen &&
+        selectedProjectForDetails == null &&
+        com.example.ui.components.DesktopModalManager.entries.isEmpty()
+
+    com.example.utils.SmartImportDesktopDropEffect(
+        enabled = canAcceptHomeGlobalDrop,
+        onHoverChanged = { isGlobalDropHovering = it },
+        onDroppedUris = { dropped ->
+            if (dropped.isNotEmpty()) {
+                pendingSmartImportUris = dropped
+                pendingMergeTargetProject = null
+                showSmartImportHub = true
             }
         }
-    }
+    )
 
     val wireless = viewModel.wirelessLink
     val isLinkConnected by wireless.isConnected.collectAsState()
@@ -187,53 +190,30 @@ fun ProjectListScreen(
                         }
                     },
                     actions = {
-                        if (!isSimpleMode) {
-                            TextButton(
-                                onClick = {
-                                    if (!isImportingZip) {
-                                        importZipLauncher.launch(
-                                            arrayOf(
-                                                "application/zip",
-                                                "application/x-zip-compressed",
-                                                "application/octet-stream",
-                                                "*/*"
-                                            )
-                                        )
-                                    }
-                                },
-                                enabled = !isImportingZip,
-                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
-                                modifier = Modifier.testTag("import_zip_archive_button")
-                            ) {
-                                if (isImportingZip) {
-                                    CircularProgressIndicator(
-                                        modifier = Modifier.size(14.dp),
-                                        strokeWidth = 2.dp
-                                    )
-                                    Spacer(modifier = Modifier.width(6.dp))
-                                    Text(
-                                        text = S.project.importingProject,
-                                        fontSize = 12.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        maxLines = 1,
-                                        softWrap = false
-                                    )
-                                } else {
-                                    Icon(
-                                        imageVector = Icons.Default.FolderZip,
-                                        contentDescription = S.project.importProject,
-                                        modifier = Modifier.size(16.dp)
-                                    )
-                                    Spacer(modifier = Modifier.width(4.dp))
-                                    Text(
-                                        text = S.project.importProject,
-                                        fontSize = 12.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        maxLines = 1,
-                                        softWrap = false
-                                    )
-                                }
-                            }
+                        TextButton(
+                            onClick = {
+                                pendingSmartImportUris = emptyList()
+                                pendingMergeTargetProject = null
+                                showSmartImportHub = true
+                            },
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
+                            modifier = Modifier
+                                .pointerHoverIcon(PointerIcon.Hand)
+                                .testTag("import_zip_archive_button")
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.UploadFile,
+                                contentDescription = com.example.i18n.SSmartImport.entryButtonLabel,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(
+                                text = com.example.i18n.SSmartImport.entryButtonLabel,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                maxLines = 1,
+                                softWrap = false
+                            )
                         }
                         if (onOpenWirelessLink != null) {
                             IconButton(
@@ -364,28 +344,21 @@ fun ProjectListScreen(
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = MaterialTheme.colorScheme.outline
                             )
-                            if (!isSimpleMode) {
-                                Spacer(modifier = Modifier.height(16.dp))
-                                OutlinedButton(
-                                    onClick = {
-                                        if (!isImportingZip) {
-                                            importZipLauncher.launch(
-                                                arrayOf(
-                                                    "application/zip",
-                                                    "application/x-zip-compressed",
-                                                    "application/octet-stream",
-                                                    "*/*"
-                                                )
-                                            )
-                                        }
-                                    },
-                                    shape = RoundedCornerShape(14.dp),
-                                    modifier = Modifier.testTag("empty_state_import_zip_button")
-                                ) {
-                                    Icon(Icons.Default.FolderZip, contentDescription = null, modifier = Modifier.size(18.dp))
-                                    Spacer(modifier = Modifier.width(6.dp))
-                                    Text(S.project.importProject, fontWeight = FontWeight.Bold, maxLines = 1, softWrap = false)
-                                }
+                            Spacer(modifier = Modifier.height(16.dp))
+                            OutlinedButton(
+                                onClick = {
+                                    pendingSmartImportUris = emptyList()
+                                    pendingMergeTargetProject = null
+                                    showSmartImportHub = true
+                                },
+                                shape = RoundedCornerShape(14.dp),
+                                modifier = Modifier
+                                    .pointerHoverIcon(PointerIcon.Hand)
+                                    .testTag("empty_state_import_zip_button")
+                            ) {
+                                Icon(Icons.Default.UploadFile, contentDescription = null, modifier = Modifier.size(18.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(com.example.i18n.SSmartImport.hubTitle, fontWeight = FontWeight.Bold, maxLines = 1, softWrap = false)
                             }
                         }
                     } else {
@@ -674,6 +647,12 @@ fun ProjectListScreen(
                                 onOpenWordListEditor(targetProj)
                             }
                         } else null,
+                        onOpenSmartMergeImport = {
+                            selectedProjectForDetails = null
+                            pendingSmartImportUris = emptyList()
+                            pendingMergeTargetProject = targetProj
+                            showSmartImportHub = true
+                        },
                         onUpdate = { name, desc, groupName ->
                             viewModel.updateProjectDetails(targetProj, name, desc, groupName) {
                                 selectedProjectForDetails = null
@@ -733,6 +712,75 @@ fun ProjectListScreen(
                     }
                 }
             )
+        }
+
+        com.example.ui.components.AnimatedDialogVisibility(visible = showSmartImportHub) {
+            SmartImportHubDialog(
+                viewModel = viewModel,
+                initialUris = pendingSmartImportUris,
+                initialMergeProject = pendingMergeTargetProject,
+                onDismiss = {
+                    showSmartImportHub = false
+                    pendingSmartImportUris = emptyList()
+                    pendingMergeTargetProject = null
+                },
+                onImportCompleted = {
+                    showSmartImportHub = false
+                    pendingSmartImportUris = emptyList()
+                    pendingMergeTargetProject = null
+                    onProjectOpened()
+                }
+            )
+        }
+
+        AnimatedVisibility(
+            visible = isGlobalDropHovering,
+            enter = fadeIn(tween(140)),
+            exit = fadeOut(tween(140)),
+            modifier = Modifier.fillMaxSize()
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(MaterialTheme.colorScheme.scrim.copy(alpha = 0.28f))
+                    .padding(24.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Surface(
+                    shape = RoundedCornerShape(28.dp),
+                    color = MaterialTheme.colorScheme.primaryContainer,
+                    border = BorderStroke(2.dp, MaterialTheme.colorScheme.primary),
+                    tonalElevation = 4.dp,
+                    modifier = Modifier.widthIn(max = 560.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 28.dp, vertical = 22.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(16.dp)
+                    ) {
+                        Surface(
+                            shape = CircleShape,
+                            color = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(48.dp)
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Icon(
+                                    imageVector = Icons.Default.UploadFile,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.onPrimary,
+                                    modifier = Modifier.size(24.dp)
+                                )
+                            }
+                        }
+                        Text(
+                            text = com.example.i18n.SSmartImport.globalDropBannerText,
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer
+                        )
+                    }
+                }
+            }
         }
     }
 }
@@ -1857,6 +1905,7 @@ fun ProjectDetailEditDialog(
     summary: ProjectMultiSpeakerSummary?,
     onDismiss: () -> Unit,
     onOpenInWordEditor: (() -> Unit)? = null,
+    onOpenSmartMergeImport: (() -> Unit)? = null,
     onUpdate: (String, String, String) -> Unit
 ) {
     val isSimpleMode by viewModel.isSimpleMode.collectAsState()
@@ -2220,21 +2269,39 @@ fun ProjectDetailEditDialog(
                                 }
                             }
 
-                            FilledTonalButton(
-                                onClick = {
-                                    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as? android.content.ClipboardManager
-                                    val clip = android.content.ClipData.newPlainText("word_list", wordsTextToCopy)
-                                    clipboard?.setPrimaryClip(clip)
-                                    Toast.makeText(context, S.project.copiedFullWordListToast, Toast.LENGTH_SHORT).show()
-                                },
-                                shape = RoundedCornerShape(14.dp),
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .testTag("copy_all_words_button")
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
-                                Icon(Icons.Default.ContentCopy, contentDescription = null, modifier = Modifier.size(16.dp))
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Text(S.project.copyFullWordList, fontSize = 13.sp, fontWeight = FontWeight.Bold, maxLines = 1, softWrap = false)
+                                FilledTonalButton(
+                                    onClick = {
+                                        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as? android.content.ClipboardManager
+                                        val clip = android.content.ClipData.newPlainText("word_list", wordsTextToCopy)
+                                        clipboard?.setPrimaryClip(clip)
+                                        Toast.makeText(context, S.project.copiedFullWordListToast, Toast.LENGTH_SHORT).show()
+                                    },
+                                    shape = RoundedCornerShape(14.dp),
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .testTag("copy_all_words_button")
+                                ) {
+                                    Icon(Icons.Default.ContentCopy, contentDescription = null, modifier = Modifier.size(16.dp))
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text(S.project.copyFullWordList, fontSize = 13.sp, fontWeight = FontWeight.Bold, maxLines = 1, softWrap = false)
+                                }
+                                if (onOpenSmartMergeImport != null) {
+                                    OutlinedButton(
+                                        onClick = onOpenSmartMergeImport,
+                                        shape = RoundedCornerShape(14.dp),
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .testTag("merge_import_into_project_button")
+                                    ) {
+                                        Icon(Icons.Default.UploadFile, contentDescription = null, modifier = Modifier.size(16.dp))
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Text(com.example.i18n.SSmartImport.modeMergeExisting, fontSize = 13.sp, fontWeight = FontWeight.Bold, maxLines = 1, softWrap = false)
+                                    }
+                                }
                             }
                         }
                     }

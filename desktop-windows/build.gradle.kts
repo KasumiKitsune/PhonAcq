@@ -56,7 +56,8 @@ sourceSets {
         kotlin.exclude(
             "**/MainActivity.kt",
             "**/data/AppDatabase.kt",
-            "**/ui/theme/Theme.kt"
+            "**/ui/theme/Theme.kt",
+            "**/utils/SmartImportPlatformBridge.kt"
         )
     }
 }

@@ -241,17 +241,23 @@ object DesktopFilePickerController {
                 FileFilterCategory(
                     id = "supported_all",
                     label = "全部支持格式",
-                    extensions = listOf("xlsx", "csv", "tsv", "txt", "docx", "json", "zip", "teproj", "textgrid")
+                    extensions = listOf(
+                        "xlsx", "csv", "tsv", "txt", "docx", "json",
+                        "wav", "mp3", "m4a", "aac", "flac", "ogg", "aiff",
+                        "zip", "teproj",
+                        "png", "jpg", "jpeg", "webp", "bmp",
+                        "textgrid"
+                    )
                 ),
                 FileFilterCategory(
                     id = "spreadsheets",
-                    label = "表格 (.xlsx/.csv)",
-                    extensions = listOf("xlsx", "csv", "tsv")
+                    label = "字表 (.xlsx/.csv/.txt/.docx)",
+                    extensions = listOf("xlsx", "csv", "tsv", "txt", "docx", "json")
                 ),
                 FileFilterCategory(
-                    id = "docs",
-                    label = "文本与 Word",
-                    extensions = listOf("txt", "docx", "json")
+                    id = "audio",
+                    label = "录音 (.wav/.mp3/.m4a/.flac)",
+                    extensions = listOf("wav", "mp3", "m4a", "aac", "flac", "ogg", "aiff")
                 ),
                 FileFilterCategory(
                     id = "archives",
@@ -259,9 +265,9 @@ object DesktopFilePickerController {
                     extensions = listOf("zip", "teproj")
                 ),
                 FileFilterCategory(
-                    id = "praat",
-                    label = "Praat (.TextGrid)",
-                    extensions = listOf("textgrid")
+                    id = "images",
+                    label = "配图 (.png/.jpg/.webp)",
+                    extensions = listOf("png", "jpg", "jpeg", "webp", "bmp")
                 ),
                 FileFilterCategory(
                     id = "all",
@@ -341,6 +347,27 @@ object DesktopFilePickerController {
             onComplete = { files ->
                 files.firstOrNull()?.parentFile?.let { rememberVisitedDirectory(it, isSave = false) }
                 onResult(files)
+            }
+        )
+    }
+
+    fun launchOpenDirectory(
+        title: String,
+        onResult: (File?) -> Unit
+    ) {
+        val startDir = resolveDefaultDirectory(isSave = false, preferPictures = false)
+        activeRequest = DesktopFilePickerRequest(
+            id = nextReqId++,
+            mode = DesktopFilePickerMode.OPEN_DIRECTORY,
+            title = title,
+            initialDirectory = startDir,
+            filters = listOf(FileFilterCategory("folders", "文件夹", emptyList())),
+            preferGridByDefault = false,
+            maxSelectionCount = 1,
+            onComplete = { files ->
+                val dir = files.firstOrNull { it.isDirectory }
+                if (dir != null) rememberVisitedDirectory(dir, isSave = false)
+                onResult(dir)
             }
         )
     }
@@ -498,6 +525,7 @@ private fun DesktopStudioFilePickerSurface(request: DesktopFilePickerRequest) {
 
     val isSaveMode = request.mode == DesktopFilePickerMode.SAVE_FILE
     val isMultiMode = request.mode == DesktopFilePickerMode.OPEN_MULTIPLE
+    val isDirMode = request.mode == DesktopFilePickerMode.OPEN_DIRECTORY
 
     var currentDir by remember(request.id) { mutableStateOf(request.initialDirectory) }
     val historyBackStack = remember(request.id) { mutableStateListOf<File>() }
@@ -600,11 +628,22 @@ private fun DesktopStudioFilePickerSurface(request: DesktopFilePickerRequest) {
                             dtde.dropComplete(true)
                             if (dropped.isEmpty()) return
 
+                            if (isDirMode) {
+                                val firstDir = dropped.firstOrNull { it.isDirectory } ?: dropped.firstOrNull()?.parentFile
+                                if (firstDir != null && firstDir.isDirectory) {
+                                    DesktopFilePickerController.completeSelection(listOf(firstDir))
+                                }
+                                return
+                            }
                             if (dropped.size == 1 && dropped[0].isDirectory) {
                                 navigateToDirectory(dropped[0])
                                 return
                             }
-                            val validFiles = dropped.filter { it.isFile }
+                            val validFiles = if (isMultiMode) {
+                                dropped.filter { it.isFile || it.isDirectory }
+                            } else {
+                                dropped.filter { it.isFile }
+                            }
                             if (validFiles.isEmpty()) return
 
                             if (isSaveMode) {
@@ -679,7 +718,7 @@ private fun DesktopStudioFilePickerSurface(request: DesktopFilePickerRequest) {
     ) {
         val q = searchQuery.trim().lowercase()
         val filtered = rawDirectoryItems.filter { f ->
-            val matchesFilter = f.isDirectory || activeFilter.matches(f)
+            val matchesFilter = if (isDirMode) f.isDirectory else (f.isDirectory || activeFilter.matches(f))
             val matchesSearch = q.isEmpty() || f.name.lowercase().contains(q)
             matchesFilter && matchesSearch
         }
@@ -757,6 +796,9 @@ private fun DesktopStudioFilePickerSurface(request: DesktopFilePickerRequest) {
             } else {
                 DesktopFilePickerController.completeSelection(listOf(out))
             }
+        } else if (isDirMode) {
+            val targetDir = focusedSingleItem?.takeIf { it.isDirectory } ?: currentDir
+            DesktopFilePickerController.completeSelection(listOf(targetDir))
         } else if (isMultiMode) {
             if (selectedFiles.isNotEmpty()) {
                 DesktopFilePickerController.completeSelection(selectedFiles.toList())
@@ -969,7 +1011,8 @@ private fun DesktopStudioFilePickerSurface(request: DesktopFilePickerRequest) {
                                     Icon(
                                         imageVector = when (request.mode) {
                                             DesktopFilePickerMode.SAVE_FILE -> Icons.Default.Download
-                                            DesktopFilePickerMode.OPEN_MULTIPLE -> Icons.Default.Image
+                                            DesktopFilePickerMode.OPEN_DIRECTORY -> Icons.Default.FolderSpecial
+                                            DesktopFilePickerMode.OPEN_MULTIPLE -> Icons.Default.UploadFile
                                             DesktopFilePickerMode.OPEN_SINGLE -> Icons.Default.UploadFile
                                         },
                                         contentDescription = null,
@@ -998,7 +1041,8 @@ private fun DesktopStudioFilePickerSurface(request: DesktopFilePickerRequest) {
                                         Text(
                                             text = when (request.mode) {
                                                 DesktopFilePickerMode.SAVE_FILE -> "导出保存"
-                                                DesktopFilePickerMode.OPEN_MULTIPLE -> "可多选 (最多 ${request.maxSelectionCount} 项)"
+                                                DesktopFilePickerMode.OPEN_DIRECTORY -> "选择整个文件夹"
+                                                DesktopFilePickerMode.OPEN_MULTIPLE -> "可多选 (支持拖拽)"
                                                 DesktopFilePickerMode.OPEN_SINGLE -> "支持拖拽文件直达"
                                             },
                                             fontSize = 10.5.sp,
@@ -1752,6 +1796,8 @@ private fun DesktopStudioFilePickerSurface(request: DesktopFilePickerRequest) {
                                 }
                             } else {
                                 val summaryLabel = when {
+                                    isDirMode && focusedSingleItem?.isDirectory == true -> "将扫描子目录：${focusedSingleItem!!.name}"
+                                    isDirMode -> "将扫描当前目录：${currentDir.name.ifBlank { currentDir.absolutePath }}"
                                     isMultiMode && selectedFiles.isNotEmpty() -> "已选 ${selectedFiles.size} 个文件"
                                     selectedFiles.isNotEmpty() -> selectedFiles.first().name
                                     focusedSingleItem?.isDirectory == true -> "文件夹：${focusedSingleItem!!.name}"
@@ -1760,8 +1806,8 @@ private fun DesktopStudioFilePickerSurface(request: DesktopFilePickerRequest) {
                                 Text(
                                     text = summaryLabel,
                                     fontSize = 12.sp,
-                                    fontWeight = if (selectedFiles.isNotEmpty()) FontWeight.SemiBold else FontWeight.Normal,
-                                    color = if (selectedFiles.isNotEmpty()) cs.onSurface else cs.onSurfaceVariant,
+                                    fontWeight = if (selectedFiles.isNotEmpty() || isDirMode) FontWeight.SemiBold else FontWeight.Normal,
+                                    color = if (selectedFiles.isNotEmpty() || isDirMode) cs.onSurface else cs.onSurfaceVariant,
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis,
                                     modifier = Modifier.widthIn(max = 280.dp)
@@ -1778,13 +1824,19 @@ private fun DesktopStudioFilePickerSurface(request: DesktopFilePickerRequest) {
 
                             val canConfirm = when {
                                 isSaveMode -> saveFileNameInput.isNotBlank()
+                                isDirMode -> true
                                 isMultiMode -> selectedFiles.isNotEmpty() || focusedSingleItem?.isDirectory == true
                                 else -> selectedFiles.isNotEmpty() || focusedSingleItem != null
                             }
                             val primaryBtnLabel = when {
                                 isSaveMode -> "保存至此"
+                                isDirMode -> if (focusedSingleItem?.isDirectory == true) {
+                                    "选择「${focusedSingleItem!!.name.take(10)}」"
+                                } else {
+                                    "选择此文件夹"
+                                }
                                 focusedSingleItem?.isDirectory == true && selectedFiles.isEmpty() -> "打开文件夹"
-                                isMultiMode -> if (selectedFiles.isEmpty()) "选择文件" else "导入 (${selectedFiles.size})"
+                                isMultiMode -> if (selectedFiles.isEmpty()) "选择文件" else "添加 (${selectedFiles.size})"
                                 else -> "打开"
                             }
 

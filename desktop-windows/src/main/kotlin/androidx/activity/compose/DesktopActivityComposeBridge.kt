@@ -75,6 +75,28 @@ fun <I, O> rememberLauncherForActivityResult(
                     }
                 }
 
+                is ActivityResultContracts.OpenMultipleDocuments -> {
+                    DesktopFilePickerController.launchOpenMultiple(
+                        title = "选择待导入文件（可多选字表、录音、配图或项目包）",
+                        wantImageOnly = false,
+                        maxItems = 2500
+                    ) { files ->
+                        val uris = files.map { Uri.fromFile(it) }
+                        @Suppress("UNCHECKED_CAST")
+                        currentOnResult.value(uris as O)
+                    }
+                }
+
+                is ActivityResultContracts.OpenDocumentTree -> {
+                    DesktopFilePickerController.launchOpenDirectory(
+                        title = "选择包含字表或录音的文件夹（自动递归扫描）"
+                    ) { dir ->
+                        val uri = dir?.let { Uri.fromFile(it) }
+                        @Suppress("UNCHECKED_CAST")
+                        currentOnResult.value(uri as O)
+                    }
+                }
+
                 is ActivityResultContracts.PickVisualMedia -> {
                     DesktopFilePickerController.launchOpenSingle(
                         title = S.desktop.dialogPickWordImageTitle,

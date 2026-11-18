@@ -11,6 +11,8 @@ class ActivityResultContracts {
     class CreateDocument(val mimeType: String = "*/*") : Contract<String, Uri?>()
     class GetContent : Contract<String, Uri?>()
     class OpenDocument : Contract<Array<String>, Uri?>()
+    class OpenMultipleDocuments : Contract<Array<String>, List<Uri>>()
+    class OpenDocumentTree : Contract<Uri?, Uri?>()
     class RequestPermission : Contract<String, Boolean>()
 
     class PickVisualMedia : Contract<PickVisualMediaRequest, Uri?>() {
