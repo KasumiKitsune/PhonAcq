@@ -170,11 +170,13 @@ jobs:
           $dest = "dist/PhonAcq-v$($env:RAW_VERSION)-windows-x64-setup.exe"
           Copy-Item -Path $setup.FullName -Destination $dest -Force
 
-          # Verify silent install + same-version in-place overwrite + clean uninstall
+          # Verify silent install + runtime/JAR integrity + same-version in-place overwrite + clean uninstall
           $smokeDir = Join-Path $env:RUNNER_TEMP "PhonAcqSmoke"
           $p1 = Start-Process -FilePath (Resolve-Path $dest).Path -ArgumentList "--silent", "--dir=$smokeDir" -Wait -PassThru
-          if ($p1.ExitCode -ne 0 -or -not (Test-Path (Join-Path $smokeDir "PhonAcq.exe")) -or -not (Test-Path (Join-Path $smokeDir "Uninstall-PhonAcq.exe"))) {
-            Write-Error "首次静默安装自检失败 (ExitCode=$($p1.ExitCode))"
+          $hasRuntimeModules = Test-Path (Join-Path $smokeDir "runtime\lib\modules")
+          $hasAppJars = [bool](Get-ChildItem -Path (Join-Path $smokeDir "app") -Filter "*.jar" -ErrorAction SilentlyContinue)
+          if ($p1.ExitCode -ne 0 -or -not (Test-Path (Join-Path $smokeDir "PhonAcq.exe")) -or -not (Test-Path (Join-Path $smokeDir "Uninstall-PhonAcq.exe")) -or -not $hasRuntimeModules -or -not $hasAppJars) {
+            Write-Error "首次静默安装自检失败 (ExitCode=$($p1.ExitCode), runtime=$hasRuntimeModules, jars=$hasAppJars)"
             exit 1
           }
           $p2 = Start-Process -FilePath (Resolve-Path $dest).Path -ArgumentList "--silent", "--dir=$smokeDir" -Wait -PassThru
@@ -187,7 +189,8 @@ jobs:
             Write-Error "卸载程序静默自检失败 (ExitCode=$($p3.ExitCode))"
             exit 1
           }
-          Write-Host "Prepared & verified Windows EXE installer: $dest"
+          $exeSizeMb = [math]::Round((Get-Item $dest).Length / 1MB, 2)
+          Write-Host "Prepared & verified Windows Solid-LZMA EXE installer ($($exeSizeMb) MB): $dest"
 
       - name: Upload Windows EXE Artifact
         uses: actions/upload-artifact@v4
@@ -220,14 +223,17 @@ jobs:
         env:
           RAW_VERSION: ${{ needs.prepare.outputs.raw_version }}
         run: |
-          gradle -p desktop-windows createDistributable -PappVersion="${RAW_VERSION}" --no-daemon
+          gradle -p desktop-windows createReleaseDistributable -PappVersion="${RAW_VERSION}" --no-daemon
 
-          APP_BUNDLE="$(find desktop-windows/build/compose/binaries/main/app -maxdepth 1 -name '*.app' | head -n 1)"
+          APP_BUNDLE="$(find desktop-windows/build/compose/binaries/main-release/app -maxdepth 1 -name '*.app' 2>/dev/null | head -n 1)"
+          if [ -z "$APP_BUNDLE" ] || [ ! -d "$APP_BUNDLE" ]; then
+            APP_BUNDLE="$(find desktop-windows/build/compose/binaries/main/app -maxdepth 1 -name '*.app' 2>/dev/null | head -n 1)"
+          fi
           if [ -z "$APP_BUNDLE" ] || [ ! -d "$APP_BUNDLE" ]; then
             echo "::error::未找到生成的 macOS .app 应用包"
             exit 1
           fi
-          echo "Built app bundle: $APP_BUNDLE"
+          echo "Built release app bundle: $APP_BUNDLE"
 
           # Ad-hoc sign Mach-O binaries inside bundled JVM runtime with runtime entitlements,
           # then sign the runtime bundle and outer PhonAcq.app bundle with microphone & network entitlements
@@ -253,13 +259,27 @@ jobs:
           cp -R "$APP_BUNDLE" "$STAGING_DIR/PhonAcq.app"
           ln -s /Applications "$STAGING_DIR/Applications"
 
+          # Package using Apple-native ULMO (LZMA) compression — 100% supported by Finder on all Apple Silicon Macs (macOS 11+)
           DEST="dist/PhonAcq-v${RAW_VERSION}-macos-arm64.dmg"
           hdiutil create \
             -volname "PhonAcq v${RAW_VERSION}" \
             -srcfolder "$STAGING_DIR" \
             -ov \
-            -format UDZO \
+            -format ULMO \
             "$DEST"
+
+          # Mount-verify the ULMO DMG & signature integrity
+          MOUNT_DIR="${RUNNER_TEMP}/dmg-verify"
+          rm -rf "$MOUNT_DIR"
+          mkdir -p "$MOUNT_DIR"
+          hdiutil attach -readonly -nobrowse -mountpoint "$MOUNT_DIR" "$DEST"
+          if [ ! -x "$MOUNT_DIR/PhonAcq.app/Contents/MacOS/PhonAcq" ]; then
+            hdiutil detach "$MOUNT_DIR" || true
+            echo "::error::ULMO DMG 挂载自检失败：未找到可执行文件 PhonAcq"
+            exit 1
+          fi
+          codesign --verify --verbose=2 "$MOUNT_DIR/PhonAcq.app"
+          hdiutil detach "$MOUNT_DIR"
           ls -lh "$DEST"
 
       - name: Upload macOS DMG Artifact

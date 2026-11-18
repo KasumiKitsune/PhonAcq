@@ -219,7 +219,9 @@ class RecordingViewModel(
 
     private val TAG_DELIMITER = "||"
     private val DEFAULT_QUICK_TONE_SYMBOLS = listOf(
-        "55", "35", "214", "51", "44", "33", "21", "24", "42", "53", "ʔ", "ʰ", "̃"
+        "55", "35", "214", "51", "44", "33", "21", "24", "42", "53",
+        "˥", "˦", "˧", "˨", "˩",
+        "ʔ", "ʰ", "̃"
     )
     private val DEFAULT_QUICK_IPA_INITIALS = DEFAULT_DIALECT_IPA_INITIALS
     private val DEFAULT_QUICK_IPA_FINALS = DEFAULT_DIALECT_IPA_FINALS
@@ -414,15 +416,24 @@ class RecordingViewModel(
         }
     }
 
+    private fun normalizePhoneticSymbolEntry(raw: String): String {
+        val trimmed = raw.trim()
+        return if (trimmed.startsWith("◌") && trimmed.length > 1) {
+            trimmed.removePrefix("◌")
+        } else {
+            trimmed
+        }
+    }
+
     fun setQuickToneSymbols(symbols: List<String>) {
-        val cleaned = symbols.map { it.trim() }.filter { it.isNotEmpty() }.distinct()
+        val cleaned = symbols.map(::normalizePhoneticSymbolEntry).filter { it.isNotEmpty() }.distinct()
         _quickToneSymbols.value = cleaned
         sharedPrefs.edit().putString("quick_tone_symbols", cleaned.joinToString(TAG_DELIMITER)).apply()
         notifyQuickShorthandSynced()
     }
 
     fun addQuickToneSymbol(symbol: String) {
-        val trimmed = symbol.trim()
+        val trimmed = normalizePhoneticSymbolEntry(symbol)
         if (trimmed.isEmpty()) return
         val updated = (_quickToneSymbols.value + trimmed).distinct()
         setQuickToneSymbols(updated)
@@ -439,14 +450,14 @@ class RecordingViewModel(
     }
 
     fun setQuickIpaInitials(symbols: List<String>) {
-        val cleaned = symbols.map { it.trim() }.filter { it.isNotEmpty() }.distinct()
+        val cleaned = symbols.map(::normalizePhoneticSymbolEntry).filter { it.isNotEmpty() }.distinct()
         _quickIpaInitials.value = cleaned
         sharedPrefs.edit().putString("quick_ipa_initials", cleaned.joinToString(TAG_DELIMITER)).apply()
         notifyQuickShorthandSynced()
     }
 
     fun addQuickIpaInitial(symbol: String) {
-        val trimmed = symbol.trim()
+        val trimmed = normalizePhoneticSymbolEntry(symbol)
         if (trimmed.isEmpty()) return
         setQuickIpaInitials((_quickIpaInitials.value + trimmed).distinct())
     }
@@ -462,14 +473,14 @@ class RecordingViewModel(
     }
 
     fun setQuickIpaFinals(symbols: List<String>) {
-        val cleaned = symbols.map { it.trim() }.filter { it.isNotEmpty() }.distinct()
+        val cleaned = symbols.map(::normalizePhoneticSymbolEntry).filter { it.isNotEmpty() }.distinct()
         _quickIpaFinals.value = cleaned
         sharedPrefs.edit().putString("quick_ipa_finals", cleaned.joinToString(TAG_DELIMITER)).apply()
         notifyQuickShorthandSynced()
     }
 
     fun addQuickIpaFinal(symbol: String) {
-        val trimmed = symbol.trim()
+        val trimmed = normalizePhoneticSymbolEntry(symbol)
         if (trimmed.isEmpty()) return
         setQuickIpaFinals((_quickIpaFinals.value + trimmed).distinct())
     }

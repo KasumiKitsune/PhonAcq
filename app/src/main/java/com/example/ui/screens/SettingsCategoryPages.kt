@@ -769,7 +769,7 @@ internal fun QuickNotesCategoryContent(
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 toneSymbols.forEach { sym ->
-                    val displaySym = if (sym.length == 1 && sym[0] in '\u0300'..'\u036F') "◌$sym" else sym
+                    val displaySym = com.example.ui.theme.formatQuickNoteSymbolForDisplay(sym)
                     StudioFilterChip(
                         selected = false,
                         onClick = { onRemoveToneSymbol(sym) },
@@ -828,7 +828,7 @@ internal fun QuickNotesCategoryContent(
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 ipaInitials.forEach { sym ->
-                    val displaySym = if (sym.length == 1 && sym[0] in '\u0300'..'\u036F') "◌$sym" else sym
+                    val displaySym = com.example.ui.theme.formatQuickNoteSymbolForDisplay(sym)
                     StudioFilterChip(
                         selected = false,
                         onClick = { onRemoveIpaInitial(sym) },
@@ -887,7 +887,7 @@ internal fun QuickNotesCategoryContent(
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 ipaFinals.forEach { sym ->
-                    val displaySym = if (sym.length == 1 && sym[0] in '\u0300'..'\u036F') "◌$sym" else sym
+                    val displaySym = com.example.ui.theme.formatQuickNoteSymbolForDisplay(sym)
                     StudioFilterChip(
                         selected = false,
                         onClick = { onRemoveIpaFinal(sym) },
@@ -2099,7 +2099,7 @@ fun QuickNoteCustomizationScreen(
                                 verticalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
                                 toneSymbols.forEach { sym ->
-                                    val displaySym = if (sym.length == 1 && sym[0] in '\u0300'..'\u036F') "◌$sym" else sym
+                                    val displaySym = com.example.ui.theme.formatQuickNoteSymbolForDisplay(sym)
                                     StudioFilterChip(
                                         selected = false,
                                         onClick = { onRemoveToneSymbol(sym) },
@@ -2167,7 +2167,7 @@ fun QuickNoteCustomizationScreen(
                                 verticalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
                                 ipaInitials.forEach { sym ->
-                                    val displaySym = if (sym.length == 1 && sym[0] in '\u0300'..'\u036F') "◌$sym" else sym
+                                    val displaySym = com.example.ui.theme.formatQuickNoteSymbolForDisplay(sym)
                                     StudioFilterChip(
                                         selected = false,
                                         onClick = { onRemoveIpaInitial(sym) },
@@ -2235,7 +2235,7 @@ fun QuickNoteCustomizationScreen(
                                 verticalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
                                 ipaFinals.forEach { sym ->
-                                    val displaySym = if (sym.length == 1 && sym[0] in '\u0300'..'\u036F') "◌$sym" else sym
+                                    val displaySym = com.example.ui.theme.formatQuickNoteSymbolForDisplay(sym)
                                     StudioFilterChip(
                                         selected = false,
                                         onClick = { onRemoveIpaFinal(sym) },

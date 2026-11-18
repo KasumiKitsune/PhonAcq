@@ -521,10 +521,10 @@ fun PromptDisplayLinkScreen(
 
                         val fontFamily = when (policy.visualPreset) {
                             PromptVisualPreset.WARM_PAPER, PromptVisualPreset.INK_EBOOK -> FontFamily.Serif
-                            else -> FontFamily.Default
+                            else -> MaterialTheme.typography.displayLarge.fontFamily ?: FontFamily.Default
                         }
 
-                        val charCount = safeWord.text.length
+                        val charCount = safeWord.text.codePointCount(0, safeWord.text.length)
                     val baseFontSp = when {
                         charCount <= 2 -> 64f
                         charCount <= 4 -> 52f

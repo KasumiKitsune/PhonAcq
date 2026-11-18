@@ -77,6 +77,7 @@ import com.example.i18n.S
 import com.example.i18n.withArgs
 import com.example.ui.components.StudioFilterChip
 import com.example.ui.components.consumeDialogCardTaps
+import com.example.ui.theme.formatQuickNoteSymbolForDisplay
 import com.example.viewmodel.RecordingViewModel
 import java.io.File
 import java.util.Locale
@@ -260,7 +261,7 @@ internal fun QuickRemarkEditorDialog(
                     ) {
                         when (selectedSymbolTab) {
                             0 -> toneSymbols.forEach { sym ->
-                                val displaySym = if (sym.length == 1 && sym[0] in '\u0300'..'\u036F') "◌$sym" else sym
+                                val displaySym = formatQuickNoteSymbolForDisplay(sym)
                                 StudioFilterChip(
                                     selected = false,
                                     onClick = {
@@ -270,16 +271,17 @@ internal fun QuickRemarkEditorDialog(
                                 )
                             }
                             1 -> ipaInitials.forEach { sym ->
+                                val displaySym = formatQuickNoteSymbolForDisplay(sym)
                                 StudioFilterChip(
                                     selected = false,
                                     onClick = {
                                         speakerNoteField = insertSymbolAtFieldCursor(speakerNoteField, sym)
                                     },
-                                    labelText = sym
+                                    labelText = displaySym
                                 )
                             }
                             2 -> ipaFinals.forEach { sym ->
-                                val displaySym = if (sym.length == 1 && sym[0] in '\u0300'..'\u036F') "◌$sym" else sym
+                                val displaySym = formatQuickNoteSymbolForDisplay(sym)
                                 StudioFilterChip(
                                     selected = false,
                                     onClick = {

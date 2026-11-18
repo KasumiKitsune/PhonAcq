@@ -2416,7 +2416,7 @@ private fun ControllerShorthandPane(
         ) {
             when (selectedSymbolTab) {
                 0 -> snapshot.quickToneSymbols.forEach { sym ->
-                    val displaySym = if (sym.length == 1 && sym[0] in '\u0300'..'\u036F') "◌$sym" else sym
+                    val displaySym = com.example.ui.theme.formatQuickNoteSymbolForDisplay(sym)
                     StudioFilterChip(
                         selected = false,
                         onClick = {
@@ -2429,6 +2429,7 @@ private fun ControllerShorthandPane(
                     )
                 }
                 1 -> snapshot.quickIpaInitials.forEach { sym ->
+                    val displaySym = com.example.ui.theme.formatQuickNoteSymbolForDisplay(sym)
                     StudioFilterChip(
                         selected = false,
                         onClick = {
@@ -2436,12 +2437,12 @@ private fun ControllerShorthandPane(
                                 onNoteFieldChange(insertSymbolAtFieldCursor(noteField, sym))
                             }
                         },
-                        labelText = sym,
+                        labelText = displaySym,
                         showCheckmark = false
                     )
                 }
                 2 -> snapshot.quickIpaFinals.forEach { sym ->
-                    val displaySym = if (sym.length == 1 && sym[0] in '\u0300'..'\u036F') "◌$sym" else sym
+                    val displaySym = com.example.ui.theme.formatQuickNoteSymbolForDisplay(sym)
                     StudioFilterChip(
                         selected = false,
                         onClick = {

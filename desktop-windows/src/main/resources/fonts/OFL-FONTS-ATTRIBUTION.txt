@@ -1,0 +1,17 @@
+PhonAcq Bundled Open-Source Typography & Phonetics Fonts Attribution
+====================================================================
+
+1. Sarasa UI SC (更纱黑体 UI 大陆规范版, Unhinted v1.0.43)
+   - Files: SarasaUiSC-Regular.ttf, SarasaUiSC-SemiBold.ttf
+   - Copyright (c) 2017-2026 Renzhi Li (Belleve Invis) and Source Han Sans / Iosevka contributors
+   - License: SIL Open Font License, Version 1.1 (https://openfontlicense.org)
+
+2. Plangothic Project (遍黑体 P1 + P2, V2.9.5795 — CJK Unified Ideographs Ext-B through Ext-I)
+   - Files: PlangothicP1-Regular.ttf, PlangothicP2-Regular.ttf
+   - Copyright (c) Plangothic Project Contributors & GlyphWiki / Source Han Sans contributors
+   - License: SIL Open Font License, Version 1.1 (https://openfontlicense.org)
+
+3. DejaVu Sans (Full IPA, Sinological Phonetic Extensions & Combining Diacritics)
+   - Files: phonacq_ipa_sans.ttf, phonacq_ipa_sans_bold.ttf
+   - Copyright (c) Bitstream Inc. & DejaVu Fonts Contributors
+   - License: Bitstream Vera / Arev / Public Domain permissive license (https://dejavu-fonts.github.io/License.html)

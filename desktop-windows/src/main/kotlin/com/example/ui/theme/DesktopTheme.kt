@@ -23,6 +23,7 @@ import androidx.compose.ui.graphics.drawscope.ContentDrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.node.DelegatableNode
 import androidx.compose.ui.node.DrawModifierNode
+import androidx.compose.ui.platform.LocalFontFamilyResolver
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
@@ -166,13 +167,19 @@ fun MyApplicationTheme(
     dynamicColor: Boolean = false,
     content: @Composable () -> Unit,
 ) {
+    val fontFamilyResolver = LocalFontFamilyResolver.current
+    remember(fontFamilyResolver) {
+        DesktopTypographyChain.installInto(fontFamilyResolver)
+        true
+    }
     val colorScheme = if (darkTheme) DarkColorScheme else LightColorScheme
     val studioIndication = remember(colorScheme.primary) {
         StudioDesktopIndication(colorScheme.primary)
     }
-    MaterialTheme(colorScheme = colorScheme, typography = Typography) {
+    MaterialTheme(colorScheme = colorScheme, typography = DesktopTypographyChain.typography) {
         CompositionLocalProvider(
             LocalIndication provides studioIndication,
+            LocalPhoneticFontFamily provides DesktopTypographyChain.phoneticIpaFontFamily,
             content = content
         )
     }

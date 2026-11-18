@@ -81,6 +81,8 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.ui.theme.LocalPhoneticFontFamily
+import com.example.ui.theme.containsPhoneticOrCombiningGlyphs
 import kotlin.math.roundToInt
 
 /**
@@ -125,6 +127,11 @@ fun SuspendDesktopShortcutsWhen(active: Boolean) {
 private val BadgeLineHeightStyle = LineHeightStyle(
     alignment = LineHeightStyle.Alignment.Center,
     trim = LineHeightStyle.Trim.Both
+)
+
+private val PhoneticChipLineHeightStyle = LineHeightStyle(
+    alignment = LineHeightStyle.Alignment.Center,
+    trim = LineHeightStyle.Trim.None
 )
 
 /**
@@ -313,16 +320,21 @@ fun StudioFilterChip(
                         }
                     }
                 }
+                val isPhoneticLabel = remember(labelText) { containsPhoneticOrCombiningGlyphs(labelText) }
+                val phoneticFontFamily = LocalPhoneticFontFamily.current
                 Text(
                     text = labelText,
-                    fontSize = 12.sp,
-                    lineHeight = 14.sp,
+                    fontSize = if (isPhoneticLabel) 13.5.sp else 12.sp,
+                    lineHeight = if (isPhoneticLabel) 19.sp else 14.sp,
+                    fontFamily = if (isPhoneticLabel) phoneticFontFamily else null,
                     fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
                     color = textColor,
                     maxLines = 1,
                     softWrap = false,
                     overflow = TextOverflow.Ellipsis,
-                    style = LocalTextStyle.current.copy(lineHeightStyle = BadgeLineHeightStyle)
+                    style = LocalTextStyle.current.copy(
+                        lineHeightStyle = if (isPhoneticLabel) PhoneticChipLineHeightStyle else BadgeLineHeightStyle
+                    )
                 )
                 if (trailingIcon != null) {
                     Spacer(modifier = Modifier.width(5.dp))
