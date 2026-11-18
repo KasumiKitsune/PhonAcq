@@ -334,14 +334,18 @@ namespace PhonAcqSetup
     }
 
     /// <summary>
-    /// Read-only Seekable window over the appended ZIP payload inside the self-extracting setup .exe.
+    /// Read-only Seekable window over the appended payload inside the self-extracting setup .exe.
+    /// Avoids redundant FileStream.Seek calls during sequential reads so the internal FileStream buffer
+    /// is never invalidated across millions of LZMA range-coder reads.
     /// </summary>
     internal sealed class EmbeddedPayloadStream : Stream
     {
         private readonly FileStream _baseStream;
         private readonly long _offset;
         private readonly long _length;
+        private readonly byte[] _oneByte = new byte[1];
         private long _position;
+        private bool _synced;
 
         public EmbeddedPayloadStream(FileStream baseStream, long offset, long length)
         {
@@ -350,6 +354,7 @@ namespace PhonAcqSetup
             _length = length;
             _position = 0;
             _baseStream.Seek(_offset, SeekOrigin.Begin);
+            _synced = true;
         }
 
         public override bool CanRead { get { return true; } }
@@ -365,12 +370,23 @@ namespace PhonAcqSetup
 
         public override void Flush() { }
 
+        public override int ReadByte()
+        {
+            if (_position >= _length) return -1;
+            int n = Read(_oneByte, 0, 1);
+            return (n == 1) ? (int)_oneByte[0] : -1;
+        }
+
         public override int Read(byte[] buffer, int offset, int count)
         {
             long remaining = _length - _position;
-            if (remaining <= 0) return 0;
+            if (remaining <= 0 || count <= 0) return 0;
             if (count > remaining) count = (int)remaining;
-            _baseStream.Seek(_offset + _position, SeekOrigin.Begin);
+            if (!_synced || _baseStream.Position != _offset + _position)
+            {
+                _baseStream.Seek(_offset + _position, SeekOrigin.Begin);
+                _synced = true;
+            }
             int read = _baseStream.Read(buffer, offset, count);
             _position += read;
             return read;
@@ -395,8 +411,12 @@ namespace PhonAcqSetup
             }
             if (nextPos < 0) nextPos = 0;
             if (nextPos > _length) nextPos = _length;
-            _position = nextPos;
-            _baseStream.Seek(_offset + _position, SeekOrigin.Begin);
+            if (nextPos != _position || !_synced)
+            {
+                _position = nextPos;
+                _baseStream.Seek(_offset + _position, SeekOrigin.Begin);
+                _synced = true;
+            }
             return _position;
         }
 
@@ -413,77 +433,148 @@ namespace PhonAcqSetup
         }
     }
 
+    internal enum PayloadFormat
+    {
+        ZipLegacy = 0,
+        SingleSolidLzma = 1,
+        MultiSolidLzma = 2
+    }
+
     internal sealed class PayloadDescriptor
     {
         public long PayloadOffset;
         public long PayloadLength;
         public long StubLength;
         public string AppVersion;
-        public bool IsLzmaSolid;
+        public PayloadFormat Format;
     }
 
+    // Slicing-by-4 IEEE 802.3 CRC32 (4 bytes per iteration, safe managed C# 4.0)
     internal static class Crc32Calculator
     {
-        private static readonly uint[] Table = BuildTable();
+        private static readonly uint[] T0;
+        private static readonly uint[] T1;
+        private static readonly uint[] T2;
+        private static readonly uint[] T3;
 
-        private static uint[] BuildTable()
+        static Crc32Calculator()
         {
-            uint[] table = new uint[256];
+            T0 = new uint[256];
+            T1 = new uint[256];
+            T2 = new uint[256];
+            T3 = new uint[256];
+
             for (uint i = 0; i < 256; i++)
             {
                 uint c = i;
                 for (int k = 0; k < 8; k++)
                 {
-                    if ((c & 1u) != 0u)
-                    {
-                        c = 0xEDB88320u ^ (c >> 1);
-                    }
-                    else
-                    {
-                        c >>= 1;
-                    }
+                    c = ((c & 1u) != 0u) ? (0xEDB88320u ^ (c >> 1)) : (c >> 1);
                 }
-                table[i] = c;
+                T0[i] = c;
             }
-            return table;
+
+            for (int i = 0; i < 256; i++)
+            {
+                uint c0 = T0[i];
+                uint c1 = (c0 >> 8) ^ T0[c0 & 0xFFu];
+                uint c2 = (c1 >> 8) ^ T0[c1 & 0xFFu];
+                uint c3 = (c2 >> 8) ^ T0[c2 & 0xFFu];
+                T1[i] = c1;
+                T2[i] = c2;
+                T3[i] = c3;
+            }
         }
 
         public static uint Update(uint crc, byte[] buffer, int offset, int count)
         {
             uint c = crc;
+            int i = offset;
             int end = offset + count;
-            for (int i = offset; i < end; i++)
+            int end4 = end - 4;
+            while (i <= end4)
             {
-                c = Table[(c ^ buffer[i]) & 0xFFu] ^ (c >> 8);
+                uint d = c ^ (
+                    (uint)buffer[i] |
+                    ((uint)buffer[i + 1] << 8) |
+                    ((uint)buffer[i + 2] << 16) |
+                    ((uint)buffer[i + 3] << 24));
+                c = T3[d & 0xFFu] ^
+                    T2[(d >> 8) & 0xFFu] ^
+                    T1[(d >> 16) & 0xFFu] ^
+                    T0[d >> 24];
+                i += 4;
+            }
+            while (i < end)
+            {
+                c = T0[(c ^ buffer[i]) & 0xFFu] ^ (c >> 8);
+                i++;
             }
             return c;
         }
     }
 
-    // Public-domain 7-Zip LZMA1 managed decoder adapted for C# 4.0/.NET Framework 4.x streaming extraction
+    // Public-domain 7-Zip LZMA1 managed decoder with flat 64 KB user-space input array buffering
+    // (eliminates virtual Stream.ReadByte() calls and per-byte heap allocations)
     internal sealed class LzmaRangeDecoder
     {
         public const uint kTopValue = (1u << 24);
+        private const int IN_BUF_SIZE = 65536;
+
         public uint Range;
         public uint Code;
-        public Stream Stream;
+        private Stream _stream;
+        private readonly byte[] _inBuf = new byte[IN_BUF_SIZE];
+        private int _inPos;
+        private int _inLen;
+        private long _remainingBytes;
 
-        public void Init(Stream stream)
+        public void Init(Stream stream, long maxBytes)
         {
-            Stream = stream;
+            _stream = stream;
+            _inPos = 0;
+            _inLen = 0;
+            _remainingBytes = (maxBytes >= 0) ? maxBytes : long.MaxValue;
             Code = 0;
             Range = 0xFFFFFFFFu;
             for (int i = 0; i < 5; i++)
             {
-                int b = Stream.ReadByte();
-                if (b < 0) throw new EndOfStreamException("Unexpected EOF in LZMA range coder init.");
-                Code = (Code << 8) | (uint)b;
+                Code = (Code << 8) | ReadByteFast();
             }
         }
 
         public void ReleaseStream()
         {
-            Stream = null;
+            _stream = null;
+            _inPos = 0;
+            _inLen = 0;
+        }
+
+        public uint ReadByteFast()
+        {
+            if (_inPos < _inLen)
+            {
+                return _inBuf[_inPos++];
+            }
+            return RefillAndReadByte();
+        }
+
+        private uint RefillAndReadByte()
+        {
+            if (_remainingBytes <= 0 || _stream == null)
+            {
+                throw new EndOfStreamException("Unexpected EOF in LZMA range decoder stream.");
+            }
+            int toRead = (_remainingBytes < IN_BUF_SIZE) ? (int)_remainingBytes : IN_BUF_SIZE;
+            int n = _stream.Read(_inBuf, 0, toRead);
+            if (n <= 0)
+            {
+                throw new EndOfStreamException("Unexpected EOF while refilling LZMA input buffer.");
+            }
+            _remainingBytes -= n;
+            _inLen = n;
+            _inPos = 1;
+            return _inBuf[0];
         }
 
         public uint DecodeDirectBits(int numTotalBits)
@@ -499,9 +590,7 @@ namespace PhonAcqSetup
                 result = (result << 1) | (1u - t);
                 if (range < kTopValue)
                 {
-                    int b = Stream.ReadByte();
-                    if (b < 0) throw new EndOfStreamException("Unexpected EOF in LZMA direct bits.");
-                    code = (code << 8) | (uint)b;
+                    code = (code << 8) | ReadByteFast();
                     range <<= 8;
                 }
             }
@@ -533,9 +622,7 @@ namespace PhonAcqSetup
                 _prob += (kBitModelTotal - _prob) >> kNumMoveBits;
                 if (rangeDecoder.Range < LzmaRangeDecoder.kTopValue)
                 {
-                    int b = rangeDecoder.Stream.ReadByte();
-                    if (b < 0) throw new EndOfStreamException("Unexpected EOF in LZMA bit decode (0).");
-                    rangeDecoder.Code = (rangeDecoder.Code << 8) | (uint)b;
+                    rangeDecoder.Code = (rangeDecoder.Code << 8) | rangeDecoder.ReadByteFast();
                     rangeDecoder.Range <<= 8;
                 }
                 return 0;
@@ -547,9 +634,7 @@ namespace PhonAcqSetup
                 _prob -= _prob >> kNumMoveBits;
                 if (rangeDecoder.Range < LzmaRangeDecoder.kTopValue)
                 {
-                    int b = rangeDecoder.Stream.ReadByte();
-                    if (b < 0) throw new EndOfStreamException("Unexpected EOF in LZMA bit decode (1).");
-                    rangeDecoder.Code = (rangeDecoder.Code << 8) | (uint)b;
+                    rangeDecoder.Code = (rangeDecoder.Code << 8) | rangeDecoder.ReadByteFast();
                     rangeDecoder.Range <<= 8;
                 }
                 return 1;
@@ -621,7 +706,7 @@ namespace PhonAcqSetup
 
     internal sealed class LzmaOutWindow
     {
-        private const uint FLUSH_CHUNK_BYTES = 65536u;
+        private const uint FLUSH_CHUNK_BYTES = 262144u;
         private byte[] _buffer;
         private uint _pos;
         private uint _windowSize;
@@ -667,6 +752,34 @@ namespace PhonAcqSetup
 
         public void CopyBlock(uint distance, uint len)
         {
+            // Fast path 1: non-overlapping match completely within window and current 256 KB flush chunk -> SIMD Buffer.BlockCopy
+            if (_pos > distance &&
+                len <= distance + 1u &&
+                (_pos + len) < _windowSize &&
+                (_pos + len - _streamPos) < FLUSH_CHUNK_BYTES)
+            {
+                Buffer.BlockCopy(_buffer, (int)(_pos - distance - 1u), _buffer, (int)_pos, (int)len);
+                _pos += len;
+                return;
+            }
+
+            // Fast path 2: single-byte RLE repeat (e.g. zero runs in STORED JARs / TTF tables) within window & flush chunk
+            if (distance == 0u &&
+                _pos > 0u &&
+                (_pos + len) < _windowSize &&
+                (_pos + len - _streamPos) < FLUSH_CHUNK_BYTES)
+            {
+                byte fill = _buffer[_pos - 1u];
+                int dst = (int)_pos;
+                int end = dst + (int)len;
+                for (int k = dst; k < end; k++)
+                {
+                    _buffer[k] = fill;
+                }
+                _pos += len;
+                return;
+            }
+
             uint pos = (_pos > distance) ? (_pos - distance - 1u) : (_windowSize + _pos - distance - 1u);
             for (; len > 0; len--)
             {
@@ -941,10 +1054,10 @@ namespace PhonAcqSetup
             SetPosBitsProperties(pb);
         }
 
-        private void Init(Stream inStream, Stream outStream)
+        private void Init(Stream inStream, Stream outStream, long maxInBytes)
         {
             _outWindow.Init(outStream);
-            _rangeDecoder.Init(inStream);
+            _rangeDecoder.Init(inStream, maxInBytes);
 
             for (uint i = 0; i < kNumStates; i++)
             {
@@ -996,7 +1109,12 @@ namespace PhonAcqSetup
 
         public void Code(Stream inStream, Stream outStream, long outSize)
         {
-            Init(inStream, outStream);
+            Code(inStream, outStream, outSize, -1L);
+        }
+
+        public void Code(Stream inStream, Stream outStream, long outSize, long maxInBytes)
+        {
+            Init(inStream, outStream, maxInBytes);
 
             uint state = 0;
             uint rep0 = 0, rep1 = 0, rep2 = 0, rep3 = 0;
@@ -1342,7 +1460,11 @@ namespace PhonAcqSetup
             }
             _currentFullDest = fullDest;
             _currentCrc = 0xFFFFFFFFu;
-            _currentOutStream = new FileStream(fullDest, FileMode.Create, FileAccess.Write, FileShare.None, 65536);
+            _currentOutStream = new FileStream(fullDest, FileMode.Create, FileAccess.Write, FileShare.None, 65536, FileOptions.SequentialScan);
+            if (_currentFileRem > 0)
+            {
+                _currentOutStream.SetLength(_currentFileRem);
+            }
         }
 
         private void FinishCurrentEntryFile()
@@ -1409,6 +1531,599 @@ namespace PhonAcqSetup
         }
     }
 
+    // Multi-core parallel solid archive unpacker (`PAQMPK1!` / `PAQBLK1!`):
+    // Pre-creates all directories and pre-allocates multi-slice files once on the coordinator thread,
+    // then decodes independent solid LZMA chunks concurrently across CPU cores with
+    // per-slice & per-file CRC32 verification and non-overlapping pre-allocated NTFS range writes.
+    internal sealed class ParallelSolidExtractor
+    {
+        internal sealed class ManifestFileEntry
+        {
+            public string RelPath;
+            public string FullDestPath;
+            public long TotalLength;
+            public long LastModifiedMs;
+            public uint WholeFileCrc32;
+            public int SliceCount;
+            public long ExtractedBytes;
+        }
+
+        internal sealed class SolidBlockRecord
+        {
+            public long CompRelOffset;
+            public long CompLength;
+            public long RawBlockLength;
+        }
+
+        private sealed class BlockSliceExtractorStream : Stream
+        {
+            private const int STATE_BLOCK_HEADER = 0;
+            private const int STATE_SLICE_HEADER = 1;
+            private const int STATE_SLICE_DATA = 2;
+            private const int STATE_DONE = 3;
+
+            private readonly ParallelSolidExtractor _owner;
+            private readonly ManifestFileEntry[] _files;
+            private readonly byte[] _scratch = new byte[24];
+            private int _scratchPos = 0;
+            private int _state = STATE_BLOCK_HEADER;
+            private int _remainingSlices = 0;
+
+            private int _curFileId = -1;
+            private long _curFileOffset = 0;
+            private long _curSliceRem = 0;
+            private uint _curExpectedCrc = 0;
+            private uint _curCrc = 0xFFFFFFFFu;
+            private FileStream _curStream;
+            private bool _curStreamShared = false;
+            private readonly Dictionary<int, FileStream> _sharedMultiSliceStreams = new Dictionary<int, FileStream>();
+
+            public BlockSliceExtractorStream(ParallelSolidExtractor owner, ManifestFileEntry[] files)
+            {
+                _owner = owner;
+                _files = files;
+            }
+
+            public void ResetForBlock()
+            {
+                CloseCurrentStream();
+                _scratchPos = 0;
+                _state = STATE_BLOCK_HEADER;
+                _remainingSlices = 0;
+            }
+
+            public override bool CanRead { get { return false; } }
+            public override bool CanSeek { get { return false; } }
+            public override bool CanWrite { get { return true; } }
+            public override long Length { get { throw new NotSupportedException(); } }
+            public override long Position
+            {
+                get { throw new NotSupportedException(); }
+                set { throw new NotSupportedException(); }
+            }
+
+            public override void Flush()
+            {
+                if (_curStream != null) _curStream.Flush();
+            }
+
+            public override int Read(byte[] buffer, int offset, int count) { throw new NotSupportedException(); }
+            public override long Seek(long offset, SeekOrigin origin) { throw new NotSupportedException(); }
+            public override void SetLength(long value) { throw new NotSupportedException(); }
+
+            public override void Write(byte[] buffer, int offset, int count)
+            {
+                if (_owner._abortFlag != 0)
+                {
+                    throw new OperationCanceledException("Parallel extraction aborted due to error on another worker.");
+                }
+
+                int cur = offset;
+                int rem = count;
+                while (rem > 0)
+                {
+                    if (_state == STATE_BLOCK_HEADER)
+                    {
+                        int need = 12 - _scratchPos;
+                        int take = Math.Min(need, rem);
+                        Buffer.BlockCopy(buffer, cur, _scratch, _scratchPos, take);
+                        _scratchPos += take;
+                        cur += take;
+                        rem -= take;
+
+                        if (_scratchPos == 12)
+                        {
+                            string magic = Encoding.ASCII.GetString(_scratch, 0, 8);
+                            if (!string.Equals(magic, "PAQBLK1!", StringComparison.Ordinal))
+                            {
+                                throw new InvalidDataException("Invalid parallel block magic header.");
+                            }
+                            _remainingSlices = BitConverter.ToInt32(_scratch, 8);
+                            if (_remainingSlices < 0)
+                            {
+                                throw new InvalidDataException("Negative slice count in parallel block.");
+                            }
+                            _scratchPos = 0;
+                            _state = (_remainingSlices == 0) ? STATE_DONE : STATE_SLICE_HEADER;
+                        }
+                    }
+                    else if (_state == STATE_SLICE_HEADER)
+                    {
+                        int need = 24 - _scratchPos;
+                        int take = Math.Min(need, rem);
+                        Buffer.BlockCopy(buffer, cur, _scratch, _scratchPos, take);
+                        _scratchPos += take;
+                        cur += take;
+                        rem -= take;
+
+                        if (_scratchPos == 24)
+                        {
+                            _curFileId = BitConverter.ToInt32(_scratch, 0);
+                            _curFileOffset = BitConverter.ToInt64(_scratch, 4);
+                            _curSliceRem = BitConverter.ToInt64(_scratch, 12);
+                            _curExpectedCrc = BitConverter.ToUInt32(_scratch, 20);
+
+                            if (_curFileId < 0 || _curFileId >= _files.Length)
+                            {
+                                throw new InvalidDataException("Out-of-range file ID in parallel block slice.");
+                            }
+                            ManifestFileEntry f = _files[_curFileId];
+                            if (_curFileOffset < 0 || _curSliceRem < 0 || (_curFileOffset + _curSliceRem) > f.TotalLength)
+                            {
+                                throw new InvalidDataException("Invalid file slice bounds in parallel block.");
+                            }
+
+                            _scratchPos = 0;
+                            _curCrc = 0xFFFFFFFFu;
+                            if (_curSliceRem == 0)
+                            {
+                                FinishCurrentSlice();
+                            }
+                            else
+                            {
+                                OpenCurrentSlice(f);
+                                _state = STATE_SLICE_DATA;
+                            }
+                        }
+                    }
+                    else if (_state == STATE_SLICE_DATA)
+                    {
+                        int take = (int)Math.Min((long)rem, _curSliceRem);
+                        _curStream.Write(buffer, cur, take);
+                        _curCrc = Crc32Calculator.Update(_curCrc, buffer, cur, take);
+                        _curSliceRem -= take;
+                        cur += take;
+                        rem -= take;
+
+                        Interlocked.Add(ref _files[_curFileId].ExtractedBytes, (long)take);
+                        _owner.AddExtractedBytes(take);
+
+                        if (_curSliceRem == 0)
+                        {
+                            FinishCurrentSlice();
+                        }
+                    }
+                    else
+                    {
+                        throw new InvalidDataException("Unexpected trailing bytes after PAQBLK1! block end.");
+                    }
+                }
+            }
+
+            private void OpenCurrentSlice(ManifestFileEntry f)
+            {
+                if (f.SliceCount <= 1)
+                {
+                    _curStreamShared = false;
+                    _curStream = new FileStream(
+                        f.FullDestPath,
+                        FileMode.Create,
+                        FileAccess.Write,
+                        FileShare.None,
+                        262144,
+                        FileOptions.SequentialScan);
+                    if (f.TotalLength > 0)
+                    {
+                        _curStream.SetLength(f.TotalLength);
+                    }
+                    if (_curFileOffset > 0)
+                    {
+                        _curStream.Seek(_curFileOffset, SeekOrigin.Begin);
+                    }
+                }
+                else
+                {
+                    FileStream sharedFs;
+                    if (!_sharedMultiSliceStreams.TryGetValue(_curFileId, out sharedFs))
+                    {
+                        sharedFs = new FileStream(
+                            f.FullDestPath,
+                            FileMode.Open,
+                            FileAccess.Write,
+                            FileShare.ReadWrite,
+                            262144,
+                            FileOptions.None);
+                        _sharedMultiSliceStreams[_curFileId] = sharedFs;
+                    }
+                    else
+                    {
+                        sharedFs.Flush();
+                    }
+                    _curStreamShared = true;
+                    _curStream = sharedFs;
+                    _curStream.Seek(_curFileOffset, SeekOrigin.Begin);
+                }
+            }
+
+            private void FinishCurrentSlice()
+            {
+                CloseCurrentStream();
+                uint actualCrc = _curCrc ^ 0xFFFFFFFFu;
+                ManifestFileEntry f = _files[_curFileId];
+                if (actualCrc != _curExpectedCrc)
+                {
+                    throw new InvalidDataException(
+                        String.Format("Slice CRC32 mismatch on {0} (offset {1})", f.RelPath, _curFileOffset));
+                }
+                if (f.SliceCount <= 1 && f.LastModifiedMs > 0)
+                {
+                    ApplyTimestampSafe(f.FullDestPath, f.LastModifiedMs);
+                }
+                _remainingSlices--;
+                _scratchPos = 0;
+                _state = (_remainingSlices == 0) ? STATE_DONE : STATE_SLICE_HEADER;
+            }
+
+            public void CompleteBlockVerify()
+            {
+                CloseCurrentStream();
+                if (_state != STATE_DONE || _remainingSlices != 0)
+                {
+                    throw new InvalidDataException("Incomplete parallel solid block extraction.");
+                }
+            }
+
+            private void CloseCurrentStream()
+            {
+                if (_curStream != null)
+                {
+                    if (_curStreamShared)
+                    {
+                        _curStream.Flush();
+                    }
+                    else
+                    {
+                        _curStream.Dispose();
+                    }
+                    _curStream = null;
+                    _curStreamShared = false;
+                }
+            }
+
+            protected override void Dispose(bool disposing)
+            {
+                if (disposing)
+                {
+                    CloseCurrentStream();
+                    foreach (KeyValuePair<int, FileStream> kv in _sharedMultiSliceStreams)
+                    {
+                        try { kv.Value.Dispose(); } catch { }
+                    }
+                    _sharedMultiSliceStreams.Clear();
+                }
+                base.Dispose(disposing);
+            }
+        }
+
+        private readonly string _setupExePath;
+        private readonly PayloadDescriptor _desc;
+        private readonly string _installDir;
+        private readonly string _rootPrefix;
+        private readonly Action<int, string> _onProgress;
+
+        private long _declaredTotalBytes = 0;
+        private long _totalExtractedBytes = 0;
+        private int _lastReportedPct = 12;
+        private volatile int _abortFlag = 0;
+        private readonly object _errLock = new object();
+        private Exception _firstError = null;
+
+        public ParallelSolidExtractor(
+            string setupExePath,
+            PayloadDescriptor desc,
+            string installDir,
+            Action<int, string> onProgress)
+        {
+            _setupExePath = setupExePath;
+            _desc = desc;
+            _installDir = installDir;
+            string prefix = Path.GetFullPath(installDir);
+            if (!prefix.EndsWith(Path.DirectorySeparatorChar.ToString()))
+            {
+                prefix += Path.DirectorySeparatorChar;
+            }
+            _rootPrefix = prefix;
+            _onProgress = onProgress;
+        }
+
+        private static void ReadExact(Stream s, byte[] buf, int count)
+        {
+            int pos = 0;
+            while (pos < count)
+            {
+                int n = s.Read(buf, pos, count - pos);
+                if (n <= 0) throw new EndOfStreamException("Unexpected EOF while reading PAQMPK1 header.");
+                pos += n;
+            }
+        }
+
+        private static void ApplyTimestampSafe(string fullPath, long lastModifiedMs)
+        {
+            if (lastModifiedMs <= 0 || string.IsNullOrEmpty(fullPath)) return;
+            try
+            {
+                DateTime epoch = new DateTime(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+                File.SetLastWriteTimeUtc(fullPath, epoch.AddMilliseconds(lastModifiedMs));
+            }
+            catch
+            {
+            }
+        }
+
+        private void AddExtractedBytes(int delta)
+        {
+            long cur = Interlocked.Add(ref _totalExtractedBytes, (long)delta);
+            if (_onProgress == null || _declaredTotalBytes <= 0) return;
+            int pct = 12 + (int)((cur * 78L) / _declaredTotalBytes);
+            if (pct < 12) pct = 12;
+            if (pct > 90) pct = 90;
+
+            int prev = _lastReportedPct;
+            if (pct > prev)
+            {
+                if (Interlocked.CompareExchange(ref _lastReportedPct, pct, prev) == prev)
+                {
+                    _onProgress(pct, "正在解压程序文件...");
+                }
+            }
+        }
+
+        public long ExtractAll()
+        {
+            ManifestFileEntry[] files;
+            SolidBlockRecord[] blocks;
+            long blocksDataStart;
+
+            using (FileStream fs = new FileStream(
+                _setupExePath,
+                FileMode.Open,
+                FileAccess.Read,
+                FileShare.ReadWrite,
+                65536,
+                FileOptions.SequentialScan))
+            using (EmbeddedPayloadStream sub = new EmbeddedPayloadStream(fs, _desc.PayloadOffset, _desc.PayloadLength))
+            {
+                byte[] hdr = new byte[24];
+                ReadExact(sub, hdr, 24);
+                string magic = Encoding.ASCII.GetString(hdr, 0, 8);
+                if (!string.Equals(magic, "PAQMPK1!", StringComparison.Ordinal))
+                {
+                    throw new InvalidDataException("Invalid PAQMPK1 master header magic.");
+                }
+                int fileCount = BitConverter.ToInt32(hdr, 8);
+                _declaredTotalBytes = BitConverter.ToInt64(hdr, 12);
+                int blockCount = BitConverter.ToInt32(hdr, 20);
+                if (fileCount < 0 || _declaredTotalBytes < 0 || blockCount < 0)
+                {
+                    throw new InvalidDataException("Corrupted counts in PAQMPK1 master header.");
+                }
+
+                files = new ManifestFileEntry[fileCount];
+                HashSet<string> uniqueDirs = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                byte[] metaBuf = new byte[24];
+
+                for (int i = 0; i < fileCount; i++)
+                {
+                    ReadExact(sub, metaBuf, 4);
+                    int pathLen = BitConverter.ToInt32(metaBuf, 0);
+                    if (pathLen <= 0 || pathLen > 4096)
+                    {
+                        throw new InvalidDataException("Invalid manifest path length in PAQMPK1.");
+                    }
+                    byte[] pathBytes = new byte[pathLen];
+                    ReadExact(sub, pathBytes, pathLen);
+                    string relPath = Encoding.UTF8.GetString(pathBytes, 0, pathLen);
+                    string relNative = relPath.Replace('/', Path.DirectorySeparatorChar);
+                    string fullDest = Path.GetFullPath(Path.Combine(_installDir, relNative));
+                    if (!fullDest.StartsWith(_rootPrefix, StringComparison.OrdinalIgnoreCase))
+                    {
+                        throw new InvalidDataException("Blocked path traversal entry in PAQMPK1 manifest.");
+                    }
+
+                    ReadExact(sub, metaBuf, 24);
+                    ManifestFileEntry entry = new ManifestFileEntry();
+                    entry.RelPath = relPath;
+                    entry.FullDestPath = fullDest;
+                    entry.TotalLength = BitConverter.ToInt64(metaBuf, 0);
+                    entry.LastModifiedMs = BitConverter.ToInt64(metaBuf, 8);
+                    entry.WholeFileCrc32 = BitConverter.ToUInt32(metaBuf, 16);
+                    entry.SliceCount = BitConverter.ToInt32(metaBuf, 20);
+                    if (entry.TotalLength < 0 || entry.SliceCount < 0)
+                    {
+                        throw new InvalidDataException("Invalid file metadata in PAQMPK1 manifest.");
+                    }
+                    files[i] = entry;
+
+                    string parentDir = Path.GetDirectoryName(fullDest);
+                    if (!string.IsNullOrEmpty(parentDir))
+                    {
+                        uniqueDirs.Add(parentDir);
+                    }
+                }
+
+                blocks = new SolidBlockRecord[blockCount];
+                for (int b = 0; b < blockCount; b++)
+                {
+                    ReadExact(sub, metaBuf, 24);
+                    SolidBlockRecord rec = new SolidBlockRecord();
+                    rec.CompRelOffset = BitConverter.ToInt64(metaBuf, 0);
+                    rec.CompLength = BitConverter.ToInt64(metaBuf, 8);
+                    rec.RawBlockLength = BitConverter.ToInt64(metaBuf, 16);
+                    if (rec.CompRelOffset < 0 || rec.CompLength < 13 || rec.RawBlockLength < 12)
+                    {
+                        throw new InvalidDataException("Invalid block directory record in PAQMPK1.");
+                    }
+                    blocks[b] = rec;
+                }
+
+                blocksDataStart = _desc.PayloadOffset + sub.Position;
+                long payloadEnd = _desc.PayloadOffset + _desc.PayloadLength;
+                for (int b = 0; b < blockCount; b++)
+                {
+                    if (blocksDataStart + blocks[b].CompRelOffset + blocks[b].CompLength > payloadEnd)
+                    {
+                        throw new InvalidDataException("PAQMPK1 block exceeds payload bounds.");
+                    }
+                }
+
+                // 1. Pre-create all unique directories once on coordinator thread (zero worker dir contention)
+                foreach (string dir in uniqueDirs)
+                {
+                    if (!Directory.Exists(dir))
+                    {
+                        Directory.CreateDirectory(dir);
+                    }
+                }
+
+                // 2. Create 0-byte files and pre-allocate multi-slice files to exact final length
+                for (int i = 0; i < fileCount; i++)
+                {
+                    ManifestFileEntry entry = files[i];
+                    if (entry.SliceCount == 0 || entry.TotalLength == 0)
+                    {
+                        using (FileStream zeroFs = new FileStream(entry.FullDestPath, FileMode.Create, FileAccess.Write, FileShare.None))
+                        {
+                        }
+                        ApplyTimestampSafe(entry.FullDestPath, entry.LastModifiedMs);
+                    }
+                    else if (entry.SliceCount > 1)
+                    {
+                        using (FileStream preFs = new FileStream(entry.FullDestPath, FileMode.Create, FileAccess.Write, FileShare.ReadWrite))
+                        {
+                            preFs.SetLength(entry.TotalLength);
+                        }
+                    }
+                }
+            }
+
+            if (blocks.Length == 0)
+            {
+                if (_declaredTotalBytes != 0)
+                {
+                    throw new InvalidDataException("Empty block table with non-zero declared bytes.");
+                }
+                return 0;
+            }
+
+            // 3. Launch parallel LZMA block workers across CPU cores
+            int nextBlockIndex = 0;
+            int workerCount = Math.Min(blocks.Length, Math.Max(2, Environment.ProcessorCount));
+            Thread[] workers = new Thread[workerCount];
+
+            for (int w = 0; w < workerCount; w++)
+            {
+                Thread t = new Thread(delegate()
+                {
+                    try
+                    {
+                        using (FileStream workerFs = new FileStream(
+                            _setupExePath,
+                            FileMode.Open,
+                            FileAccess.Read,
+                            FileShare.ReadWrite,
+                            65536,
+                            FileOptions.SequentialScan))
+                        using (BlockSliceExtractorStream sliceStream = new BlockSliceExtractorStream(this, files))
+                        {
+                            LzmaDecoder decoder = new LzmaDecoder();
+                            byte[] lzmaHdr = new byte[13];
+
+                            while (_abortFlag == 0)
+                            {
+                                int blkIdx = Interlocked.Increment(ref nextBlockIndex) - 1;
+                                if (blkIdx >= blocks.Length) break;
+
+                                SolidBlockRecord blk = blocks[blkIdx];
+                                workerFs.Seek(blocksDataStart + blk.CompRelOffset, SeekOrigin.Begin);
+                                ReadExact(workerFs, lzmaHdr, 13);
+
+                                long hdrOutSize = BitConverter.ToInt64(lzmaHdr, 5);
+                                if (hdrOutSize >= 0 && hdrOutSize != blk.RawBlockLength)
+                                {
+                                    throw new InvalidDataException("Block LZMA header size mismatch.");
+                                }
+
+                                sliceStream.ResetForBlock();
+                                decoder.SetDecoderProperties(lzmaHdr);
+                                decoder.Code(workerFs, sliceStream, blk.RawBlockLength, blk.CompLength - 13L);
+                                sliceStream.CompleteBlockVerify();
+                            }
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        lock (_errLock)
+                        {
+                            if (_firstError == null)
+                            {
+                                _firstError = ex;
+                            }
+                        }
+                        _abortFlag = 1;
+                    }
+                });
+                t.IsBackground = true;
+                t.Name = String.Format("PhonAcqUnpack-{0}", w);
+                workers[w] = t;
+                t.Start();
+            }
+
+            for (int w = 0; w < workerCount; w++)
+            {
+                workers[w].Join();
+            }
+
+            if (_firstError != null)
+            {
+                throw new InvalidDataException("安装文件解压校验失败: " + _firstError.Message, _firstError);
+            }
+
+            long actualTotal = Interlocked.Read(ref _totalExtractedBytes);
+            if (actualTotal != _declaredTotalBytes)
+            {
+                throw new InvalidDataException("Incomplete parallel archive byte count.");
+            }
+
+            // 4. Verify per-file extracted byte completeness and stamp final LastWriteTimeUtc on multi-slice files
+            for (int i = 0; i < files.Length; i++)
+            {
+                ManifestFileEntry f = files[i];
+                long fileBytes = Interlocked.Read(ref f.ExtractedBytes);
+                if (fileBytes != f.TotalLength)
+                {
+                    throw new InvalidDataException(
+                        String.Format("Incomplete file extraction for {0} ({1} != {2})", f.RelPath, fileBytes, f.TotalLength));
+                }
+                if (f.SliceCount > 1 && f.LastModifiedMs > 0)
+                {
+                    ApplyTimestampSafe(f.FullDestPath, f.LastModifiedMs);
+                }
+            }
+
+            return actualTotal;
+        }
+    }
+
     internal static class InstallerEngine
     {
         public const string APP_NAME = "PhonAcq";
@@ -1416,6 +2131,7 @@ namespace PhonAcqSetup
         public const string UNINSTALL_REG_SUBKEY = @"Software\Microsoft\Windows\CurrentVersion\Uninstall\PhonAcq";
         public static readonly byte[] TRAILER_MAGIC_ZIP = Encoding.ASCII.GetBytes("PAQSETUP");
         public static readonly byte[] TRAILER_MAGIC_LZMA = Encoding.ASCII.GetBytes("PAQSETL2");
+        public static readonly byte[] TRAILER_MAGIC_MULTI_LZMA = Encoding.ASCII.GetBytes("PAQSETM3");
 
         public static PayloadDescriptor ReadPayloadDescriptor(string exePath, string fallbackVersion)
         {
@@ -1431,12 +2147,14 @@ namespace PhonAcqSetup
 
                 bool isZipMagic = true;
                 bool isLzmaMagic = true;
+                bool isMultiLzmaMagic = true;
                 for (int i = 0; i < 8; i++)
                 {
                     if (trailer[i] != TRAILER_MAGIC_ZIP[i]) isZipMagic = false;
                     if (trailer[i] != TRAILER_MAGIC_LZMA[i]) isLzmaMagic = false;
+                    if (trailer[i] != TRAILER_MAGIC_MULTI_LZMA[i]) isMultiLzmaMagic = false;
                 }
-                if (!isZipMagic && !isLzmaMagic) return null;
+                if (!isZipMagic && !isLzmaMagic && !isMultiLzmaMagic) return null;
 
                 long payloadOffset = BitConverter.ToInt64(trailer, 8);
                 long payloadLength = BitConverter.ToInt64(trailer, 16);
@@ -1451,7 +2169,18 @@ namespace PhonAcqSetup
                 desc.PayloadLength = payloadLength;
                 desc.StubLength = stubLength > 0 ? stubLength : payloadOffset;
                 desc.AppVersion = fallbackVersion;
-                desc.IsLzmaSolid = isLzmaMagic;
+                if (isMultiLzmaMagic)
+                {
+                    desc.Format = PayloadFormat.MultiSolidLzma;
+                }
+                else if (isLzmaMagic)
+                {
+                    desc.Format = PayloadFormat.SingleSolidLzma;
+                }
+                else
+                {
+                    desc.Format = PayloadFormat.ZipLegacy;
+                }
                 return desc;
             }
         }
@@ -1765,85 +2494,104 @@ namespace PhonAcqSetup
             }
 
             long totalExtractedBytes = 0;
-            using (FileStream fs = new FileStream(setupExePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite, 65536))
-            using (EmbeddedPayloadStream sub = new EmbeddedPayloadStream(fs, desc.PayloadOffset, desc.PayloadLength))
+            if (desc.Format == PayloadFormat.MultiSolidLzma)
             {
-                if (desc.IsLzmaSolid)
+                if (onProgress != null) onProgress(12, "正在解压程序文件...");
+                ParallelSolidExtractor parallelExtractor = new ParallelSolidExtractor(
+                    setupExePath,
+                    desc,
+                    installDir,
+                    onProgress);
+                totalExtractedBytes = parallelExtractor.ExtractAll();
+            }
+            else
+            {
+                using (FileStream fs = new FileStream(
+                    setupExePath,
+                    FileMode.Open,
+                    FileAccess.Read,
+                    FileShare.ReadWrite,
+                    65536,
+                    FileOptions.SequentialScan))
+                using (EmbeddedPayloadStream sub = new EmbeddedPayloadStream(fs, desc.PayloadOffset, desc.PayloadLength))
                 {
-                    if (onProgress != null) onProgress(12, "正在复制程序文件...");
-                    byte[] lzmaHeader = new byte[13];
-                    int headerRead = 0;
-                    while (headerRead < 13)
+                    if (desc.Format == PayloadFormat.SingleSolidLzma)
                     {
-                        int n = sub.Read(lzmaHeader, headerRead, 13 - headerRead);
-                        if (n <= 0) throw new EndOfStreamException("Short LZMA payload header.");
-                        headerRead += n;
-                    }
-                    long uncompressedPackSize = BitConverter.ToInt64(lzmaHeader, 5);
-                    LzmaDecoder decoder = new LzmaDecoder();
-                    decoder.SetDecoderProperties(lzmaHeader);
-
-                    using (SolidPackExtractorStream extractor = new SolidPackExtractorStream(installDir, onProgress))
-                    {
-                        decoder.Code(sub, extractor, uncompressedPackSize);
-                        extractor.CompleteAndVerify();
-                        totalExtractedBytes = extractor.TotalExtractedBytes;
-                    }
-                }
-                else
-                {
-                    using (ZipArchive archive = new ZipArchive(sub, ZipArchiveMode.Read))
-                    {
-                        int totalEntries = Math.Max(1, archive.Entries.Count);
-                        int index = 0;
-                        byte[] copyBuf = new byte[81920];
-
-                        foreach (ZipArchiveEntry entry in archive.Entries)
+                        if (onProgress != null) onProgress(12, "正在复制程序文件...");
+                        byte[] lzmaHeader = new byte[13];
+                        int headerRead = 0;
+                        while (headerRead < 13)
                         {
-                            index++;
-                            string relPath = entry.FullName.Replace('/', Path.DirectorySeparatorChar);
-                            if (string.IsNullOrEmpty(relPath)) continue;
+                            int n = sub.Read(lzmaHeader, headerRead, 13 - headerRead);
+                            if (n <= 0) throw new EndOfStreamException("Short LZMA payload header.");
+                            headerRead += n;
+                        }
+                        long uncompressedPackSize = BitConverter.ToInt64(lzmaHeader, 5);
+                        LzmaDecoder decoder = new LzmaDecoder();
+                        decoder.SetDecoderProperties(lzmaHeader);
 
-                            string fullDest = Path.GetFullPath(Path.Combine(installDir, relPath));
-                            string rootPrefix = Path.GetFullPath(installDir);
-                            if (!rootPrefix.EndsWith(Path.DirectorySeparatorChar.ToString()))
-                            {
-                                rootPrefix += Path.DirectorySeparatorChar;
-                            }
-                            if (!fullDest.StartsWith(rootPrefix, StringComparison.OrdinalIgnoreCase))
-                            {
-                                continue;
-                            }
+                        using (SolidPackExtractorStream extractor = new SolidPackExtractorStream(installDir, onProgress))
+                        {
+                            decoder.Code(sub, extractor, uncompressedPackSize, desc.PayloadLength - 13L);
+                            extractor.CompleteAndVerify();
+                            totalExtractedBytes = extractor.TotalExtractedBytes;
+                        }
+                    }
+                    else
+                    {
+                        using (ZipArchive archive = new ZipArchive(sub, ZipArchiveMode.Read))
+                        {
+                            int totalEntries = Math.Max(1, archive.Entries.Count);
+                            int index = 0;
+                            byte[] copyBuf = new byte[81920];
 
-                            if (string.IsNullOrEmpty(entry.Name) && (entry.FullName.EndsWith("/") || entry.FullName.EndsWith("\\")))
+                            foreach (ZipArchiveEntry entry in archive.Entries)
                             {
-                                if (!Directory.Exists(fullDest)) Directory.CreateDirectory(fullDest);
-                                continue;
-                            }
+                                index++;
+                                string relPath = entry.FullName.Replace('/', Path.DirectorySeparatorChar);
+                                if (string.IsNullOrEmpty(relPath)) continue;
 
-                            string parentDir = Path.GetDirectoryName(fullDest);
-                            if (!string.IsNullOrEmpty(parentDir) && !Directory.Exists(parentDir))
-                            {
-                                Directory.CreateDirectory(parentDir);
-                            }
-
-                            using (Stream inStream = entry.Open())
-                            using (FileStream outStream = new FileStream(fullDest, FileMode.Create, FileAccess.Write, FileShare.None))
-                            {
-                                int r;
-                                while ((r = inStream.Read(copyBuf, 0, copyBuf.Length)) > 0)
+                                string fullDest = Path.GetFullPath(Path.Combine(installDir, relPath));
+                                string rootPrefix = Path.GetFullPath(installDir);
+                                if (!rootPrefix.EndsWith(Path.DirectorySeparatorChar.ToString()))
                                 {
-                                    outStream.Write(copyBuf, 0, r);
-                                    totalExtractedBytes += r;
+                                    rootPrefix += Path.DirectorySeparatorChar;
                                 }
-                            }
-
-                            int pct = 12 + (int)((index * 78L) / totalEntries);
-                            if (index == 1 || index % 8 == 0 || index == totalEntries)
-                            {
-                                if (onProgress != null)
+                                if (!fullDest.StartsWith(rootPrefix, StringComparison.OrdinalIgnoreCase))
                                 {
-                                    onProgress(pct, "正在复制程序文件...");
+                                    continue;
+                                }
+
+                                if (string.IsNullOrEmpty(entry.Name) && (entry.FullName.EndsWith("/") || entry.FullName.EndsWith("\\")))
+                                {
+                                    if (!Directory.Exists(fullDest)) Directory.CreateDirectory(fullDest);
+                                    continue;
+                                }
+
+                                string parentDir = Path.GetDirectoryName(fullDest);
+                                if (!string.IsNullOrEmpty(parentDir) && !Directory.Exists(parentDir))
+                                {
+                                    Directory.CreateDirectory(parentDir);
+                                }
+
+                                using (Stream inStream = entry.Open())
+                                using (FileStream outStream = new FileStream(fullDest, FileMode.Create, FileAccess.Write, FileShare.None))
+                                {
+                                    int r;
+                                    while ((r = inStream.Read(copyBuf, 0, copyBuf.Length)) > 0)
+                                    {
+                                        outStream.Write(copyBuf, 0, r);
+                                        totalExtractedBytes += r;
+                                    }
+                                }
+
+                                int pct = 12 + (int)((index * 78L) / totalEntries);
+                                if (index == 1 || index % 8 == 0 || index == totalEntries)
+                                {
+                                    if (onProgress != null)
+                                    {
+                                        onProgress(pct, "正在复制程序文件...");
+                                    }
                                 }
                             }
                         }

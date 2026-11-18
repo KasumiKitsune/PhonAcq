@@ -13,6 +13,8 @@ import java.io.OutputStream
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.util.Locale
+import java.util.concurrent.Callable
+import java.util.concurrent.Executors
 import java.util.zip.CRC32
 import java.util.zip.ZipEntry
 import java.util.zip.ZipFile
@@ -254,9 +256,397 @@ fun writeSolidLzmaFile(rawPackBytes: ByteArray, destLzmaFile: File) {
     }
 }
 
+data class MultiSolidPackStats(
+    val fileCount: Int,
+    val totalRawBytes: Long,
+    val payloadBytes: Long,
+    val chunkSummaries: List<String>
+)
+
+/**
+ * Resolves a full JDK containing `jpackage` when Gradle itself is launched under a stripped JBR
+ * (such as Android Studio's bundled JBR, which omits `jdk.jpackage`). When `java.home` already
+ * provides `jpackage` (e.g. Temurin 17 on GitHub Actions Windows/macOS runners), returns `null`
+ * so default `JAVA_HOME` behavior is untouched.
+ */
+fun resolvePackagingJavaHome(): String? {
+    val isWin = System.getProperty("os.name", "").lowercase(Locale.ROOT).contains("win")
+    val jpkgName = if (isWin) "jpackage.exe" else "jpackage"
+    val currentHome = System.getProperty("java.home") ?: ""
+    if (currentHome.isNotBlank() && File(currentHome, "bin/$jpkgName").isFile) {
+        return null
+    }
+
+    val userHome = System.getProperty("user.home") ?: ""
+    val searchRoots = mutableListOf<File>()
+    if (userHome.isNotBlank()) {
+        searchRoots.add(File(userHome, ".jdks"))
+        searchRoots.add(File(userHome, ".gradle/jdks"))
+    }
+    if (isWin) {
+        searchRoots.add(File("C:\\Program Files\\Eclipse Adoptium"))
+        searchRoots.add(File("C:\\Program Files\\Java"))
+        searchRoots.add(File("C:\\Program Files\\Microsoft"))
+    }
+
+    val candidates = searchRoots
+        .filter { it.isDirectory }
+        .flatMap { root -> root.listFiles()?.filter { it.isDirectory } ?: emptyList() }
+        .mapNotNull { dir ->
+            when {
+                File(dir, "bin/$jpkgName").isFile -> dir
+                File(dir, "Contents/Home/bin/$jpkgName").isFile -> File(dir, "Contents/Home")
+                else -> null
+            }
+        }
+        .sortedWith(
+            compareByDescending<File> { it.name.contains("17") }
+                .thenByDescending { it.name }
+        )
+
+    return candidates.firstOrNull()?.absolutePath
+}
+
+/**
+ * Builds the 4-way parallel solid LZMA archive (`PAQMPK1!` + `PAQBLK1!`) consumed by `ParallelSolidExtractor`
+ * in `PhonAcqInstaller.cs`:
+ *  - Chunk 1 (index 0): All native `.dll` / `.exe` (JVM + Skia + STORED native libs inside JARs)
+ *  - Chunk 2 (index 1): JVM `modules` + app `.jar`s + remaining general runtime files
+ *  - Chunk 3 (index 2): `SarasaUiSC-Regular` + `SarasaUiSC-SemiBold` (grouped in same solid dictionary)
+ *  - Chunk 4 (index 3): `Plangothic` P1 + P2 + IPA fonts
+ */
+fun writeParallelMultiSolidPayload(appImageDir: File, destPayloadFile: File): MultiSolidPackStats {
+    data class CarvedJarRange(val start: Int, val end: Int, val chunkIndex: Int, val entryName: String)
+    data class RawSliceSpec(
+        val fileId: Int,
+        val relPath: String,
+        val sortGroup: Int,
+        val sortKey: String,
+        val fileOffset: Long,
+        val bytes: ByteArray,
+        val crc32: Int
+    )
+    data class ManifestRecord(
+        val relPath: String,
+        val totalLength: Long,
+        val lastModifiedMs: Long,
+        val wholeCrc32: Int,
+        var sliceCount: Int
+    )
+
+    fun readU16Le(b: ByteArray, off: Int): Int =
+        (b[off].toInt() and 0xFF) or ((b[off + 1].toInt() and 0xFF) shl 8)
+
+    fun readU32Le(b: ByteArray, off: Int): Long =
+        (b[off].toLong() and 0xFFL) or
+            ((b[off + 1].toLong() and 0xFFL) shl 8) or
+            ((b[off + 2].toLong() and 0xFFL) shl 16) or
+            ((b[off + 3].toLong() and 0xFFL) shl 24)
+
+    fun writeLeInt(os: OutputStream, v: Int) {
+        val b = ByteBuffer.allocate(4).order(ByteOrder.LITTLE_ENDIAN).putInt(v).array()
+        os.write(b)
+    }
+
+    fun writeLeLong(os: OutputStream, v: Long) {
+        val b = ByteBuffer.allocate(8).order(ByteOrder.LITTLE_ENDIAN).putLong(v).array()
+        os.write(b)
+    }
+
+    fun computeCrc32(bytes: ByteArray, off: Int = 0, len: Int = bytes.size): Int {
+        val c = CRC32()
+        c.update(bytes, off, len)
+        return c.value.toInt()
+    }
+
+    fun classifySpecialEntryChunk(entryPathLower: String): Int {
+        val base = entryPathLower.substringAfterLast('/')
+        return when {
+            base.endsWith(".dll") || base.endsWith(".exe") -> 0
+            base.contains("sarasauisc") -> 2
+            base.contains("plangothic") || base.contains("phonacq_ipa") ||
+                base.endsWith(".ttf") || base.endsWith(".otf") || base.endsWith(".ttc") -> 3
+            else -> -1
+        }
+    }
+
+    fun carveStoredJarRanges(jarBytes: ByteArray, relPath: String): List<CarvedJarRange> {
+        if (jarBytes.size < 22) return emptyList()
+        val minSearch = maxOf(0, jarBytes.size - 65557)
+        var eocdPos = -1
+        for (pos in (jarBytes.size - 22) downTo minSearch) {
+            if (readU32Le(jarBytes, pos) == 0x06054B50L) {
+                val commentLen = readU16Le(jarBytes, pos + 20)
+                if (pos + 22 + commentLen == jarBytes.size) {
+                    eocdPos = pos
+                    break
+                }
+            }
+        }
+        if (eocdPos < 0) return emptyList()
+
+        val cdCount = readU16Le(jarBytes, eocdPos + 10)
+        val cdOffset = readU32Le(jarBytes, eocdPos + 16)
+        if (cdCount <= 0 || cdOffset < 0L || cdOffset >= jarBytes.size.toLong()) return emptyList()
+
+        val carved = mutableListOf<CarvedJarRange>()
+        var cur = cdOffset.toInt()
+        for (idx in 0 until cdCount) {
+            if (cur + 46 > jarBytes.size || readU32Le(jarBytes, cur) != 0x02014B50L) {
+                throw GradleException("Malformed ZIP Central Directory in $relPath at offset $cur")
+            }
+            val method = readU16Le(jarBytes, cur + 10)
+            val compSize = readU32Le(jarBytes, cur + 20)
+            val uncompSize = readU32Le(jarBytes, cur + 24)
+            val nameLen = readU16Le(jarBytes, cur + 28)
+            val extraLen = readU16Le(jarBytes, cur + 30)
+            val commentLen = readU16Le(jarBytes, cur + 32)
+            val locOffset = readU32Le(jarBytes, cur + 42)
+            val entryName = String(jarBytes, cur + 46, nameLen, Charsets.UTF_8)
+            cur += 46 + nameLen + extraLen + commentLen
+
+            if (method == 0 && compSize >= 4096L && compSize == uncompSize) {
+                val targetChunk = classifySpecialEntryChunk(entryName.lowercase(Locale.ROOT))
+                if (targetChunk >= 0) {
+                    val locPos = locOffset.toInt()
+                    if (locPos < 0 || locPos + 30 > jarBytes.size || readU32Le(jarBytes, locPos) != 0x04034B50L) {
+                        throw GradleException("Malformed ZIP Local Header for $entryName in $relPath")
+                    }
+                    val locNameLen = readU16Le(jarBytes, locPos + 26)
+                    val locExtraLen = readU16Le(jarBytes, locPos + 28)
+                    val dataStart = locPos + 30 + locNameLen + locExtraLen
+                    val dataEnd = dataStart + compSize.toInt()
+                    if (dataStart < 0 || dataEnd > jarBytes.size || dataStart >= dataEnd) {
+                        throw GradleException("Out-of-bounds STORED entry slice for $entryName in $relPath")
+                    }
+                    carved.add(CarvedJarRange(dataStart, dataEnd, targetChunk, entryName))
+                }
+            }
+        }
+
+        val sorted = carved.sortedBy { it.start }
+        for (i in 1 until sorted.size) {
+            if (sorted[i - 1].end > sorted[i].start) {
+                throw GradleException("Overlapping ZIP entry ranges in $relPath")
+            }
+        }
+        return sorted
+    }
+
+    val basePath = appImageDir.toPath()
+    val allFiles = appImageDir.walkTopDown()
+        .filter { it.isFile }
+        .sortedBy { basePath.relativize(it.toPath()).toString().replace('\\', '/') }
+        .toList()
+
+    val manifest = ArrayList<ManifestRecord>(allFiles.size)
+    val chunkSlices = Array(4) { mutableListOf<RawSliceSpec>() }
+    var totalContentBytes = 0L
+
+    for ((fileId, f) in allFiles.withIndex()) {
+        val relPath = basePath.relativize(f.toPath()).toString().replace('\\', '/')
+        val relLower = relPath.lowercase(Locale.ROOT)
+        val baseLower = f.name.lowercase(Locale.ROOT)
+        val extLower = f.extension.lowercase(Locale.ROOT)
+        val rawBytes = f.readBytes()
+        val fileLen = rawBytes.size.toLong()
+        val wholeCrc = computeCrc32(rawBytes)
+        totalContentBytes += fileLen
+
+        if (rawBytes.isEmpty()) {
+            manifest.add(ManifestRecord(relPath, 0L, f.lastModified(), wholeCrc, 0))
+            continue
+        }
+
+        if (extLower == "jar") {
+            val carved = carveStoredJarRanges(rawBytes, relPath)
+            if (carved.isEmpty()) {
+                manifest.add(ManifestRecord(relPath, fileLen, f.lastModified(), wholeCrc, 1))
+                chunkSlices[1].add(
+                    RawSliceSpec(fileId, relPath, 1, relLower, 0L, rawBytes, wholeCrc)
+                )
+            } else {
+                var sliceCount = 0
+                var cursor = 0
+                val verifyAssemble = ByteArray(rawBytes.size)
+                var verifyBytesCount = 0
+
+                fun emitJarSlice(start: Int, end: Int, chunkIdx: Int, group: Int, key: String) {
+                    if (end <= start) return
+                    val sliceBytes = rawBytes.copyOfRange(start, end)
+                    val sliceCrc = computeCrc32(sliceBytes)
+                    System.arraycopy(sliceBytes, 0, verifyAssemble, start, sliceBytes.size)
+                    verifyBytesCount += sliceBytes.size
+                    sliceCount++
+                    chunkSlices[chunkIdx].add(
+                        RawSliceSpec(fileId, relPath, group, key, start.toLong(), sliceBytes, sliceCrc)
+                    )
+                }
+
+                for (r in carved) {
+                    if (r.start > cursor) {
+                        emitJarSlice(cursor, r.start, 1, 1, "$relLower#${String.format(Locale.US, "%010d", cursor)}")
+                    }
+                    val entryKey = r.entryName.lowercase(Locale.ROOT)
+                    val sortGrp = when {
+                        r.chunkIndex == 2 && entryKey.contains("regular") -> 0
+                        r.chunkIndex == 2 -> 1
+                        r.chunkIndex == 3 && entryKey.contains("plangothicp1") -> 0
+                        r.chunkIndex == 3 && entryKey.contains("plangothicp2") -> 1
+                        r.chunkIndex == 3 && entryKey.contains("plangothic") -> 2
+                        r.chunkIndex == 3 -> 3
+                        else -> 1
+                    }
+                    emitJarSlice(r.start, r.end, r.chunkIndex, sortGrp, entryKey)
+                    cursor = r.end
+                }
+                if (cursor < rawBytes.size) {
+                    emitJarSlice(cursor, rawBytes.size, 1, 1, "$relLower#${String.format(Locale.US, "%010d", cursor)}")
+                }
+
+                if (verifyBytesCount != rawBytes.size || computeCrc32(verifyAssemble) != wholeCrc) {
+                    throw GradleException("JAR slice reconstruction verification failed for $relPath")
+                }
+                manifest.add(ManifestRecord(relPath, fileLen, f.lastModified(), wholeCrc, sliceCount))
+            }
+        } else {
+            val targetChunk = classifySpecialEntryChunk(relLower).let { if (it >= 0) it else 1 }
+            val sortGrp = when (targetChunk) {
+                0 -> if (extLower == "exe") 0 else 1
+                1 -> when {
+                    baseLower == "modules" -> 0
+                    extLower == "class" -> 1
+                    extLower == "dat" -> 2
+                    else -> 3
+                }
+                2 -> if (baseLower.contains("regular")) 0 else 1
+                else -> when {
+                    baseLower.contains("plangothicp1") -> 0
+                    baseLower.contains("plangothicp2") -> 1
+                    baseLower.contains("plangothic") -> 2
+                    else -> 3
+                }
+            }
+            manifest.add(ManifestRecord(relPath, fileLen, f.lastModified(), wholeCrc, 1))
+            chunkSlices[targetChunk].add(
+                RawSliceSpec(fileId, relPath, sortGrp, relLower, 0L, rawBytes, wholeCrc)
+            )
+        }
+    }
+
+    val chunkLabels = listOf(
+        "Chunk 1 [Native DLL/EXE]",
+        "Chunk 2 [JVM modules + JARs + Runtime]",
+        "Chunk 3 [SarasaUiSC Regular+SemiBold]",
+        "Chunk 4 [Plangothic P1/P2 + IPA Fonts]"
+    )
+
+    // Build deterministic uncompressed PAQBLK1! byte buffers for all non-empty chunks
+    data class BuiltRawChunk(val label: String, val sliceCount: Int, val payloadBytes: Long, val rawBlockBytes: ByteArray)
+    val builtRawChunks = mutableListOf<BuiltRawChunk>()
+    var accountedPayloadBytes = 0L
+
+    for (cIdx in 0 until 4) {
+        val sortedSlices = chunkSlices[cIdx].sortedWith(
+            compareBy<RawSliceSpec>({ it.sortGroup }, { it.sortKey }, { it.fileOffset })
+        )
+        if (sortedSlices.isEmpty()) continue
+        val sliceSum = sortedSlices.sumOf { it.bytes.size.toLong() }
+        accountedPayloadBytes += sliceSum
+        val cap = (12L + sortedSlices.size * 24L + sliceSum).coerceAtMost(512L * 1024 * 1024).toInt()
+        val blkOut = ByteArrayOutputStream(cap)
+        blkOut.write("PAQBLK1!".toByteArray(Charsets.US_ASCII))
+        writeLeInt(blkOut, sortedSlices.size)
+        for (s in sortedSlices) {
+            writeLeInt(blkOut, s.fileId)
+            writeLeLong(blkOut, s.fileOffset)
+            writeLeLong(blkOut, s.bytes.size.toLong())
+            writeLeInt(blkOut, s.crc32)
+            blkOut.write(s.bytes)
+        }
+        builtRawChunks.add(BuiltRawChunk(chunkLabels[cIdx], sortedSlices.size, sliceSum, blkOut.toByteArray()))
+    }
+
+    if (accountedPayloadBytes != totalContentBytes) {
+        throw GradleException("Chunk byte coverage mismatch: $accountedPayloadBytes != $totalContentBytes")
+    }
+
+    // Compress all solid chunks concurrently across 4 worker threads using classic 13-byte header .lzma
+    val pool = Executors.newFixedThreadPool(builtRawChunks.size.coerceAtLeast(1))
+    val compressedBlocks: List<ByteArray> = try {
+        val futures = builtRawChunks.map { chunk ->
+            pool.submit(Callable {
+                val rawLen = chunk.rawBlockBytes.size
+                val alignedDict = (((rawLen + 1048575) / 1048576) * 1048576)
+                    .coerceIn(1048576, 32 * 1024 * 1024)
+                val opts = LZMA2Options(9).apply {
+                    dictSize = alignedDict
+                }
+                val compOut = ByteArrayOutputStream((rawLen / 2).coerceAtLeast(65536))
+                LZMAOutputStream(compOut, opts, rawLen.toLong()).use { lzOut ->
+                    lzOut.write(chunk.rawBlockBytes)
+                }
+                compOut.toByteArray()
+            })
+        }
+        futures.map { it.get() }
+    } finally {
+        pool.shutdown()
+    }
+
+    // Write master PAQMPK1! header + File Manifest + Block Directory + Concatenated .lzma chunks
+    BufferedOutputStream(FileOutputStream(destPayloadFile), 65536).use { out ->
+        out.write("PAQMPK1!".toByteArray(Charsets.US_ASCII))
+        writeLeInt(out, manifest.size)
+        writeLeLong(out, totalContentBytes)
+        writeLeInt(out, builtRawChunks.size)
+
+        for (m in manifest) {
+            val pathUtf8 = m.relPath.toByteArray(Charsets.UTF_8)
+            writeLeInt(out, pathUtf8.size)
+            out.write(pathUtf8)
+            writeLeLong(out, m.totalLength)
+            writeLeLong(out, m.lastModifiedMs)
+            writeLeInt(out, m.wholeCrc32)
+            writeLeInt(out, m.sliceCount)
+        }
+
+        var compRelOffset = 0L
+        for (b in builtRawChunks.indices) {
+            val compLen = compressedBlocks[b].size.toLong()
+            val rawBlkLen = builtRawChunks[b].rawBlockBytes.size.toLong()
+            writeLeLong(out, compRelOffset)
+            writeLeLong(out, compLen)
+            writeLeLong(out, rawBlkLen)
+            compRelOffset += compLen
+        }
+
+        for (b in compressedBlocks.indices) {
+            out.write(compressedBlocks[b])
+        }
+    }
+
+    val summaries = builtRawChunks.indices.map { idx ->
+        val rawMb = String.format(Locale.US, "%.2f", builtRawChunks[idx].payloadBytes / (1024.0 * 1024.0))
+        val compMb = String.format(Locale.US, "%.2f", compressedBlocks[idx].size / (1024.0 * 1024.0))
+        "${builtRawChunks[idx].label}: slices=${builtRawChunks[idx].sliceCount}, raw=${rawMb} MB -> lzma=${compMb} MB"
+    }
+
+    return MultiSolidPackStats(
+        fileCount = manifest.size,
+        totalRawBytes = totalContentBytes,
+        payloadBytes = destPayloadFile.length(),
+        chunkSummaries = summaries
+    )
+}
+
 compose.desktop {
     application {
         mainClass = "com.example.DesktopMainKt"
+        resolvePackagingJavaHome()?.let { resolvedJdk ->
+            javaHome = resolvedJdk
+            logger.lifecycle("[compose.desktop] Using packaging JDK with jpackage: $resolvedJdk")
+        }
 
         jvmArgs += listOf(
             "-Dfile.encoding=UTF-8",
@@ -496,11 +886,13 @@ tasks.register("packageWindowsSetup") {
             throw GradleException("Failed to compile PhonAcqSetupStub.exe (exit=$exitCode):\n$compilerOutput")
         }
 
-        // Pack release distributable into deterministic PAQPACK1 solid LZMA payload
-        val (rawPackBytes, packedFileCount) = buildSolidPackBytes(appImageDir)
-        val payloadLzma = File(workDir, "payload.lzma")
-        if (payloadLzma.exists()) payloadLzma.delete()
-        writeSolidLzmaFile(rawPackBytes, payloadLzma)
+        // Pack release distributable into 4-way parallel solid LZMA payload (PAQMPK1! + PAQSETM3)
+        val payloadMulti = File(workDir, "payload.paqmpk")
+        if (payloadMulti.exists()) payloadMulti.delete()
+        val packStats = writeParallelMultiSolidPayload(appImageDir, payloadMulti)
+        for (line in packStats.chunkSummaries) {
+            logger.lifecycle("  [packageWindowsSetup] $line")
+        }
 
         val outDir = layout.buildDirectory.dir("installer").get().asFile
         outDir.mkdirs()
@@ -508,24 +900,24 @@ tasks.register("packageWindowsSetup") {
         if (finalSetupExe.exists()) finalSetupExe.delete()
 
         val stubLen = stubExe.length()
-        val lzmaLen = payloadLzma.length()
+        val payloadLen = payloadMulti.length()
         val trailer = ByteBuffer.allocate(32).order(ByteOrder.LITTLE_ENDIAN).apply {
-            put("PAQSETL2".toByteArray(Charsets.US_ASCII))
-            putLong(stubLen) // payloadOffset
-            putLong(lzmaLen) // payloadLength
-            putLong(stubLen) // stubLength (used when extracting clean Uninstall-PhonAcq.exe)
+            put("PAQSETM3".toByteArray(Charsets.US_ASCII))
+            putLong(stubLen)    // payloadOffset
+            putLong(payloadLen) // payloadLength
+            putLong(stubLen)    // stubLength (used when extracting clean Uninstall-PhonAcq.exe)
         }.array()
 
-        BufferedOutputStream(FileOutputStream(finalSetupExe)).use { out ->
+        BufferedOutputStream(FileOutputStream(finalSetupExe), 65536).use { out ->
             stubExe.inputStream().use { it.copyTo(out, bufferSize = 65536) }
-            payloadLzma.inputStream().use { it.copyTo(out, bufferSize = 65536) }
+            payloadMulti.inputStream().use { it.copyTo(out, bufferSize = 65536) }
             out.write(trailer)
         }
 
         val mbStr = String.format(Locale.US, "%.2f", finalSetupExe.length() / (1024.0 * 1024.0))
-        val rawMbStr = String.format(Locale.US, "%.2f", rawPackBytes.size / (1024.0 * 1024.0))
+        val rawMbStr = String.format(Locale.US, "%.2f", packStats.totalRawBytes / (1024.0 * 1024.0))
         logger.lifecycle(
-            "Built PhonAcq Windows Solid-LZMA Installer ($packedFileCount files, raw=$rawMbStr MB -> installer=$mbStr MB): ${finalSetupExe.absolutePath}"
+            "Built PhonAcq Windows 4-Chunk Parallel Solid-LZMA Installer (${packStats.fileCount} files, raw=$rawMbStr MB -> installer=$mbStr MB): ${finalSetupExe.absolutePath}"
         )
     }
 }
