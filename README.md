@@ -4,11 +4,13 @@
   <p>田野语音与方言字表采录系统 · 面向方言调查、民族语记音与语音学实验</p>
 
   <p>
-    <a href="https://github.com/KasumiKitsune/PhonAcq/releases/download/v2.0.2/PhonAcq-v2.0.2-windows-x64-setup.exe" title="下载 PhonAcq Windows 桌面版 (64 位 .exe)"><img src="docs/images/download-windows.svg" alt="Windows 桌面版" height="44" /></a>
-    &nbsp;&nbsp;
-    <a href="https://github.com/KasumiKitsune/PhonAcq/releases/download/v2.0.2/PhonAcq-v2.0.2-macos-arm64.dmg" title="下载 PhonAcq macOS 桌面版 (Apple Silicon .dmg)"><img src="docs/images/download-macos.svg" alt="macOS 桌面版" height="44" /></a>
-    &nbsp;&nbsp;
-    <a href="https://github.com/KasumiKitsune/PhonAcq/releases/download/v2.0.2/PhonAcq-v2.0.2-android.apk" title="下载 PhonAcq Android 移动版 (Android 7.0+ .apk)"><img src="docs/images/download-android.svg" alt="Android 移动版" height="44" /></a>
+    <a href="https://github.com/KasumiKitsune/PhonAcq/releases/download/v2.0.2/PhonAcq-v2.0.2-windows-x64-setup.exe" title="下载 PhonAcq Windows 桌面版 (64 位 .exe)"><img src="docs/images/download-windows.svg" alt="Windows 桌面版" height="40" /></a>
+    &nbsp;
+    <a href="https://github.com/KasumiKitsune/PhonAcq/releases/download/v2.0.2/PhonAcq-v2.0.2-macos-arm64.dmg" title="下载 PhonAcq macOS 桌面版 (Apple Silicon .dmg)"><img src="docs/images/download-macos.svg" alt="macOS Apple Silicon 桌面版" height="40" /></a>
+    &nbsp;
+    <a href="https://github.com/KasumiKitsune/PhonAcq/releases/download/v2.0.2/PhonAcq-v2.0.2-macos-x64.dmg" title="下载 PhonAcq macOS 桌面版 (Intel 芯片 .dmg)"><img src="docs/images/download-macos-intel.svg" alt="macOS Intel 桌面版" height="40" /></a>
+    &nbsp;
+    <a href="https://github.com/KasumiKitsune/PhonAcq/releases/download/v2.0.2/PhonAcq-v2.0.2-android.apk" title="下载 PhonAcq Android 移动版 (Android 7.0+ .apk)"><img src="docs/images/download-android.svg" alt="Android 移动版" height="40" /></a>
   </p>
 </div>
 
@@ -33,7 +35,7 @@
 
 在汉语方言调查、民族语田野记音与实验语音学采录中，音频录制之后的重命名归档、静音切分、表格整理与多软件格式转换往往耗费大量精力。
 
-**PhonAcq** 将字表编排、多位发音人对照采录、现场收音质量把关、基础声学参考分析与规范化打包导出整合到同一工作流中，同时支持 **Android 手机 / 平板**、**Windows 桌面端** 与 **macOS（Apple Silicon）桌面端**：
+**PhonAcq** 将字表编排、多位发音人对照采录、现场收音质量把关、基础声学参考分析与规范化打包导出整合到同一工作流中，同时支持 **Android 手机 / 平板**、**Windows 桌面端** 与 **macOS（Apple Silicon / Intel）桌面端**：
 
 - **同一字表，多人独立建档**：一份调查字表可关联多位发音人，各自的录音文件、进度统计与记音备注独立存储，互不覆盖。
 - **兼顾文字与图片引导**：支持常规文字字表与「看图发音」图片词卡混合编排，便于面对不识字或高龄发音人开展田野调查。
@@ -90,6 +92,7 @@ PhonAcq 由 [KasumiKitsune](https://github.com/KasumiKitsune) 开发维护，可
 
 - **Windows（64 位）**：`PhonAcq-v2.0.2-windows-x64-setup.exe`（Windows 10 / 11 简体中文安装程序，支持同版本/跨版本直接覆盖更新）
 - **macOS（Apple Silicon）**：`PhonAcq-v2.0.2-macos-arm64.dmg`（适用于 M1 / M2 / M3 / M4 系列芯片 Mac）
+- **macOS（Intel 芯片）**：`PhonAcq-v2.0.2-macos-x64.dmg`（适用于 Intel 处理器款 Mac）
 - **Android（手机 / 平板）**：`PhonAcq-v2.0.2-android.apk`（Android 7.0+ 通用）
 
 > [!TIP]
@@ -107,7 +110,7 @@ PhonAcq 由 [KasumiKitsune](https://github.com/KasumiKitsune) 开发维护，可
 2. 在仓库根目录执行以下命令：
    - 直接启动桌面端：`gradle -p desktop-windows run`
    - 打包 Windows 图形化安装程序 (`.exe`)：`gradle -p desktop-windows packageWindowsSetup -PappVersion=2.0.2`
-   - 打包 macOS Apple Silicon 镜像 (`.dmg`)：`gradle -p desktop-windows packageDmg -PappVersion=2.0.2`
+   - 打包当前架构 macOS 镜像 (`.dmg`)：`gradle -p desktop-windows packageDmg -PappVersion=2.0.2`
 
 ### 手动触发多端自动发版（GitHub Actions）
 仓库内置手动发版工作流 `.github/workflows/release.yml`（不会在日常 `git push` 时自动运行）：

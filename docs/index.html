@@ -51,7 +51,7 @@
         "downloadUrl": "https://github.com/KasumiKitsune/PhonAcq/releases/latest",
         "softwareVersion": "2.0.2",
         "applicationCategory": "MultimediaApplication",
-        "operatingSystem": "Windows 10, Windows 11, macOS (Apple Silicon), Android 7.0+",
+        "operatingSystem": "Windows 10, Windows 11, macOS (Apple Silicon & Intel), Android 7.0+",
         "inLanguage": "zh-CN",
         "isAccessibleForFree": true,
         "offers": {
@@ -2037,6 +2037,17 @@
       gap: 10px;
     }
 
+    .dl-arch-pair {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 8px;
+    }
+
+    .dl-arch-pair .btn {
+      padding: 8px 8px;
+      font-size: 13px;
+    }
+
     .dl-mirror-box {
       display: flex;
       align-items: center;
@@ -2492,7 +2503,7 @@
                 </div>
               </a>
 
-              <a href="https://github.com/KasumiKitsune/PhonAcq/releases/latest" class="dl-card-btn js-dl-btn js-dl-mac" data-os="mac" aria-label="下载 macOS 安装包（.dmg）">
+              <a href="https://github.com/KasumiKitsune/PhonAcq/releases/download/v2.0.2/PhonAcq-v2.0.2-macos-arm64.dmg" class="dl-card-btn js-dl-btn js-dl-mac" data-os="mac" aria-label="下载 macOS 安装包（.dmg）">
                 <div class="dl-card-top">
                   <span class="dl-os-icon" aria-hidden="true">
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
@@ -2508,7 +2519,7 @@
                       <line x1="12" y1="5" x2="12" y2="17" /><polyline points="7 12 12 17 17 12" />
                     </svg>
                   </div>
-                  <span class="dl-os-sub">Apple M 系列芯片</span>
+                  <span class="dl-os-sub" id="hero-mac-sub">Apple M 系列芯片</span>
                 </div>
               </a>
 
@@ -2535,6 +2546,8 @@
 
             <div class="hero-helper-links">
               <a href="https://github.com/KasumiKitsune/PhonAcq/releases" target="_blank" rel="noopener">查看全部历史版本与校验信息</a>
+              <span>·</span>
+              <a href="https://github.com/KasumiKitsune/PhonAcq/releases/download/v2.0.2/PhonAcq-v2.0.2-macos-x64.dmg" class="js-dl-mac-intel">macOS Intel 芯片版 (.dmg)</a>
               <span>·</span>
               <a href="#cn-mirrors">国内网盘下载</a>
               <span>·</span>
@@ -5413,16 +5426,21 @@
                 <span class="rec-pill">当前设备推荐</span>
               </div>
               <p style="font-size: 13.5px; color: var(--ink-secondary);">
-                适用于 Apple M 系列芯片 Mac，标准 <code class="mono">.dmg</code> 磁盘映像，拖入「应用程序」即可直接使用。
+                同时支持 Apple M 系列芯片与 Intel 芯片 Mac，标准 <code class="mono">.dmg</code> 磁盘映像，拖入「应用程序」即可直接使用。
               </p>
             </div>
             <div class="bottom-dl-actions">
-              <a href="https://github.com/KasumiKitsune/PhonAcq/releases/latest" class="btn js-bottom-dl-btn js-dl-mac" data-os="mac">
-                下载 macOS 安装包 (.dmg)
-              </a>
+              <div class="dl-arch-pair">
+                <a href="https://github.com/KasumiKitsune/PhonAcq/releases/download/v2.0.2/PhonAcq-v2.0.2-macos-arm64.dmg" class="btn js-bottom-dl-btn js-dl-mac-arm" data-os="mac">
+                  M 系列芯片 (.dmg)
+                </a>
+                <a href="https://github.com/KasumiKitsune/PhonAcq/releases/download/v2.0.2/PhonAcq-v2.0.2-macos-x64.dmg" class="btn js-dl-mac-intel" data-os="mac">
+                  Intel 芯片 (.dmg)
+                </a>
+              </div>
               <div class="dl-mirror-box">
                 <a href="https://kasumikitsune.lanzoul.com/ijVfR4gbef9a" target="_blank" rel="noopener" class="dl-mirror-link">
-                  <span>蓝奏云下载 →</span>
+                  <span>蓝奏云下载 (M 芯片) →</span>
                 </a>
                 <button type="button" class="dl-copy-code" data-copy-code="go8j" data-default-label="密码 go8j" title="点击复制提取密码">密码 go8j</button>
               </div>
@@ -5586,10 +5604,43 @@
         });
       }
 
+      let detectedMacArch = 'arm';
+      let latestMacArmUrl = '';
+      let latestMacIntelUrl = '';
+
+      function applyMacArchSelection() {
+        const heroSub = document.getElementById('hero-mac-sub');
+        const armBtn = document.querySelector('.js-bottom-card[data-os="mac"] .js-dl-mac-arm');
+        const intelBtn = document.querySelector('.js-bottom-card[data-os="mac"] .js-dl-mac-intel');
+        const isIntel = detectedMacArch === 'x86';
+        if (heroSub) {
+          heroSub.textContent = isIntel ? 'Intel 芯片 · x64' : 'Apple M 系列芯片';
+        }
+        const targetHref = isIntel
+          ? (latestMacIntelUrl || (intelBtn && intelBtn.getAttribute('href')) || '')
+          : (latestMacArmUrl || (armBtn && armBtn.getAttribute('href')) || '');
+        if (targetHref) {
+          document.querySelectorAll('.js-dl-mac').forEach(function (a) { a.href = targetHref; });
+        }
+        if (detectVisitorOS() === 'mac' && armBtn && intelBtn) {
+          armBtn.classList.toggle('btn-primary', !isIntel);
+          intelBtn.classList.toggle('btn-primary', isIntel);
+        }
+      }
+
       applyOSHighlight(detectVisitorOS());
 
+      if (detectVisitorOS() === 'mac' && navigator.userAgentData && navigator.userAgentData.getHighEntropyValues) {
+        navigator.userAgentData.getHighEntropyValues(['architecture']).then(function (uaData) {
+          if (uaData && uaData.architecture === 'x86') {
+            detectedMacArch = 'x86';
+            applyMacArchSelection();
+          }
+        }).catch(function () {});
+      }
+
       async function syncLatestGitHubRelease() {
-        const cacheKey = 'phonacq_latest_release_v1';
+        const cacheKey = 'phonacq_latest_release_v2';
         let releaseData = null;
 
         try {
@@ -5623,7 +5674,8 @@
 
         if (Array.isArray(releaseData.assets)) {
           let winUrl = '';
-          let macUrl = '';
+          let macArmUrl = '';
+          let macIntelUrl = '';
           let androidUrl = '';
 
           releaseData.assets.forEach(function (asset) {
@@ -5632,15 +5684,29 @@
             if (!url) return;
             if (name.endsWith('.exe')) winUrl = url;
             else if (!winUrl && name.endsWith('.msi')) winUrl = url;
-            if (!macUrl && name.endsWith('.dmg')) macUrl = url;
+            if (name.endsWith('.dmg')) {
+              if (name.includes('x64') || name.includes('intel') || name.includes('x86_64')) {
+                macIntelUrl = url;
+              } else if (name.includes('arm64') || name.includes('aarch64') || !macArmUrl) {
+                macArmUrl = url;
+              }
+            }
             if (!androidUrl && name.endsWith('.apk')) androidUrl = url;
           });
 
           if (winUrl) {
             document.querySelectorAll('.js-dl-win').forEach(function (a) { a.href = winUrl; });
           }
-          if (macUrl) {
-            document.querySelectorAll('.js-dl-mac').forEach(function (a) { a.href = macUrl; });
+          if (macArmUrl) {
+            latestMacArmUrl = macArmUrl;
+            document.querySelectorAll('.js-dl-mac-arm').forEach(function (a) { a.href = macArmUrl; });
+          }
+          if (macIntelUrl) {
+            latestMacIntelUrl = macIntelUrl;
+            document.querySelectorAll('.js-dl-mac-intel').forEach(function (a) { a.href = macIntelUrl; });
+          }
+          if (macArmUrl || macIntelUrl) {
+            applyMacArchSelection();
           }
           if (androidUrl) {
             document.querySelectorAll('.js-dl-android').forEach(function (a) { a.href = androidUrl; });

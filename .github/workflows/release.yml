@@ -289,6 +289,101 @@ jobs:
           path: dist/PhonAcq-v*-macos-arm64.dmg
           if-no-files-found: error
 
+  build-macos-intel:
+    name: Build macOS Intel x64 (.dmg)
+    needs: prepare
+    runs-on: macos-15-intel
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17 (x64)
+        uses: actions/setup-java@v5
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+          architecture: 'x64'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.10.2'
+
+      - name: Build, Sign Entitlements & Package macOS Intel x64 (.dmg)
+        env:
+          RAW_VERSION: ${{ needs.prepare.outputs.raw_version }}
+        run: |
+          gradle -p desktop-windows createReleaseDistributable -PappVersion="${RAW_VERSION}" --no-daemon
+
+          APP_BUNDLE="$(find desktop-windows/build/compose/binaries/main-release/app -maxdepth 1 -name '*.app' 2>/dev/null | head -n 1)"
+          if [ -z "$APP_BUNDLE" ] || [ ! -d "$APP_BUNDLE" ]; then
+            APP_BUNDLE="$(find desktop-windows/build/compose/binaries/main/app -maxdepth 1 -name '*.app' 2>/dev/null | head -n 1)"
+          fi
+          if [ -z "$APP_BUNDLE" ] || [ ! -d "$APP_BUNDLE" ]; then
+            echo "::error::未找到生成的 macOS (Intel) .app 应用包"
+            exit 1
+          fi
+          echo "Built Intel release app bundle: $APP_BUNDLE"
+
+          # Ad-hoc sign Mach-O binaries inside bundled JVM runtime with runtime entitlements,
+          # then sign the runtime bundle and outer PhonAcq.app bundle with microphone & network entitlements
+          if [ -d "$APP_BUNDLE/Contents/runtime" ]; then
+            while IFS= read -r -d '' f; do
+              if file "$f" | grep -q "Mach-O"; then
+                codesign --force --sign - --entitlements desktop-windows/runtime-entitlements.plist "$f"
+              fi
+            done < <(find "$APP_BUNDLE/Contents/runtime" -type f -print0)
+            codesign --force --sign - --entitlements desktop-windows/runtime-entitlements.plist "$APP_BUNDLE/Contents/runtime"
+          fi
+          while IFS= read -r -d '' f; do
+            if file "$f" | grep -q "Mach-O"; then
+              codesign --force --sign - --entitlements desktop-windows/entitlements.plist "$f"
+            fi
+          done < <(find "$APP_BUNDLE/Contents/MacOS" -type f -print0)
+          codesign --force --sign - --entitlements desktop-windows/entitlements.plist "$APP_BUNDLE"
+          codesign --verify --verbose=2 "$APP_BUNDLE"
+
+          STAGING_DIR="${RUNNER_TEMP}/dmg-staging"
+          rm -rf "$STAGING_DIR"
+          mkdir -p "$STAGING_DIR" dist
+          cp -R "$APP_BUNDLE" "$STAGING_DIR/PhonAcq.app"
+          ln -s /Applications "$STAGING_DIR/Applications"
+
+          # Package using UDBZ (bzip2) compression for compatibility across macOS 10.15+ Intel Macs
+          DEST="dist/PhonAcq-v${RAW_VERSION}-macos-x64.dmg"
+          hdiutil create \
+            -volname "PhonAcq v${RAW_VERSION}" \
+            -srcfolder "$STAGING_DIR" \
+            -ov \
+            -format UDBZ \
+            "$DEST"
+
+          # Mount-verify the UDBZ DMG, x86_64 architecture & signature integrity
+          MOUNT_DIR="${RUNNER_TEMP}/dmg-verify"
+          rm -rf "$MOUNT_DIR"
+          mkdir -p "$MOUNT_DIR"
+          hdiutil attach -readonly -nobrowse -mountpoint "$MOUNT_DIR" "$DEST"
+          if [ ! -x "$MOUNT_DIR/PhonAcq.app/Contents/MacOS/PhonAcq" ]; then
+            hdiutil detach "$MOUNT_DIR" || true
+            echo "::error::UDBZ DMG 挂载自检失败：未找到可执行文件 PhonAcq"
+            exit 1
+          fi
+          if ! file "$MOUNT_DIR/PhonAcq.app/Contents/MacOS/PhonAcq" | grep -q "x86_64"; then
+            hdiutil detach "$MOUNT_DIR" || true
+            echo "::error::架构校验失败：PhonAcq 可执行文件并非 x86_64"
+            exit 1
+          fi
+          codesign --verify --verbose=2 "$MOUNT_DIR/PhonAcq.app"
+          hdiutil detach "$MOUNT_DIR"
+          ls -lh "$DEST"
+
+      - name: Upload macOS Intel DMG Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-macos-x64-dmg
+          path: dist/PhonAcq-v*-macos-x64.dmg
+          if-no-files-found: error
+
   publish-release:
     name: Publish GitHub Release
     needs:
@@ -296,6 +391,7 @@ jobs:
       - build-android
       - build-windows
       - build-macos
+      - build-macos-intel
     runs-on: ubuntu-latest
     steps:
       - name: Download Release Artifacts
@@ -332,6 +428,7 @@ jobs:
           | **Android**（手机 / 平板） | \`${APK_FILENAME}\` | Android 7.0+ 通用安装包（含双机无线联动看读端/遥控端） |
           | **Windows**（64 位） | \`PhonAcq-v${RAW_VERSION}-windows-x64-setup.exe\` | Windows 10 / 11 简体中文安装程序（支持同版本/跨版本直接覆盖更新） |
           | **macOS**（Apple Silicon） | \`PhonAcq-v${RAW_VERSION}-macos-arm64.dmg\` | 适用于 M1 / M2 / M3 / M4 系列芯片 Mac |
+          | **macOS**（Intel 芯片） | \`PhonAcq-v${RAW_VERSION}-macos-x64.dmg\` | 适用于 Intel 处理器款 Mac（支持 macOS 10.15+） |
 
           > **macOS 首次打开提示**：由于安装包采用开源构建而未附加 Apple 付费商业公证，首次拖入「应用程序」打开若提示无法验证开发者，请前往 **系统设置 → 隐私与安全性** 底部点击 **「仍要打开」**，或在终端执行 \`xattr -cr /Applications/PhonAcq.app\` 即可正常使用。
           EOF

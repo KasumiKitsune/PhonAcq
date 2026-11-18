@@ -26,6 +26,11 @@ def sync_readme(root: Path, version: str, apk_filename: str | None) -> None:
         text,
     )
     text = re.sub(
+        r"releases/download/v[^/]+/PhonAcq-v[^/\"]+-macos-x64\.dmg",
+        f"releases/download/{tag}/PhonAcq-{tag}-macos-x64.dmg",
+        text,
+    )
+    text = re.sub(
         r"releases/download/v[^/]+/PhonAcq-v[^/\"]+-android(?:-debug)?\.apk",
         f"releases/download/{tag}/{apk_name}",
         text,
@@ -36,6 +41,7 @@ def sync_readme(root: Path, version: str, apk_filename: str | None) -> None:
         text,
     )
     text = re.sub(r"PhonAcq-v[0-9A-Za-z._-]+-macos-arm64\.dmg", f"PhonAcq-{tag}-macos-arm64.dmg", text)
+    text = re.sub(r"PhonAcq-v[0-9A-Za-z._-]+-macos-x64\.dmg", f"PhonAcq-{tag}-macos-x64.dmg", text)
     text = re.sub(r"PhonAcq-v[0-9A-Za-z._-]+-android(?:-debug)?\.apk", apk_name, text)
     text = re.sub(r"-PappVersion=[0-9A-Za-z._-]+", f"-PappVersion={version}", text)
 
@@ -75,6 +81,16 @@ def sync_portal(root: Path, version: str, release_date: str) -> None:
         html = re.sub(
             r"(fallbackVersion:\s*')v[^']+(')",
             rf"\g<1>{tag}\2",
+            html,
+        )
+        html = re.sub(
+            r"releases/download/v[^/\"]+/PhonAcq-v[^/\"]+-macos-arm64\.dmg",
+            f"releases/download/{tag}/PhonAcq-{tag}-macos-arm64.dmg",
+            html,
+        )
+        html = re.sub(
+            r"releases/download/v[^/\"]+/PhonAcq-v[^/\"]+-macos-x64\.dmg",
+            f"releases/download/{tag}/PhonAcq-{tag}-macos-x64.dmg",
             html,
         )
         index_path.write_text(html, encoding="utf-8")
