@@ -13,7 +13,6 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.hoverable
@@ -24,16 +23,18 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.systemBars
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
@@ -41,8 +42,12 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ArrowForward
+import androidx.compose.material.icons.automirrored.filled.HelpOutline
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowDropDown
+import androidx.compose.material.icons.filled.AudioFile
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.CreateNewFolder
@@ -50,11 +55,13 @@ import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.TableChart
 import androidx.compose.material.icons.filled.UploadFile
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -63,9 +70,12 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.VerticalDivider
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -80,12 +90,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.input.pointer.PointerIcon
 import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -97,12 +107,17 @@ import com.example.data.Word
 import com.example.i18n.S
 import com.example.i18n.SSmartImport
 import com.example.i18n.withArgs
+import com.example.ui.components.AnimatedDialogVisibility
 import com.example.ui.components.DesktopAdaptiveState
+import com.example.ui.components.PredictiveBackGestureHandler
+import com.example.ui.components.StudioDialogEnterAnimation
 import com.example.ui.components.StudioFilterChip
 import com.example.ui.components.StudioModalDialog
 import com.example.ui.components.StudioSegmentedControl
 import com.example.ui.components.StudioSwitchRow
 import com.example.ui.components.consumeDialogCardTaps
+import com.example.ui.components.predictiveBackLayer
+import com.example.ui.components.rememberPredictiveBackVisualState
 import com.example.ui.components.rememberStudioInteraction
 import com.example.utils.AudioWordPairingRow
 import com.example.utils.ImportTargetMode
@@ -126,17 +141,19 @@ private enum class PairingPreviewFilter {
 }
 
 /**
- * Unified Smart Import Hub supporting wordlists (.xlsx/.csv/.tsv/.txt/.docx/.json),
+ * Full-screen Import Workspace Page supporting wordlists (.xlsx/.csv/.tsv/.txt/.docx/.json),
  * multi-format audio (.wav/.mp3/.m4a/.aac/.flac/.ogg/.aiff), prompt images, folders,
- * and full project archives (.zip/.teproj) across both Mobile and Desktop.
+ * and project archives (.zip/.teproj) across both Mobile and Desktop.
  */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SmartImportHubDialog(
+fun SmartImportWorkspaceScreen(
     viewModel: RecordingViewModel,
     initialUris: List<Uri> = emptyList(),
     initialMergeProject: Project? = null,
-    onDismiss: () -> Unit,
-    onImportCompleted: () -> Unit
+    onBack: () -> Unit,
+    onImportCompleted: () -> Unit,
+    modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
     val cs = MaterialTheme.colorScheme
@@ -159,8 +176,9 @@ fun SmartImportHubDialog(
     var isScanningFiles by remember { mutableStateOf(false) }
     var isExecutingImport by remember { mutableStateOf(false) }
     var activeProgress by remember { mutableStateOf<SmartImportProgress?>(null) }
+    var showFormatGuideDialog by remember { mutableStateOf(false) }
 
-    var targetMode by remember {
+    var targetMode by remember(initialMergeProject?.id) {
         mutableStateOf(
             if (initialMergeProject != null) ImportTargetMode.MERGE_EXISTING_PROJECT
             else ImportTargetMode.CREATE_NEW_PROJECT
@@ -168,9 +186,8 @@ fun SmartImportHubDialog(
     }
     var customProjectName by remember { mutableStateOf("") }
     var hasUserEditedProjectName by remember { mutableStateOf(false) }
-    var isProjectNameFocused by remember { mutableStateOf(false) }
 
-    var selectedMergeProjectId by remember(projects) {
+    var selectedMergeProjectId by remember(projects, initialMergeProject?.id) {
         mutableStateOf(initialMergeProject?.id ?: currentProject?.id ?: projects.firstOrNull()?.id)
     }
     var mergeTargetWords by remember { mutableStateOf<List<Word>>(emptyList()) }
@@ -192,6 +209,16 @@ fun SmartImportHubDialog(
     var rebindTargetRow by remember { mutableStateOf<AudioWordPairingRow?>(null) }
     var mobilePairingsExpanded by remember { mutableStateOf(false) }
     var isDragHovering by remember { mutableStateOf(false) }
+
+    val backVisualState = rememberPredictiveBackVisualState()
+    PredictiveBackGestureHandler(
+        enabled = !isExecutingImport && rebindTargetRow == null && !showFormatGuideDialog,
+        state = backVisualState
+    ) {
+        if (!isExecutingImport) {
+            onBack()
+        }
+    }
 
     // Load existing words whenever merge target project changes
     LaunchedEffect(targetMode, selectedMergeProjectId) {
@@ -317,400 +344,347 @@ fun SmartImportHubDialog(
         )
     }
 
-    // Attach Desktop OS Drag-and-Drop while Hub is open (unless nested rebind modal is open)
+    // Attach Desktop OS Drag-and-Drop while on the Import Page (unless a modal popup is open)
     SmartImportDesktopDropEffect(
-        enabled = isDesktop && !isExecutingImport && rebindTargetRow == null,
+        enabled = isDesktop && !isExecutingImport && rebindTargetRow == null && !showFormatGuideDialog,
         onHoverChanged = { isDragHovering = it },
         onDroppedUris = { uris -> appendUris(uris) }
     )
 
-    // Backdrop click closes ONLY when staging tray is empty and no input box is focused
-    val allowOutsideDismiss = stagedItems.isEmpty() && !isExecutingImport && !isProjectNameFocused
-
-    StudioModalDialog(
-        onDismissRequest = {
-            if (!isExecutingImport) onDismiss()
-        },
-        properties = DialogProperties(
-            dismissOnBackPress = !isExecutingImport,
-            dismissOnClickOutside = allowOutsideDismiss,
-            usePlatformDefaultWidth = false
-        )
-    ) {
-        BoxWithConstraints(
-            modifier = Modifier
-                .fillMaxSize()
-                .navigationBarsPadding()
-                .padding(horizontal = if (isDesktop) 24.dp else 12.dp, vertical = if (isDesktop) 20.dp else 16.dp),
-            contentAlignment = Alignment.Center
-        ) {
-            val isWideLayout = maxWidth >= 760.dp
-            val cardWidth = if (isWideLayout) {
-                (maxWidth * 0.94f).coerceIn(740.dp, 1040.dp)
+    val readySummary = remember(plan, targetMode, stagedItems.size) {
+        if (stagedItems.isEmpty()) {
+            SSmartImport.footerEmptySummary
+        } else {
+            val newWordCount = if (targetMode == ImportTargetMode.MERGE_EXISTING_PROJECT) {
+                plan.candidateWords.count { it.existingWordId == null }
             } else {
-                maxWidth
+                plan.candidateWords.size
             }
-            val cardHeight = if (isWideLayout) {
-                (maxHeight * 0.90f).coerceIn(520.dp, 700.dp)
-            } else {
-                (maxHeight * 0.92f).coerceAtLeast(420.dp)
-            }
+            val projPart = if (plan.archiveItems.isNotEmpty()) "${plan.archiveItems.size} 个项目包 · " else ""
+            "就绪：${projPart}${newWordCount} 个词条 · ${plan.readyAudioCount} 条录音"
+        }
+    }
 
-            Surface(
-                shape = RoundedCornerShape(26.dp),
-                color = cs.surface,
-                tonalElevation = 3.dp,
-                shadowElevation = 0.dp,
-                border = BorderStroke(1.dp, cs.outlineVariant.copy(alpha = 0.6f)),
-                modifier = Modifier
-                    .then(
-                        if (isWideLayout) Modifier.size(cardWidth, cardHeight)
-                        else Modifier.fillMaxWidth().heightIn(max = cardHeight)
+    Scaffold(
+        contentWindowInsets = WindowInsets.systemBars,
+        containerColor = cs.background,
+        modifier = modifier
+            .fillMaxSize()
+            .predictiveBackLayer(backVisualState)
+            .testTag("smart_import_workspace_page"),
+        topBar = {
+            Column(modifier = Modifier.fillMaxWidth()) {
+                TopAppBar(
+                    navigationIcon = {
+                        IconButton(
+                            onClick = { if (!isExecutingImport) onBack() },
+                            enabled = !isExecutingImport,
+                            modifier = Modifier
+                                .pointerHoverIcon(PointerIcon.Hand)
+                                .testTag("smart_import_back_button")
+                        ) {
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                                contentDescription = S.common.back
+                            )
+                        }
+                    },
+                    title = {
+                        Column {
+                            Text(
+                                text = SSmartImport.hubTitle,
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.ExtraBold,
+                                color = cs.onSurface,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            Text(
+                                text = SSmartImport.hubSubtitle,
+                                fontSize = 11.5.sp,
+                                color = cs.onSurfaceVariant,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                    },
+                    actions = {
+                        OutlinedButton(
+                            onClick = { showFormatGuideDialog = true },
+                            shape = RoundedCornerShape(12.dp),
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                            modifier = Modifier
+                                .padding(end = 12.dp)
+                                .defaultMinSize(minHeight = 40.dp)
+                                .pointerHoverIcon(PointerIcon.Hand)
+                                .testTag("import_format_guide_button")
+                        ) {
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Filled.HelpOutline,
+                                contentDescription = SSmartImport.btnFormatExamples,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = SSmartImport.btnFormatExamples,
+                                fontSize = 12.5.sp,
+                                fontWeight = FontWeight.Bold,
+                                maxLines = 1,
+                                softWrap = false
+                            )
+                        }
+                    },
+                    colors = TopAppBarDefaults.topAppBarColors(
+                        containerColor = cs.background
                     )
-                    .consumeDialogCardTaps()
-                    .testTag("smart_import_hub_dialog")
+                )
+                HorizontalDivider(color = cs.outlineVariant.copy(alpha = 0.55f))
+            }
+        },
+        bottomBar = {
+            Surface(
+                color = cs.surfaceContainerLow,
+                tonalElevation = 2.dp,
+                modifier = Modifier.fillMaxWidth()
             ) {
                 Column(modifier = Modifier.fillMaxWidth()) {
-                    // 1. Top Header
-                    Row(
+                    HorizontalDivider(color = cs.outlineVariant.copy(alpha = 0.55f))
+                    BoxWithConstraints(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(start = 20.dp, end = 12.dp, top = 14.dp, bottom = 10.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
+                            .padding(horizontal = 20.dp, vertical = 12.dp)
                     ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(12.dp),
-                            modifier = Modifier.weight(1f)
-                        ) {
-                            Surface(
-                                shape = RoundedCornerShape(12.dp),
-                                color = cs.primaryContainer,
-                                modifier = Modifier.size(38.dp)
-                            ) {
-                                Box(contentAlignment = Alignment.Center) {
-                                    Icon(
-                                        imageVector = Icons.Default.UploadFile,
-                                        contentDescription = null,
-                                        tint = cs.onPrimaryContainer,
-                                        modifier = Modifier.size(20.dp)
+                        val wideFooter = maxWidth >= 700.dp
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            val prog = activeProgress
+                            if (prog != null) {
+                                Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                                    Text(
+                                        text = prog.stageMessage,
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = cs.primary,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                    LinearProgressIndicator(
+                                        progress = { prog.fraction.coerceIn(0f, 1f) },
+                                        color = cs.primary,
+                                        trackColor = cs.surfaceContainerHighest,
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .height(6.dp)
+                                            .clip(CircleShape)
                                     )
                                 }
                             }
-                            Column {
+
+                            if (wideFooter) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Text(
+                                        text = readySummary,
+                                        fontSize = 13.sp,
+                                        fontWeight = if (stagedItems.isNotEmpty()) FontWeight.SemiBold else FontWeight.Normal,
+                                        color = if (stagedItems.isNotEmpty()) cs.onSurface else cs.onSurfaceVariant,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                        modifier = Modifier.weight(1f).padding(end = 16.dp)
+                                    )
+                                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                        TextButton(
+                                            onClick = onBack,
+                                            enabled = !isExecutingImport,
+                                            shape = RoundedCornerShape(12.dp),
+                                            modifier = Modifier
+                                                .defaultMinSize(minHeight = 44.dp)
+                                                .pointerHoverIcon(PointerIcon.Hand)
+                                        ) {
+                                            Text(S.common.back, fontWeight = FontWeight.SemiBold)
+                                        }
+                                        Button(
+                                            onClick = { triggerImportExecution() },
+                                            enabled = canStartImport,
+                                            shape = RoundedCornerShape(12.dp),
+                                            contentPadding = PaddingValues(horizontal = 24.dp, vertical = 10.dp),
+                                            modifier = Modifier
+                                                .defaultMinSize(minHeight = 44.dp)
+                                                .pointerHoverIcon(PointerIcon.Hand)
+                                                .testTag("smart_import_confirm_button")
+                                        ) {
+                                            if (isExecutingImport) {
+                                                CircularProgressIndicator(
+                                                    modifier = Modifier.size(16.dp),
+                                                    strokeWidth = 2.dp,
+                                                    color = cs.onPrimary
+                                                )
+                                                Spacer(modifier = Modifier.width(8.dp))
+                                                Text(SSmartImport.btnImporting, fontWeight = FontWeight.Bold)
+                                            } else {
+                                                Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(18.dp))
+                                                Spacer(modifier = Modifier.width(6.dp))
+                                                Text(SSmartImport.btnStartImport, fontWeight = FontWeight.Bold)
+                                            }
+                                        }
+                                    }
+                                }
+                            } else {
                                 Text(
-                                    text = SSmartImport.hubTitle,
-                                    fontSize = 17.5.sp,
-                                    fontWeight = FontWeight.ExtraBold,
-                                    color = cs.onSurface
-                                )
-                                Text(
-                                    text = SSmartImport.hubSubtitle,
-                                    fontSize = 11.5.sp,
+                                    text = readySummary,
+                                    fontSize = 12.sp,
                                     color = cs.onSurfaceVariant,
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis
                                 )
+                                Button(
+                                    onClick = { triggerImportExecution() },
+                                    enabled = canStartImport,
+                                    shape = RoundedCornerShape(14.dp),
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .defaultMinSize(minHeight = 48.dp)
+                                        .testTag("smart_import_confirm_button")
+                                ) {
+                                    if (isExecutingImport) {
+                                        CircularProgressIndicator(
+                                            modifier = Modifier.size(18.dp),
+                                            strokeWidth = 2.dp,
+                                            color = cs.onPrimary
+                                        )
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Text(SSmartImport.btnImporting, fontWeight = FontWeight.Bold)
+                                    } else {
+                                        Text(SSmartImport.btnStartImport, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                                    }
+                                }
                             }
                         }
+                    }
+                }
+            }
+        }
+    ) { innerPadding ->
+        BoxWithConstraints(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(innerPadding)
+        ) {
+            val isWideLayout = maxWidth >= 760.dp
 
-                        IconButton(
-                            onClick = { if (!isExecutingImport) onDismiss() },
+            if (isWideLayout) {
+                Row(modifier = Modifier.fillMaxSize()) {
+                    // Left Column (41%): Dropzone + Staged Files Tray
+                    Column(
+                        modifier = Modifier
+                            .weight(0.41f)
+                            .fillMaxHeight()
+                            .background(cs.surfaceContainerLow.copy(alpha = 0.35f))
+                            .padding(20.dp),
+                        verticalArrangement = Arrangement.spacedBy(14.dp)
+                    ) {
+                        SmartImportDropzoneBox(
+                            isDesktop = isDesktop,
+                            isDragHovering = isDragHovering,
+                            isScanning = isScanningFiles,
                             enabled = !isExecutingImport,
-                            modifier = Modifier
-                                .size(48.dp)
-                                .pointerHoverIcon(PointerIcon.Hand)
-                                .testTag("smart_import_close_button")
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Close,
-                                contentDescription = S.common.close,
-                                tint = cs.onSurfaceVariant
-                            )
+                            onPickFiles = { multiDocsLauncher.launch(arrayOf("*/*")) },
+                            onScanFolder = { folderTreeLauncher.launch(null) }
+                        )
+
+                        StagedCategorySummaryRow(
+                            archiveCount = plan.archiveItems.size,
+                            wordlistCount = plan.wordlistItems.size,
+                            totalParsedWords = plan.wordlistItems.sumOf { it.parsedWords.size },
+                            audioCount = plan.audioItems.size,
+                            imageCount = plan.imageItems.size,
+                            onClearAll = if (stagedItems.isNotEmpty() && !isExecutingImport) {
+                                {
+                                    stagedItems = emptyList()
+                                    manualWordOverrides.clear()
+                                }
+                            } else null
+                        )
+
+                        if (stagedItems.isEmpty()) {
+                            Box(
+                                contentAlignment = Alignment.Center,
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 16.dp)
+                            ) {
+                                Column(
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                                ) {
+                                    Text(
+                                        text = SSmartImport.stagedEmptyHint,
+                                        fontSize = 12.5.sp,
+                                        lineHeight = 19.sp,
+                                        color = cs.onSurfaceVariant.copy(alpha = 0.85f)
+                                    )
+                                    TextButton(
+                                        onClick = { showFormatGuideDialog = true },
+                                        modifier = Modifier.pointerHoverIcon(PointerIcon.Hand)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.AutoMirrored.Filled.HelpOutline,
+                                            contentDescription = null,
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Text(SSmartImport.btnFormatExamples, fontWeight = FontWeight.Bold, fontSize = 12.5.sp)
+                                    }
+                                }
+                            }
+                        } else {
+                            LazyColumn(
+                                contentPadding = PaddingValues(vertical = 2.dp),
+                                verticalArrangement = Arrangement.spacedBy(6.dp),
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .fillMaxWidth()
+                            ) {
+                                items(items = stagedItems, key = { it.id }) { item ->
+                                    StagedImportFileRow(
+                                        item = item,
+                                        enabled = !isExecutingImport,
+                                        onRemove = {
+                                            stagedItems = stagedItems.filterNot { it.id == item.id }
+                                            manualWordOverrides.remove(item.id)
+                                        }
+                                    )
+                                }
+                            }
                         }
                     }
 
-                    HorizontalDivider(color = cs.outlineVariant.copy(alpha = 0.55f))
+                    VerticalDivider(color = cs.outlineVariant.copy(alpha = 0.55f))
 
-                    // 2. Main Body (Two-Column Workbench on Desktop/Tablet, Single-Column Flow on Phone)
-                    if (isWideLayout) {
-                        Row(
-                            modifier = Modifier
-                                .weight(1f)
-                                .fillMaxWidth()
-                        ) {
-                            // Left Column (42%): Dropzone + Staged Files Tray
-                            Column(
-                                modifier = Modifier
-                                    .weight(0.42f)
-                                    .fillMaxHeight()
-                                    .background(cs.surfaceContainerLow.copy(alpha = 0.35f))
-                                    .padding(16.dp),
-                                verticalArrangement = Arrangement.spacedBy(12.dp)
-                            ) {
-                                SmartImportDropzoneBox(
-                                    isDesktop = isDesktop,
-                                    isDragHovering = isDragHovering,
-                                    isScanning = isScanningFiles,
-                                    enabled = !isExecutingImport,
-                                    onPickFiles = { multiDocsLauncher.launch(arrayOf("*/*")) },
-                                    onScanFolder = { folderTreeLauncher.launch(null) }
-                                )
+                    // Right Column (59%): Target Destination + Pairing Preview
+                    LazyColumn(
+                        contentPadding = PaddingValues(20.dp),
+                        verticalArrangement = Arrangement.spacedBy(14.dp),
+                        modifier = Modifier
+                            .weight(0.59f)
+                            .fillMaxHeight()
+                    ) {
+                        val onlyStandaloneArchives = plan.archiveItems.isNotEmpty() &&
+                            plan.wordlistItems.isEmpty() &&
+                            plan.audioItems.isEmpty() &&
+                            plan.imageItems.isEmpty()
 
-                                StagedCategorySummaryRow(
-                                    archiveCount = plan.archiveItems.size,
-                                    wordlistCount = plan.wordlistItems.size,
-                                    totalParsedWords = plan.wordlistItems.sumOf { it.parsedWords.size },
-                                    audioCount = plan.audioItems.size,
-                                    imageCount = plan.imageItems.size,
-                                    onClearAll = if (stagedItems.isNotEmpty() && !isExecutingImport) {
-                                        {
-                                            stagedItems = emptyList()
-                                            manualWordOverrides.clear()
-                                        }
-                                    } else null
-                                )
-
-                                if (stagedItems.isEmpty()) {
-                                    Box(
-                                        contentAlignment = Alignment.Center,
-                                        modifier = Modifier
-                                            .weight(1f)
-                                            .fillMaxWidth()
-                                            .padding(horizontal = 12.dp)
-                                    ) {
-                                        Text(
-                                            text = SSmartImport.stagedEmptyHint,
-                                            fontSize = 12.sp,
-                                            lineHeight = 18.sp,
-                                            color = cs.onSurfaceVariant.copy(alpha = 0.8f)
-                                        )
-                                    }
-                                } else {
-                                    LazyColumn(
-                                        contentPadding = PaddingValues(vertical = 2.dp),
-                                        verticalArrangement = Arrangement.spacedBy(6.dp),
-                                        modifier = Modifier
-                                            .weight(1f)
-                                            .fillMaxWidth()
-                                    ) {
-                                        items(items = stagedItems, key = { it.id }) { item ->
-                                            StagedImportFileRow(
-                                                item = item,
-                                                enabled = !isExecutingImport,
-                                                onRemove = {
-                                                    stagedItems = stagedItems.filterNot { it.id == item.id }
-                                                    manualWordOverrides.remove(item.id)
-                                                }
-                                            )
-                                        }
-                                    }
-                                }
-                            }
-
-                            VerticalDivider(color = cs.outlineVariant.copy(alpha = 0.55f))
-
-                            // Right Column (58%): Target Destination + Smart Pairing Preview
-                            LazyColumn(
-                                contentPadding = PaddingValues(16.dp),
-                                verticalArrangement = Arrangement.spacedBy(12.dp),
-                                modifier = Modifier
-                                    .weight(0.58f)
-                                    .fillMaxHeight()
-                            ) {
-                                val onlyStandaloneArchives = plan.archiveItems.isNotEmpty() &&
-                                    plan.wordlistItems.isEmpty() &&
-                                    plan.audioItems.isEmpty() &&
-                                    plan.imageItems.isEmpty()
-
-                                if (plan.archiveItems.isNotEmpty()) {
-                                    item(key = "archive_queue_card") {
-                                        ArchiveQueuePreviewCard(archiveItems = plan.archiveItems)
-                                    }
-                                }
-
-                                if (!onlyStandaloneArchives) {
-                                    item(key = "target_config_section") {
-                                        TargetDestinationSection(
-                                            targetMode = targetMode,
-                                            onTargetModeChanged = { targetMode = it },
-                                            customProjectName = customProjectName,
-                                            suggestedProjectName = plan.suggestedProjectName,
-                                            onCustomProjectNameChanged = {
-                                                customProjectName = it
-                                                hasUserEditedProjectName = true
-                                            },
-                                            onProjectNameFocusChanged = { isProjectNameFocused = it },
-                                            projects = projects,
-                                            selectedMergeProjectId = selectedMergeProjectId,
-                                            onSelectMergeProject = { selectedMergeProjectId = it },
-                                            speakers = speakers,
-                                            selectedSpeaker = selectedSpeakerObj,
-                                            onSelectSpeaker = { selectedSpeakerId = it.id },
-                                            mergeAudioPolicy = mergeAudioPolicy,
-                                            onMergeAudioPolicyChanged = { mergeAudioPolicy = it },
-                                            hasAudioItems = plan.audioItems.isNotEmpty(),
-                                            hasBaseWordlist = plan.wordlistItems.isNotEmpty() ||
-                                                (targetMode == ImportTargetMode.MERGE_EXISTING_PROJECT && mergeTargetWords.isNotEmpty()),
-                                            autoCreateWords = autoCreateWordsForUnmatchedAudio,
-                                            onAutoCreateWordsChanged = { autoCreateWordsForUnmatchedAudio = it },
-                                            pairSequential = pairBySequentialOrder,
-                                            onPairSequentialChanged = { pairBySequentialOrder = it },
-                                            autoDetectSpeakers = autoDetectSubfolderSpeakers,
-                                            onAutoDetectSpeakersChanged = { autoDetectSubfolderSpeakers = it },
-                                            enabled = !isExecutingImport
-                                        )
-                                    }
-                                }
-
-                                if (plan.audioItems.isNotEmpty()) {
-                                    item(key = "pairing_header_and_filters") {
-                                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                            Text(
-                                                text = SSmartImport.previewSectionTitle,
-                                                fontSize = 13.sp,
-                                                fontWeight = FontWeight.ExtraBold,
-                                                color = cs.onSurface
-                                            )
-                                            Row(
-                                                modifier = Modifier
-                                                    .fillMaxWidth()
-                                                    .horizontalScroll(rememberScrollState()),
-                                                horizontalArrangement = Arrangement.spacedBy(6.dp)
-                                            ) {
-                                                StudioFilterChip(
-                                                    selected = previewFilter == PairingPreviewFilter.ALL,
-                                                    onClick = { previewFilter = PairingPreviewFilter.ALL },
-                                                    labelText = SSmartImport.filterAll.withArgs("count" to plan.audioPairings.size)
-                                                )
-                                                StudioFilterChip(
-                                                    selected = previewFilter == PairingPreviewFilter.MATCHED,
-                                                    onClick = { previewFilter = PairingPreviewFilter.MATCHED },
-                                                    labelText = SSmartImport.filterMatched.withArgs("count" to matchedCount)
-                                                )
-                                                if (plan.autoCreatedWordCount > 0 || autoCreateWordsForUnmatchedAudio) {
-                                                    val autoRows = plan.audioPairings.count { it.matchKind == PairingMatchKind.AUTO_NEW_WORD }
-                                                    StudioFilterChip(
-                                                        selected = previewFilter == PairingPreviewFilter.AUTO_NEW,
-                                                        onClick = { previewFilter = PairingPreviewFilter.AUTO_NEW },
-                                                        labelText = SSmartImport.filterAutoNew.withArgs("count" to autoRows)
-                                                    )
-                                                }
-                                                if (plan.unassignedAudioCount > 0) {
-                                                    StudioFilterChip(
-                                                        selected = previewFilter == PairingPreviewFilter.UNASSIGNED,
-                                                        onClick = { previewFilter = PairingPreviewFilter.UNASSIGNED },
-                                                        isErrorVariant = true,
-                                                        labelText = SSmartImport.filterUnassigned.withArgs("count" to plan.unassignedAudioCount)
-                                                    )
-                                                }
-                                            }
-                                        }
-                                    }
-
-                                    items(
-                                        items = filteredPairings,
-                                        key = { "pair_${it.audioItem.id}" }
-                                    ) { row ->
-                                        AudioPairingPreviewRow(
-                                            row = row,
-                                            enabled = !isExecutingImport,
-                                            onClickRebind = { rebindTargetRow = row }
-                                        )
-                                    }
-                                } else if (plan.candidateWords.isNotEmpty()) {
-                                    item(key = "wordlist_only_preview") {
-                                        WordlistOnlyPreviewCard(
-                                            candidateWords = plan.candidateWords,
-                                            isMergeMode = targetMode == ImportTargetMode.MERGE_EXISTING_PROJECT
-                                        )
-                                    }
-                                } else if (!onlyStandaloneArchives) {
-                                    item(key = "empty_preview_hint") {
-                                        Surface(
-                                            shape = RoundedCornerShape(14.dp),
-                                            color = cs.surfaceContainerLow,
-                                            modifier = Modifier.fillMaxWidth()
-                                        ) {
-                                            Text(
-                                                text = SSmartImport.previewEmptyHint,
-                                                fontSize = 12.sp,
-                                                lineHeight = 18.sp,
-                                                color = cs.onSurfaceVariant,
-                                                modifier = Modifier.padding(16.dp)
-                                            )
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    } else {
-                        // Mobile / Compact Single-Column Scrollable Sheet
-                        Column(
-                            modifier = Modifier
-                                .weight(1f, fill = false)
-                                .fillMaxWidth()
-                                .verticalScroll(rememberScrollState())
-                                .padding(horizontal = 16.dp, vertical = 12.dp),
-                            verticalArrangement = Arrangement.spacedBy(12.dp)
-                        ) {
-                            SmartImportDropzoneBox(
-                                isDesktop = false,
-                                isDragHovering = false,
-                                isScanning = isScanningFiles,
-                                enabled = !isExecutingImport,
-                                onPickFiles = { multiDocsLauncher.launch(arrayOf("*/*")) },
-                                onScanFolder = { folderTreeLauncher.launch(null) }
-                            )
-
-                            if (stagedItems.isNotEmpty()) {
-                                StagedCategorySummaryRow(
-                                    archiveCount = plan.archiveItems.size,
-                                    wordlistCount = plan.wordlistItems.size,
-                                    totalParsedWords = plan.wordlistItems.sumOf { it.parsedWords.size },
-                                    audioCount = plan.audioItems.size,
-                                    imageCount = plan.imageItems.size,
-                                    onClearAll = if (!isExecutingImport) {
-                                        {
-                                            stagedItems = emptyList()
-                                            manualWordOverrides.clear()
-                                        }
-                                    } else null
-                                )
-
-                                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                                    stagedItems.take(5).forEach { item ->
-                                        StagedImportFileRow(
-                                            item = item,
-                                            enabled = !isExecutingImport,
-                                            onRemove = {
-                                                stagedItems = stagedItems.filterNot { it.id == item.id }
-                                                manualWordOverrides.remove(item.id)
-                                            }
-                                        )
-                                    }
-                                    if (stagedItems.size > 5) {
-                                        Text(
-                                            text = "… 等共 ${stagedItems.size} 个文件已加入待导入池",
-                                            fontSize = 11.5.sp,
-                                            color = cs.onSurfaceVariant,
-                                            modifier = Modifier.padding(start = 4.dp)
-                                        )
-                                    }
-                                }
-                            }
-
-                            if (plan.archiveItems.isNotEmpty()) {
+                        if (plan.archiveItems.isNotEmpty()) {
+                            item(key = "archive_queue_card") {
                                 ArchiveQueuePreviewCard(archiveItems = plan.archiveItems)
                             }
+                        }
 
-                            val onlyStandaloneArchives = plan.archiveItems.isNotEmpty() &&
-                                plan.wordlistItems.isEmpty() &&
-                                plan.audioItems.isEmpty() &&
-                                plan.imageItems.isEmpty()
-
-                            if (!onlyStandaloneArchives) {
+                        if (!onlyStandaloneArchives) {
+                            item(key = "target_config_section") {
                                 TargetDestinationSection(
                                     targetMode = targetMode,
                                     onTargetModeChanged = { targetMode = it },
@@ -720,7 +694,6 @@ fun SmartImportHubDialog(
                                         customProjectName = it
                                         hasUserEditedProjectName = true
                                     },
-                                    onProjectNameFocusChanged = { isProjectNameFocused = it },
                                     projects = projects,
                                     selectedMergeProjectId = selectedMergeProjectId,
                                     onSelectMergeProject = { selectedMergeProjectId = it },
@@ -741,209 +714,261 @@ fun SmartImportHubDialog(
                                     enabled = !isExecutingImport
                                 )
                             }
+                        }
 
-                            if (plan.audioItems.isNotEmpty()) {
-                                Surface(
-                                    shape = RoundedCornerShape(14.dp),
-                                    color = cs.surfaceContainerLow,
-                                    border = BorderStroke(1.dp, cs.outlineVariant.copy(alpha = 0.55f)),
-                                    modifier = Modifier.fillMaxWidth()
-                                ) {
-                                    Column(
-                                        modifier = Modifier.padding(12.dp),
-                                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                        if (plan.audioItems.isNotEmpty()) {
+                            item(key = "pairing_header_and_filters") {
+                                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    Text(
+                                        text = SSmartImport.previewSectionTitle,
+                                        fontSize = 13.5.sp,
+                                        fontWeight = FontWeight.ExtraBold,
+                                        color = cs.onSurface
+                                    )
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .horizontalScroll(rememberScrollState()),
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp)
                                     ) {
-                                        Row(
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .defaultMinSize(minHeight = 44.dp)
-                                                .clip(RoundedCornerShape(10.dp))
-                                                .clickable { mobilePairingsExpanded = !mobilePairingsExpanded },
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.SpaceBetween
-                                        ) {
-                                            Column(modifier = Modifier.weight(1f)) {
-                                                Text(
-                                                    text = SSmartImport.previewSectionTitle,
-                                                    fontSize = 13.sp,
-                                                    fontWeight = FontWeight.Bold,
-                                                    color = cs.onSurface
-                                                )
-                                                Text(
-                                                    text = if (mobilePairingsExpanded) {
-                                                        SSmartImport.collapsePairingsMobile
-                                                    } else {
-                                                        SSmartImport.expandPairingsMobile.withArgs("count" to plan.audioPairings.size)
-                                                    },
-                                                    fontSize = 11.5.sp,
-                                                    color = cs.primary
-                                                )
-                                            }
-                                            Icon(
-                                                imageVector = if (mobilePairingsExpanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
-                                                contentDescription = null,
-                                                tint = cs.primary
+                                        StudioFilterChip(
+                                            selected = previewFilter == PairingPreviewFilter.ALL,
+                                            onClick = { previewFilter = PairingPreviewFilter.ALL },
+                                            labelText = SSmartImport.filterAll.withArgs("count" to plan.audioPairings.size)
+                                        )
+                                        StudioFilterChip(
+                                            selected = previewFilter == PairingPreviewFilter.MATCHED,
+                                            onClick = { previewFilter = PairingPreviewFilter.MATCHED },
+                                            labelText = SSmartImport.filterMatched.withArgs("count" to matchedCount)
+                                        )
+                                        if (plan.autoCreatedWordCount > 0 || autoCreateWordsForUnmatchedAudio) {
+                                            val autoRows = plan.audioPairings.count { it.matchKind == PairingMatchKind.AUTO_NEW_WORD }
+                                            StudioFilterChip(
+                                                selected = previewFilter == PairingPreviewFilter.AUTO_NEW,
+                                                onClick = { previewFilter = PairingPreviewFilter.AUTO_NEW },
+                                                labelText = SSmartImport.filterAutoNew.withArgs("count" to autoRows)
                                             )
                                         }
-
-                                        AnimatedVisibility(
-                                            visible = mobilePairingsExpanded,
-                                            enter = expandVertically() + fadeIn(),
-                                            exit = shrinkVertically() + fadeOut()
-                                        ) {
-                                            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                                                plan.audioPairings.take(80).forEach { row ->
-                                                    AudioPairingPreviewRow(
-                                                        row = row,
-                                                        enabled = !isExecutingImport,
-                                                        onClickRebind = { rebindTargetRow = row }
-                                                    )
-                                                }
-                                            }
+                                        if (plan.unassignedAudioCount > 0) {
+                                            StudioFilterChip(
+                                                selected = previewFilter == PairingPreviewFilter.UNASSIGNED,
+                                                onClick = { previewFilter = PairingPreviewFilter.UNASSIGNED },
+                                                isErrorVariant = true,
+                                                labelText = SSmartImport.filterUnassigned.withArgs("count" to plan.unassignedAudioCount)
+                                            )
                                         }
                                     }
                                 }
-                            } else if (plan.candidateWords.isNotEmpty()) {
+                            }
+
+                            items(
+                                items = filteredPairings,
+                                key = { "pair_${it.audioItem.id}" }
+                            ) { row ->
+                                AudioPairingPreviewRow(
+                                    row = row,
+                                    enabled = !isExecutingImport,
+                                    onClickRebind = { rebindTargetRow = row }
+                                )
+                            }
+                        } else if (plan.candidateWords.isNotEmpty()) {
+                            item(key = "wordlist_only_preview") {
                                 WordlistOnlyPreviewCard(
                                     candidateWords = plan.candidateWords,
                                     isMergeMode = targetMode == ImportTargetMode.MERGE_EXISTING_PROJECT
                                 )
                             }
-                        }
-                    }
-
-                    HorizontalDivider(color = cs.outlineVariant.copy(alpha = 0.55f))
-
-                    // 3. Sticky Footer Action Bar
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .background(cs.surfaceContainerLow.copy(alpha = 0.5f))
-                            .padding(horizontal = 18.dp, vertical = 12.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        val prog = activeProgress
-                        if (prog != null) {
-                            Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
-                                Text(
-                                    text = prog.stageMessage,
-                                    fontSize = 12.sp,
-                                    fontWeight = FontWeight.SemiBold,
-                                    color = cs.primary,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                                LinearProgressIndicator(
-                                    progress = { prog.fraction.coerceIn(0f, 1f) },
-                                    color = cs.primary,
-                                    trackColor = cs.surfaceContainerHighest,
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .height(6.dp)
-                                        .clip(CircleShape)
-                                )
-                            }
-                        }
-
-                        val readySummary = remember(plan, targetMode, stagedItems.size) {
-                            if (stagedItems.isEmpty()) {
-                                SSmartImport.footerEmptySummary
-                            } else {
-                                val newWordCount = if (targetMode == ImportTargetMode.MERGE_EXISTING_PROJECT) {
-                                    plan.candidateWords.count { it.existingWordId == null }
-                                } else {
-                                    plan.candidateWords.size
-                                }
-                                val projPart = if (plan.archiveItems.isNotEmpty()) "${plan.archiveItems.size} 个工程包 · " else ""
-                                "就绪：${projPart}${newWordCount} 个词条 · ${plan.readyAudioCount} 条录音"
-                            }
-                        }
-
-                        if (isWideLayout) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.SpaceBetween
-                            ) {
-                                Text(
-                                    text = readySummary,
-                                    fontSize = 12.5.sp,
-                                    fontWeight = if (stagedItems.isNotEmpty()) FontWeight.SemiBold else FontWeight.Normal,
-                                    color = if (stagedItems.isNotEmpty()) cs.onSurface else cs.onSurfaceVariant,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                    modifier = Modifier.weight(1f).padding(end = 12.dp)
-                                )
-                                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                                    TextButton(
-                                        onClick = onDismiss,
-                                        enabled = !isExecutingImport,
-                                        shape = RoundedCornerShape(12.dp),
-                                        modifier = Modifier.defaultMinSize(minHeight = 44.dp)
-                                    ) {
-                                        Text(S.common.cancel, fontWeight = FontWeight.SemiBold)
-                                    }
-                                    Button(
-                                        onClick = { triggerImportExecution() },
-                                        enabled = canStartImport,
-                                        shape = RoundedCornerShape(12.dp),
-                                        contentPadding = PaddingValues(horizontal = 22.dp, vertical = 10.dp),
-                                        modifier = Modifier
-                                            .defaultMinSize(minHeight = 44.dp)
-                                            .pointerHoverIcon(PointerIcon.Hand)
-                                            .testTag("smart_import_confirm_button")
-                                    ) {
-                                        if (isExecutingImport) {
-                                            CircularProgressIndicator(
-                                                modifier = Modifier.size(16.dp),
-                                                strokeWidth = 2.dp,
-                                                color = cs.onPrimary
-                                            )
-                                            Spacer(modifier = Modifier.width(8.dp))
-                                            Text(SSmartImport.btnImporting, fontWeight = FontWeight.Bold)
-                                        } else {
-                                            Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(18.dp))
-                                            Spacer(modifier = Modifier.width(6.dp))
-                                            Text(SSmartImport.btnStartImport, fontWeight = FontWeight.Bold)
-                                        }
-                                    }
-                                }
-                            }
-                        } else {
-                            // Mobile compact footer
-                            Text(
-                                text = readySummary,
-                                fontSize = 12.sp,
-                                color = cs.onSurfaceVariant,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                            Button(
-                                onClick = { triggerImportExecution() },
-                                enabled = canStartImport,
-                                shape = RoundedCornerShape(14.dp),
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .defaultMinSize(minHeight = 48.dp)
-                                    .testTag("smart_import_confirm_button")
-                            ) {
-                                if (isExecutingImport) {
-                                    CircularProgressIndicator(
-                                        modifier = Modifier.size(18.dp),
-                                        strokeWidth = 2.dp,
-                                        color = cs.onPrimary
+                        } else if (!onlyStandaloneArchives) {
+                            item(key = "empty_preview_hint") {
+                                Surface(
+                                    shape = RoundedCornerShape(14.dp),
+                                    color = cs.surfaceContainerLow,
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Text(
+                                        text = SSmartImport.previewEmptyHint,
+                                        fontSize = 12.5.sp,
+                                        lineHeight = 19.sp,
+                                        color = cs.onSurfaceVariant,
+                                        modifier = Modifier.padding(16.dp)
                                     )
-                                    Spacer(modifier = Modifier.width(8.dp))
-                                    Text(SSmartImport.btnImporting, fontWeight = FontWeight.Bold)
-                                } else {
-                                    Text(SSmartImport.btnStartImport, fontSize = 14.sp, fontWeight = FontWeight.Bold)
                                 }
                             }
                         }
                     }
                 }
+            } else {
+                // Mobile / Compact Single-Column Scrollable Page
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .verticalScroll(rememberScrollState())
+                        .padding(horizontal = 16.dp, vertical = 14.dp),
+                    verticalArrangement = Arrangement.spacedBy(14.dp)
+                ) {
+                    SmartImportDropzoneBox(
+                        isDesktop = false,
+                        isDragHovering = false,
+                        isScanning = isScanningFiles,
+                        enabled = !isExecutingImport,
+                        onPickFiles = { multiDocsLauncher.launch(arrayOf("*/*")) },
+                        onScanFolder = { folderTreeLauncher.launch(null) }
+                    )
+
+                    if (stagedItems.isNotEmpty()) {
+                        StagedCategorySummaryRow(
+                            archiveCount = plan.archiveItems.size,
+                            wordlistCount = plan.wordlistItems.size,
+                            totalParsedWords = plan.wordlistItems.sumOf { it.parsedWords.size },
+                            audioCount = plan.audioItems.size,
+                            imageCount = plan.imageItems.size,
+                            onClearAll = if (!isExecutingImport) {
+                                {
+                                    stagedItems = emptyList()
+                                    manualWordOverrides.clear()
+                                }
+                            } else null
+                        )
+
+                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            stagedItems.take(6).forEach { item ->
+                                StagedImportFileRow(
+                                    item = item,
+                                    enabled = !isExecutingImport,
+                                    onRemove = {
+                                        stagedItems = stagedItems.filterNot { it.id == item.id }
+                                        manualWordOverrides.remove(item.id)
+                                    }
+                                )
+                            }
+                            if (stagedItems.size > 6) {
+                                Text(
+                                    text = "… 等共 ${stagedItems.size} 个文件已加入待导入列表",
+                                    fontSize = 11.5.sp,
+                                    color = cs.onSurfaceVariant,
+                                    modifier = Modifier.padding(start = 4.dp)
+                                )
+                            }
+                        }
+                    }
+
+                    if (plan.archiveItems.isNotEmpty()) {
+                        ArchiveQueuePreviewCard(archiveItems = plan.archiveItems)
+                    }
+
+                    val onlyStandaloneArchives = plan.archiveItems.isNotEmpty() &&
+                        plan.wordlistItems.isEmpty() &&
+                        plan.audioItems.isEmpty() &&
+                        plan.imageItems.isEmpty()
+
+                    if (!onlyStandaloneArchives) {
+                        TargetDestinationSection(
+                            targetMode = targetMode,
+                            onTargetModeChanged = { targetMode = it },
+                            customProjectName = customProjectName,
+                            suggestedProjectName = plan.suggestedProjectName,
+                            onCustomProjectNameChanged = {
+                                customProjectName = it
+                                hasUserEditedProjectName = true
+                            },
+                            projects = projects,
+                            selectedMergeProjectId = selectedMergeProjectId,
+                            onSelectMergeProject = { selectedMergeProjectId = it },
+                            speakers = speakers,
+                            selectedSpeaker = selectedSpeakerObj,
+                            onSelectSpeaker = { selectedSpeakerId = it.id },
+                            mergeAudioPolicy = mergeAudioPolicy,
+                            onMergeAudioPolicyChanged = { mergeAudioPolicy = it },
+                            hasAudioItems = plan.audioItems.isNotEmpty(),
+                            hasBaseWordlist = plan.wordlistItems.isNotEmpty() ||
+                                (targetMode == ImportTargetMode.MERGE_EXISTING_PROJECT && mergeTargetWords.isNotEmpty()),
+                            autoCreateWords = autoCreateWordsForUnmatchedAudio,
+                            onAutoCreateWordsChanged = { autoCreateWordsForUnmatchedAudio = it },
+                            pairSequential = pairBySequentialOrder,
+                            onPairSequentialChanged = { pairBySequentialOrder = it },
+                            autoDetectSpeakers = autoDetectSubfolderSpeakers,
+                            onAutoDetectSpeakersChanged = { autoDetectSubfolderSpeakers = it },
+                            enabled = !isExecutingImport
+                        )
+                    }
+
+                    if (plan.audioItems.isNotEmpty()) {
+                        Surface(
+                            shape = RoundedCornerShape(16.dp),
+                            color = cs.surfaceContainerLow,
+                            border = BorderStroke(1.dp, cs.outlineVariant.copy(alpha = 0.55f)),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Column(
+                                modifier = Modifier.padding(12.dp),
+                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .defaultMinSize(minHeight = 48.dp)
+                                        .clip(RoundedCornerShape(10.dp))
+                                        .clickable { mobilePairingsExpanded = !mobilePairingsExpanded },
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(
+                                            text = SSmartImport.previewSectionTitle,
+                                            fontSize = 13.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = cs.onSurface
+                                        )
+                                        Text(
+                                            text = if (mobilePairingsExpanded) {
+                                                SSmartImport.collapsePairingsMobile
+                                            } else {
+                                                SSmartImport.expandPairingsMobile.withArgs("count" to plan.audioPairings.size)
+                                            },
+                                            fontSize = 11.5.sp,
+                                            color = cs.primary
+                                        )
+                                    }
+                                    Icon(
+                                        imageVector = if (mobilePairingsExpanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                                        contentDescription = null,
+                                        tint = cs.primary
+                                    )
+                                }
+
+                                AnimatedVisibility(
+                                    visible = mobilePairingsExpanded,
+                                    enter = expandVertically() + fadeIn(),
+                                    exit = shrinkVertically() + fadeOut()
+                                ) {
+                                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                        plan.audioPairings.take(80).forEach { row ->
+                                            AudioPairingPreviewRow(
+                                                row = row,
+                                                enabled = !isExecutingImport,
+                                                onClickRebind = { rebindTargetRow = row }
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    } else if (plan.candidateWords.isNotEmpty()) {
+                        WordlistOnlyPreviewCard(
+                            candidateWords = plan.candidateWords,
+                            isMergeMode = targetMode == ImportTargetMode.MERGE_EXISTING_PROJECT
+                        )
+                    }
+                }
             }
         }
+    }
+
+    // Format Examples Guide Popup (no input boxes -> clicking backdrop closes cleanly)
+    AnimatedDialogVisibility(visible = showFormatGuideDialog) {
+        ImportFormatGuideDialog(
+            onDismiss = { showFormatGuideDialog = false }
+        )
     }
 
     val activeRebind = rebindTargetRow
@@ -1178,7 +1203,6 @@ private fun TargetDestinationSection(
     customProjectName: String,
     suggestedProjectName: String,
     onCustomProjectNameChanged: (String) -> Unit,
-    onProjectNameFocusChanged: (Boolean) -> Unit,
     projects: List<Project>,
     selectedMergeProjectId: Long?,
     onSelectMergeProject: (Long) -> Unit,
@@ -1241,7 +1265,6 @@ private fun TargetDestinationSection(
                     shape = RoundedCornerShape(12.dp),
                     modifier = Modifier
                         .fillMaxWidth()
-                        .onFocusChanged { onProjectNameFocusChanged(it.isFocused) }
                         .testTag("smart_import_project_name_input")
                 )
             } else {
@@ -1325,7 +1348,6 @@ private fun TargetDestinationSection(
                 }
             }
 
-            // Speaker selector when audio items exist or creating project
             if (speakers.isNotEmpty()) {
                 Box(modifier = Modifier.fillMaxWidth()) {
                     Surface(

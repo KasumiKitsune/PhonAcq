@@ -1314,7 +1314,7 @@ object SmartImportEngine {
                 gender = "男",
                 age = 30,
                 dialect = "",
-                notes = "智能导入自动创建"
+                notes = "文件导入时创建"
             )
             speakerIdByName[clean.lowercase(Locale.ROOT)] = createdId
             return createdId
@@ -1399,7 +1399,7 @@ object SmartImportEngine {
             }
             targetProjectId = repository.createProjectWithParsedWords(
                 name = targetProjectName,
-                description = "通过智能导入创建",
+                description = "",
                 parsedWords = parsedList,
                 speakerId = resolvedDefaultSpeakerId,
                 speakerGroupName = "",

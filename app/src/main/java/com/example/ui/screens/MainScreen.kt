@@ -8,6 +8,7 @@ import androidx.compose.animation.core.LinearOutSlowInEasing
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -40,6 +41,7 @@ import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.PieChart
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.UploadFile
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -115,6 +117,10 @@ fun MainScreen(
     var showEncyclopediaOverlay by remember { mutableStateOf(false) }
     var showWordListEditor by remember { mutableStateOf(false) }
     var wordEditorInitialProject by remember { mutableStateOf<Project?>(null) }
+    var showImportWorkspace by remember { mutableStateOf(false) }
+    var importInitialUris by remember { mutableStateOf<List<android.net.Uri>>(emptyList()) }
+    var importInitialMergeProject by remember { mutableStateOf<Project?>(null) }
+    var isGlobalDropHovering by remember { mutableStateOf(false) }
 
     var showRoomNoiseCheck by remember { mutableStateOf(false) }
     var showRecordingTips by remember { mutableStateOf(false) }
@@ -125,6 +131,31 @@ fun MainScreen(
     val activeLinkRole by viewModel.wirelessLink.activeRole.collectAsState()
     val isLinkConnected by viewModel.wirelessLink.isConnected.collectAsState()
 
+    val canAcceptWindowGlobalDrop = DesktopAdaptiveState.isDesktopPlatform &&
+        !showImportWorkspace &&
+        !showWordListEditor &&
+        !showWirelessPairingDialog &&
+        activeLinkRole == LinkRole.STANDALONE &&
+        !showAboutDialog &&
+        !showRecordingTips &&
+        hasSeenRecordingTips &&
+        com.example.ui.components.DesktopModalManager.entries.isEmpty()
+
+    com.example.utils.SmartImportDesktopDropEffect(
+        enabled = canAcceptWindowGlobalDrop,
+        onHoverChanged = { isGlobalDropHovering = it },
+        onDroppedUris = { dropped ->
+            if (dropped.isNotEmpty()) {
+                showUserManualOverlay = false
+                showEncyclopediaOverlay = false
+                showRoomNoiseCheck = false
+                importInitialUris = dropped
+                importInitialMergeProject = null
+                showImportWorkspace = true
+            }
+        }
+    )
+
     BoxWithConstraints(modifier = modifier) {
         val isCompactHeight = maxHeight < 500.dp && !DesktopAdaptiveState.isDesktopPlatform
         val isSplitWorkspace = DesktopAdaptiveState.isDesktopPlatform || (maxWidth >= 700.dp && !isCompactHeight)
@@ -134,6 +165,7 @@ fun MainScreen(
 
         // Automatically suspend bare-key recording shortcuts when any non-recording screen or modal is active
         val shouldSuspendBareShortcuts = showWordListEditor ||
+            showImportWorkspace ||
             showWirelessPairingDialog ||
             activeLinkRole != LinkRole.STANDALONE ||
             showUserManualOverlay ||
@@ -156,7 +188,7 @@ fun MainScreen(
 
         if (isSplitWorkspace) {
             PredictiveBackGestureHandler(
-                enabled = !showWordListEditor && !showUserManualOverlay && !showEncyclopediaOverlay && !showRoomNoiseCheck &&
+                enabled = !showWordListEditor && !showImportWorkspace && !showUserManualOverlay && !showEncyclopediaOverlay && !showRoomNoiseCheck &&
                     (showGlobalManagement || showPhoneticWord != null || showQuickRecordingSettingsInSidebar || tabletLeftPane != AppScreen.ProjectList),
                 state = if (showGlobalManagement || showPhoneticWord != null) tabletSidePaneBackState else mainTabBackState
             ) {
@@ -169,7 +201,7 @@ fun MainScreen(
             }
         } else {
             PredictiveBackGestureHandler(
-                enabled = !showWordListEditor && !showUserManualOverlay && !showEncyclopediaOverlay && !showSettingsOverlay && !showGlobalManagement && !showRoomNoiseCheck &&
+                enabled = !showWordListEditor && !showImportWorkspace && !showUserManualOverlay && !showEncyclopediaOverlay && !showSettingsOverlay && !showGlobalManagement && !showRoomNoiseCheck &&
                     (drawerState.isOpen || currentScreen != AppScreen.ProjectList),
                 state = mainTabBackState
             ) {
@@ -185,6 +217,7 @@ fun MainScreen(
             val isFullWindowImmersive = participantCleanMode &&
                 currentProject != null &&
                 !showWordListEditor &&
+                !showImportWorkspace &&
                 !showUserManualOverlay &&
                 !showEncyclopediaOverlay &&
                 !showRoomNoiseCheck &&
@@ -225,7 +258,7 @@ fun MainScreen(
                     )
                 } else {
                     Row(modifier = Modifier.fillMaxSize()) {
-                        val isPrimaryOverlayOpen = showWordListEditor || showUserManualOverlay || showEncyclopediaOverlay || showRoomNoiseCheck
+                        val isPrimaryOverlayOpen = showWordListEditor || showImportWorkspace || showUserManualOverlay || showEncyclopediaOverlay || showRoomNoiseCheck
                         NavigationRail(
                             containerColor = MaterialTheme.colorScheme.surface,
                             modifier = Modifier.testTag("app_nav_rail")
@@ -245,6 +278,7 @@ fun MainScreen(
                                     selected = !isPrimaryOverlayOpen && !showQuickRecordingSettingsInSidebar && tabletLeftPane == AppScreen.ProjectList,
                                     onClick = {
                                         showWordListEditor = false
+                                        showImportWorkspace = false
                                         showUserManualOverlay = false
                                         showEncyclopediaOverlay = false
                                         showRoomNoiseCheck = false
@@ -260,6 +294,7 @@ fun MainScreen(
                                     selected = !isPrimaryOverlayOpen && tabletLeftPane == AppScreen.ArchiveExplorer,
                                     onClick = {
                                         showWordListEditor = false
+                                        showImportWorkspace = false
                                         showUserManualOverlay = false
                                         showEncyclopediaOverlay = false
                                         showRoomNoiseCheck = false
@@ -273,6 +308,7 @@ fun MainScreen(
                                 NavigationRailItem(
                                     selected = showWordListEditor,
                                     onClick = {
+                                        showImportWorkspace = false
                                         showUserManualOverlay = false
                                         showEncyclopediaOverlay = false
                                         showRoomNoiseCheck = false
@@ -287,6 +323,7 @@ fun MainScreen(
                                     selected = !isPrimaryOverlayOpen && tabletLeftPane == AppScreen.Settings,
                                     onClick = {
                                         showWordListEditor = false
+                                        showImportWorkspace = false
                                         showUserManualOverlay = false
                                         showEncyclopediaOverlay = false
                                         showRoomNoiseCheck = false
@@ -316,6 +353,7 @@ fun MainScreen(
                                     selected = showUserManualOverlay,
                                     onClick = {
                                         showWordListEditor = false
+                                        showImportWorkspace = false
                                         showEncyclopediaOverlay = false
                                         showRoomNoiseCheck = false
                                         showUserManualOverlay = !showUserManualOverlay
@@ -328,6 +366,7 @@ fun MainScreen(
                                     selected = showEncyclopediaOverlay,
                                     onClick = {
                                         showWordListEditor = false
+                                        showImportWorkspace = false
                                         showUserManualOverlay = false
                                         showRoomNoiseCheck = false
                                         showEncyclopediaOverlay = !showEncyclopediaOverlay
@@ -340,6 +379,7 @@ fun MainScreen(
                                     selected = showRoomNoiseCheck,
                                     onClick = {
                                         showWordListEditor = false
+                                        showImportWorkspace = false
                                         showUserManualOverlay = false
                                         showEncyclopediaOverlay = false
                                         showRoomNoiseCheck = !showRoomNoiseCheck
@@ -406,6 +446,7 @@ fun MainScreen(
                                 Row(modifier = Modifier.fillMaxSize()) {
                                     val rightWorkspaceKey = when {
                                         showFullGlobalOverlay -> "GLOBAL_MANAGEMENT"
+                                        showImportWorkspace -> "IMPORT_WORKSPACE"
                                         showWordListEditor -> "WORD_EDITOR"
                                         showUserManualOverlay -> "USER_MANUAL"
                                         showEncyclopediaOverlay -> "ENCYCLOPEDIA"
@@ -431,6 +472,25 @@ fun MainScreen(
                                                 GlobalManagementPane(
                                                     viewModel = viewModel,
                                                     onDismiss = { viewModel.setShowGlobalManagement(false) }
+                                                )
+                                            }
+                                            "IMPORT_WORKSPACE" -> {
+                                                SmartImportWorkspaceScreen(
+                                                    viewModel = viewModel,
+                                                    initialUris = importInitialUris,
+                                                    initialMergeProject = importInitialMergeProject,
+                                                    onBack = {
+                                                        showImportWorkspace = false
+                                                        importInitialUris = emptyList()
+                                                        importInitialMergeProject = null
+                                                    },
+                                                    onImportCompleted = {
+                                                        showImportWorkspace = false
+                                                        importInitialUris = emptyList()
+                                                        importInitialMergeProject = null
+                                                        tabletLeftPane = AppScreen.ProjectList
+                                                    },
+                                                    modifier = Modifier.fillMaxSize()
                                                 )
                                             }
                                             "WORD_EDITOR" -> {
@@ -576,6 +636,11 @@ fun MainScreen(
                                                                                     wordEditorInitialProject = proj
                                                                                     showWordListEditor = true
                                                                                 },
+                                                                                onOpenImportPage = { uris, mergeProj ->
+                                                                                    importInitialUris = uris
+                                                                                    importInitialMergeProject = mergeProj
+                                                                                    showImportWorkspace = true
+                                                                                },
                                                                                 openSpeakerManagerTrigger = openSpeakerManagerTrigger,
                                                                                 onSpeakerManagerTriggerConsumed = { openSpeakerManagerTrigger = 0 },
                                                                                 isSplitPaneMode = true,
@@ -714,7 +779,7 @@ fun MainScreen(
         } else {
             // Mobile Portrait (Bottom Bar) & Mobile Landscape (Scrollable Left NavigationRail for full vertical height)
             val gesturesEnabled = (currentScreen == AppScreen.ProjectList || drawerState.isOpen) &&
-                !showSettingsOverlay && !showUserManualOverlay && !showEncyclopediaOverlay && !showWordListEditor && !showGlobalManagement && !showRoomNoiseCheck
+                !showSettingsOverlay && !showUserManualOverlay && !showEncyclopediaOverlay && !showWordListEditor && !showImportWorkspace && !showGlobalManagement && !showRoomNoiseCheck
 
             ModalNavigationDrawer(
                 drawerState = drawerState,
@@ -1054,6 +1119,11 @@ fun MainScreen(
                                             wordEditorInitialProject = proj
                                             showWordListEditor = true
                                         },
+                                        onOpenImportPage = { uris, mergeProj ->
+                                            importInitialUris = uris
+                                            importInitialMergeProject = mergeProj
+                                            showImportWorkspace = true
+                                        },
                                         openSpeakerManagerTrigger = openSpeakerManagerTrigger,
                                         onSpeakerManagerTriggerConsumed = { openSpeakerManagerTrigger = 0 },
                                         isSplitPaneMode = isMobileLandscape,
@@ -1166,6 +1236,32 @@ fun MainScreen(
                 onSavedAndOpenRecording = { savedProj ->
                     viewModel.selectProject(savedProj)
                     showWordListEditor = false
+                    currentScreen = AppScreen.RecordingWorkspace
+                },
+                modifier = Modifier.fillMaxSize()
+            )
+        }
+
+        // Full-Screen Import Workspace Page on Mobile (SplitWorkspace renders inside right workspace)
+        AnimatedVisibility(
+            visible = !isSplitWorkspace && showImportWorkspace,
+            enter = slideInHorizontally(animationSpec = tween(220)) { it / 4 } + fadeIn(tween(180)),
+            exit = slideOutHorizontally(animationSpec = tween(180)) { it / 4 } + fadeOut(tween(150)),
+            modifier = Modifier.fillMaxSize()
+        ) {
+            SmartImportWorkspaceScreen(
+                viewModel = viewModel,
+                initialUris = importInitialUris,
+                initialMergeProject = importInitialMergeProject,
+                onBack = {
+                    showImportWorkspace = false
+                    importInitialUris = emptyList()
+                    importInitialMergeProject = null
+                },
+                onImportCompleted = {
+                    showImportWorkspace = false
+                    importInitialUris = emptyList()
+                    importInitialMergeProject = null
                     currentScreen = AppScreen.RecordingWorkspace
                 },
                 modifier = Modifier.fillMaxSize()
@@ -1301,6 +1397,56 @@ fun MainScreen(
             AboutPhonAcqDialog(
                 onDismiss = { showAboutDialog = false }
             )
+        }
+
+        AnimatedVisibility(
+            visible = isGlobalDropHovering,
+            enter = fadeIn(tween(140)),
+            exit = fadeOut(tween(140)),
+            modifier = Modifier.fillMaxSize()
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(MaterialTheme.colorScheme.scrim.copy(alpha = 0.28f))
+                    .padding(24.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Surface(
+                    shape = RoundedCornerShape(28.dp),
+                    color = MaterialTheme.colorScheme.primaryContainer,
+                    border = BorderStroke(2.dp, MaterialTheme.colorScheme.primary),
+                    tonalElevation = 4.dp,
+                    modifier = Modifier.widthIn(max = 560.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 28.dp, vertical = 22.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(16.dp)
+                    ) {
+                        Surface(
+                            shape = CircleShape,
+                            color = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(48.dp)
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Icon(
+                                    imageVector = Icons.Default.UploadFile,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.onPrimary,
+                                    modifier = Modifier.size(24.dp)
+                                )
+                            }
+                        }
+                        Text(
+                            text = com.example.i18n.SSmartImport.globalDropBannerText,
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer
+                        )
+                    }
+                }
+            }
         }
     }
 }

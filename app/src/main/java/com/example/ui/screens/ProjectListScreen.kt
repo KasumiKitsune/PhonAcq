@@ -71,6 +71,7 @@ fun ProjectListScreen(
     onOpenSettings: (() -> Unit)? = null,
     onOpenWirelessLink: (() -> Unit)? = null,
     onOpenWordListEditor: ((Project?) -> Unit)? = null,
+    onOpenImportPage: ((List<android.net.Uri>, Project?) -> Unit)? = null,
     openSpeakerManagerTrigger: Int = 0,
     onSpeakerManagerTriggerConsumed: () -> Unit = {},
     isSplitPaneMode: Boolean = false,
@@ -92,9 +93,23 @@ fun ProjectListScreen(
     var pendingMergeTargetProject by remember { mutableStateOf<Project?>(null) }
     var isGlobalDropHovering by remember { mutableStateOf(false) }
 
+    fun launchImportWorkspace(
+        uris: List<android.net.Uri> = emptyList(),
+        mergeProject: Project? = null
+    ) {
+        if (onOpenImportPage != null) {
+            onOpenImportPage(uris, mergeProject)
+        } else {
+            pendingSmartImportUris = uris
+            pendingMergeTargetProject = mergeProject
+            showSmartImportHub = true
+        }
+    }
+
     SuspendDesktopShortcutsWhen(showSpeakerManagerScreen || selectedProjectForDetails != null || showSmartImportHub)
 
-    val canAcceptHomeGlobalDrop = com.example.ui.components.DesktopAdaptiveState.isDesktopPlatform &&
+    val canAcceptHomeGlobalDrop = onOpenImportPage == null &&
+        com.example.ui.components.DesktopAdaptiveState.isDesktopPlatform &&
         !showSmartImportHub &&
         !showSpeakerManagerScreen &&
         selectedProjectForDetails == null &&
@@ -105,9 +120,7 @@ fun ProjectListScreen(
         onHoverChanged = { isGlobalDropHovering = it },
         onDroppedUris = { dropped ->
             if (dropped.isNotEmpty()) {
-                pendingSmartImportUris = dropped
-                pendingMergeTargetProject = null
-                showSmartImportHub = true
+                launchImportWorkspace(uris = dropped, mergeProject = null)
             }
         }
     )
@@ -191,11 +204,7 @@ fun ProjectListScreen(
                     },
                     actions = {
                         TextButton(
-                            onClick = {
-                                pendingSmartImportUris = emptyList()
-                                pendingMergeTargetProject = null
-                                showSmartImportHub = true
-                            },
+                            onClick = { launchImportWorkspace() },
                             contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
                             modifier = Modifier
                                 .pointerHoverIcon(PointerIcon.Hand)
@@ -346,11 +355,7 @@ fun ProjectListScreen(
                             )
                             Spacer(modifier = Modifier.height(16.dp))
                             OutlinedButton(
-                                onClick = {
-                                    pendingSmartImportUris = emptyList()
-                                    pendingMergeTargetProject = null
-                                    showSmartImportHub = true
-                                },
+                                onClick = { launchImportWorkspace() },
                                 shape = RoundedCornerShape(14.dp),
                                 modifier = Modifier
                                     .pointerHoverIcon(PointerIcon.Hand)
@@ -649,9 +654,7 @@ fun ProjectListScreen(
                         } else null,
                         onOpenSmartMergeImport = {
                             selectedProjectForDetails = null
-                            pendingSmartImportUris = emptyList()
-                            pendingMergeTargetProject = targetProj
-                            showSmartImportHub = true
+                            launchImportWorkspace(uris = emptyList(), mergeProject = targetProj)
                         },
                         onUpdate = { name, desc, groupName ->
                             viewModel.updateProjectDetails(targetProj, name, desc, groupName) {
@@ -714,12 +717,17 @@ fun ProjectListScreen(
             )
         }
 
-        com.example.ui.components.AnimatedDialogVisibility(visible = showSmartImportHub) {
-            SmartImportHubDialog(
+        AnimatedVisibility(
+            visible = showSmartImportHub,
+            enter = slideInHorizontally { width -> width / 3 } + fadeIn(),
+            exit = slideOutHorizontally { width -> width / 3 } + fadeOut(),
+            modifier = Modifier.fillMaxSize()
+        ) {
+            SmartImportWorkspaceScreen(
                 viewModel = viewModel,
                 initialUris = pendingSmartImportUris,
                 initialMergeProject = pendingMergeTargetProject,
-                onDismiss = {
+                onBack = {
                     showSmartImportHub = false
                     pendingSmartImportUris = emptyList()
                     pendingMergeTargetProject = null
@@ -729,7 +737,8 @@ fun ProjectListScreen(
                     pendingSmartImportUris = emptyList()
                     pendingMergeTargetProject = null
                     onProjectOpened()
-                }
+                },
+                modifier = Modifier.fillMaxSize()
             )
         }
 
