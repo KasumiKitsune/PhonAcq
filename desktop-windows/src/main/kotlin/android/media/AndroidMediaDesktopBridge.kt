@@ -37,10 +37,6 @@ object DesktopAudioDeviceSelector {
     private val _isMicAvailable = MutableStateFlow(false)
     val isMicAvailable = _isMicAvailable.asStateFlow()
 
-    init {
-        refreshDevices()
-    }
-
     private val probeFormats: List<JavaAudioFormat> = listOf(
         JavaAudioFormat(48000f, 16, 1, true, false),
         JavaAudioFormat(48000f, 16, 2, true, false),
@@ -48,6 +44,12 @@ object DesktopAudioDeviceSelector {
         JavaAudioFormat(44100f, 16, 2, true, false),
         JavaAudioFormat(22050f, 16, 1, true, false)
     )
+
+    private val deviceCallbacks = CopyOnWriteArraySet<AudioDeviceCallback>()
+
+    init {
+        refreshDevices()
+    }
 
     private fun isMixerSupportingAnyInput(mixer: Mixer): Boolean {
         for (fmt in probeFormats) {
@@ -90,8 +92,6 @@ object DesktopAudioDeviceSelector {
         }
         return names
     }
-
-    private val deviceCallbacks = CopyOnWriteArraySet<AudioDeviceCallback>()
 
     internal fun addDeviceCallback(cb: AudioDeviceCallback) {
         deviceCallbacks.add(cb)
