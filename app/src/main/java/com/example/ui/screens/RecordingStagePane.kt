@@ -2,15 +2,21 @@ package com.example.ui.screens
 
 import android.content.Intent
 import android.widget.Toast
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.hoverable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
@@ -72,7 +78,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.PointerIcon
@@ -96,6 +107,7 @@ import com.example.ui.components.DesktopAdaptiveState
 import com.example.ui.components.SuspendDesktopShortcutsWhen
 import com.example.ui.components.ZoomableWordImage
 import com.example.ui.components.rememberStudioInteraction
+import com.example.ui.components.studioTactile
 import com.example.utils.WordImageManager
 import com.example.utils.rememberWordImageBitmap
 import com.example.viewmodel.RecordingViewModel
@@ -151,6 +163,8 @@ internal fun RecordingStagePane(
     val carrierSentenceEnabled by viewModel.carrierSentenceEnabled.collectAsState()
     val carrierSentenceTemplate by viewModel.carrierSentenceTemplate.collectAsState()
     val isSimpleMode by viewModel.isSimpleMode.collectAsState()
+    val playbackProgressState = viewModel.playbackProgress.collectAsState()
+    val playbackProgressProvider = remember(playbackProgressState) { { playbackProgressState.value } }
 
     var wordForQuickRemark by remember { mutableStateOf<Word?>(null) }
     var wordForTakeSwitcher by remember { mutableStateOf<Word?>(null) }
@@ -267,6 +281,7 @@ internal fun RecordingStagePane(
                 carrierSentenceTemplate = carrierSentenceTemplate,
                 isCompactStageHeight = isCompactStageHeight,
                 isPlayingAudio = isPlayingThis,
+                playbackProgressProvider = playbackProgressProvider,
                 takeCount = takeCount,
                 showInspectAcoustics = !isSimpleMode,
                 onImageZoomActiveChanged = { zoomed ->
@@ -1147,6 +1162,7 @@ internal fun PromptStageLightboxCard(
     carrierSentenceTemplate: String = S.recording.defaultCarrierTemplate,
     isCompactStageHeight: Boolean = false,
     isPlayingAudio: Boolean,
+    playbackProgressProvider: () -> Float = { 0f },
     @Suppress("UNUSED_PARAMETER") takeCount: Int = 0,
     showInspectAcoustics: Boolean = true,
     onImageZoomActiveChanged: ((Boolean) -> Unit)? = null,
@@ -1556,34 +1572,14 @@ internal fun PromptStageLightboxCard(
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        FilledTonalButton(
-                            onClick = onPlayClick,
-                            contentPadding = PaddingValues(
-                                horizontal = if (isNarrowCardActions) 12.dp else 14.dp,
-                                vertical = 8.dp
-                            ),
-                            modifier = Modifier
-                                .height(iconBtnSize)
-                                .testTag("play_word_audio_button")
-                        ) {
-                            Icon(
-                                imageVector = if (isPlayingAudio) Icons.Default.Stop else Icons.Default.PlayArrow,
-                                contentDescription = if (isPlayingAudio) S.recording.stopPlaybackDesc else S.recording.playCurrentWordDesc,
-                                modifier = Modifier.size(18.dp)
-                            )
-                            Spacer(Modifier.width(if (isNarrowCardActions) 4.dp else 6.dp))
-                            Text(
-                                text = when {
-                                    isPlayingAudio && isNarrowCardActions -> S.common.stop
-                                    isPlayingAudio -> S.recording.stopListening
-                                    isNarrowCardActions -> S.common.playback
-                                    else -> S.recording.startListening
-                                },
-                                maxLines = 1,
-                                softWrap = false,
-                                fontWeight = FontWeight.SemiBold
-                            )
-                        }
+                        AuditionPlayProgressButton(
+                            isDesktopPill = isDesktop,
+                            isPlayingAudio = isPlayingAudio,
+                            isNarrow = isNarrowCardActions,
+                            buttonSize = iconBtnSize,
+                            playbackProgressProvider = playbackProgressProvider,
+                            onClick = onPlayClick
+                        )
 
                         Row(horizontalArrangement = Arrangement.spacedBy(if (isNarrowCardActions) 5.dp else 6.dp)) {
                             FilledTonalIconButton(
@@ -1662,6 +1658,191 @@ internal fun PromptStageLightboxCard(
                     }
                 } else {
                     Spacer(Modifier.height(2.dp))
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun AuditionPlayProgressButton(
+    isDesktopPill: Boolean,
+    isPlayingAudio: Boolean,
+    isNarrow: Boolean,
+    buttonSize: androidx.compose.ui.unit.Dp,
+    playbackProgressProvider: () -> Float,
+    onClick: () -> Unit
+) {
+    val colorScheme = MaterialTheme.colorScheme
+    val rawProgress = if (isPlayingAudio) playbackProgressProvider().coerceIn(0f, 1f) else 0f
+    val animatedProgress by animateFloatAsState(
+        targetValue = rawProgress,
+        animationSpec = tween(durationMillis = 55, easing = LinearEasing),
+        label = "auditionPlayProgress"
+    )
+    val (interactionSrc, isHoveredState) = rememberStudioInteraction()
+    val isHovered by isHoveredState
+
+    if (isDesktopPill) {
+        val baseBg by animateColorAsState(
+            targetValue = when {
+                isPlayingAudio -> lerp(colorScheme.surfaceContainerHigh, colorScheme.primaryContainer, 0.55f)
+                isHovered -> lerp(colorScheme.secondaryContainer, colorScheme.primaryContainer, 0.45f)
+                else -> colorScheme.secondaryContainer
+            },
+            animationSpec = tween(150),
+            label = "desktopAuditionPillBg"
+        )
+        val borderColor by animateColorAsState(
+            targetValue = when {
+                isPlayingAudio -> colorScheme.primary.copy(alpha = 0.72f)
+                isHovered -> colorScheme.primary.copy(alpha = 0.45f)
+                else -> colorScheme.outlineVariant.copy(alpha = 0.35f)
+            },
+            animationSpec = tween(150),
+            label = "desktopAuditionPillBorder"
+        )
+        val fillOverlayColor = colorScheme.primary.copy(alpha = 0.28f)
+        val fillEdgeColor = colorScheme.primary.copy(alpha = 0.75f)
+        val contentTint = if (isPlayingAudio) colorScheme.onPrimaryContainer else colorScheme.onSecondaryContainer
+
+        Surface(
+            shape = CircleShape,
+            color = baseBg,
+            border = BorderStroke(if (isPlayingAudio) 1.5.dp else 1.dp, borderColor),
+            shadowElevation = 0.dp,
+            tonalElevation = 0.dp,
+            modifier = Modifier
+                .height(buttonSize)
+                .studioTactile(interactionSrc, pressScale = 0.96f)
+                .clip(CircleShape)
+                .hoverable(interactionSrc)
+                .clickable(
+                    interactionSource = interactionSrc,
+                    indication = null,
+                    onClick = onClick
+                )
+                .testTag("play_word_audio_button")
+        ) {
+            Box(
+                contentAlignment = Alignment.Center,
+                modifier = Modifier
+                    .height(buttonSize)
+                    .drawBehind {
+                        if (isPlayingAudio && animatedProgress > 0.002f) {
+                            val fillW = (size.width * animatedProgress).coerceIn(0f, size.width)
+                            drawRect(
+                                color = fillOverlayColor,
+                                topLeft = Offset.Zero,
+                                size = Size(fillW, size.height)
+                            )
+                            val edgeW = 2.dp.toPx()
+                            drawRect(
+                                color = fillEdgeColor,
+                                topLeft = Offset((fillW - edgeW).coerceAtLeast(0f), 0f),
+                                size = Size(edgeW, size.height)
+                            )
+                        }
+                    }
+                    .padding(horizontal = if (isNarrow) 14.dp else 16.dp)
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(if (isNarrow) 5.dp else 6.dp)
+                ) {
+                    Icon(
+                        imageVector = if (isPlayingAudio) Icons.Default.Stop else Icons.Default.PlayArrow,
+                        contentDescription = if (isPlayingAudio) S.recording.stopPlaybackDesc else S.recording.playCurrentWordDesc,
+                        tint = if (isPlayingAudio) colorScheme.primary else contentTint,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Text(
+                        text = when {
+                            isPlayingAudio && isNarrow -> S.common.stop
+                            isPlayingAudio -> S.recording.stopListening
+                            isNarrow -> S.common.playback
+                            else -> S.recording.startListening
+                        },
+                        color = contentTint,
+                        maxLines = 1,
+                        softWrap = false,
+                        fontWeight = FontWeight.SemiBold,
+                        style = MaterialTheme.typography.labelLarge
+                    )
+                }
+            }
+        }
+    } else {
+        // Mobile circular audition button with crisp outer ring progress around the button perimeter
+        val ringTrackColor = colorScheme.primary.copy(alpha = 0.20f)
+        val ringActiveColor = colorScheme.primary
+        val circleBg by animateColorAsState(
+            targetValue = if (isPlayingAudio) colorScheme.primaryContainer else colorScheme.secondaryContainer,
+            animationSpec = tween(150),
+            label = "mobileAuditionCircleBg"
+        )
+        val iconTint = if (isPlayingAudio) colorScheme.primary else colorScheme.onSecondaryContainer
+        val outerSize = (buttonSize + 6.dp).coerceAtLeast(48.dp)
+
+        Box(
+            contentAlignment = Alignment.Center,
+            modifier = Modifier
+                .size(outerSize)
+                .studioTactile(interactionSrc, pressScale = 0.92f)
+                .clip(CircleShape)
+                .clickable(
+                    interactionSource = interactionSrc,
+                    indication = LocalIndication.current,
+                    onClick = onClick
+                )
+                .testTag("play_word_audio_button")
+        ) {
+            if (isPlayingAudio) {
+                Canvas(modifier = Modifier.fillMaxSize()) {
+                    val strokePx = 3.dp.toPx()
+                    val inset = strokePx / 2f + 1.dp.toPx()
+                    val arcSize = Size(
+                        width = (size.width - inset * 2f).coerceAtLeast(1f),
+                        height = (size.height - inset * 2f).coerceAtLeast(1f)
+                    )
+                    val topLeft = Offset(inset, inset)
+                    drawArc(
+                        color = ringTrackColor,
+                        startAngle = -90f,
+                        sweepAngle = 360f,
+                        useCenter = false,
+                        topLeft = topLeft,
+                        size = arcSize,
+                        style = Stroke(width = strokePx, cap = StrokeCap.Round)
+                    )
+                    val sweep = (360f * animatedProgress).coerceIn(0f, 360f)
+                    if (sweep > 0.5f) {
+                        drawArc(
+                            color = ringActiveColor,
+                            startAngle = -90f,
+                            sweepAngle = sweep,
+                            useCenter = false,
+                            topLeft = topLeft,
+                            size = arcSize,
+                            style = Stroke(width = strokePx, cap = StrokeCap.Round)
+                        )
+                    }
+                }
+            }
+            Surface(
+                shape = CircleShape,
+                color = circleBg,
+                shadowElevation = 0.dp,
+                tonalElevation = 0.dp,
+                modifier = Modifier.size(buttonSize)
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(
+                        imageVector = if (isPlayingAudio) Icons.Default.Stop else Icons.Default.PlayArrow,
+                        contentDescription = if (isPlayingAudio) S.recording.stopPlaybackDesc else S.recording.playCurrentWordDesc,
+                        tint = iconTint,
+                        modifier = Modifier.size(22.dp)
+                    )
                 }
             }
         }

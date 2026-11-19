@@ -17,11 +17,14 @@ import com.example.ui.components.rememberStudioInteraction
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.hoverable
+import androidx.compose.foundation.interaction.collectIsPressedAsState
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.input.pointer.PointerIcon
 import androidx.compose.ui.input.pointer.pointerHoverIcon
@@ -837,16 +840,38 @@ fun ProjectItemCard(
 
     val (cardHoverSrc, isCardHoveredState) = rememberStudioInteraction()
     val isCardHovered by isCardHoveredState
-    val cardBgColor = if (isCardHovered) {
-        lerp(MaterialTheme.colorScheme.surfaceContainerLow, MaterialTheme.colorScheme.primaryContainer, 0.28f)
-    } else {
-        MaterialTheme.colorScheme.surfaceContainerLow
-    }
-    val cardBorderColor = if (isCardHovered) {
-        MaterialTheme.colorScheme.primary.copy(alpha = 0.55f)
-    } else {
-        MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)
-    }
+    val isCardPressed by cardHoverSrc.collectIsPressedAsState()
+    val cardScale by animateFloatAsState(
+        targetValue = if (isCardPressed) 0.972f else 1f,
+        animationSpec = spring(dampingRatio = 0.72f, stiffness = 620f),
+        label = "projectCardPressScale_${project.id}"
+    )
+    val cardBgColor by animateColorAsState(
+        targetValue = when {
+            isCardPressed -> lerp(
+                MaterialTheme.colorScheme.surfaceContainerLow,
+                MaterialTheme.colorScheme.primaryContainer,
+                0.42f
+            )
+            isCardHovered -> lerp(
+                MaterialTheme.colorScheme.surfaceContainerLow,
+                MaterialTheme.colorScheme.primaryContainer,
+                0.28f
+            )
+            else -> MaterialTheme.colorScheme.surfaceContainerLow
+        },
+        animationSpec = tween(130),
+        label = "projectCardBg_${project.id}"
+    )
+    val cardBorderColor by animateColorAsState(
+        targetValue = when {
+            isCardPressed -> MaterialTheme.colorScheme.primary.copy(alpha = 0.75f)
+            isCardHovered -> MaterialTheme.colorScheme.primary.copy(alpha = 0.55f)
+            else -> MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)
+        },
+        animationSpec = tween(130),
+        label = "projectCardBorder_${project.id}"
+    )
     val animatedProgress by animateFloatAsState(
         targetValue = displayProgress,
         animationSpec = spring(dampingRatio = 0.8f, stiffness = Spring.StiffnessMediumLow),
@@ -856,18 +881,22 @@ fun ProjectItemCard(
     Card(
         modifier = modifier
             .fillMaxWidth()
+            .graphicsLayer {
+                scaleX = cardScale
+                scaleY = cardScale
+            }
             .clip(RoundedCornerShape(24.dp))
             .hoverable(cardHoverSrc)
             .pointerHoverIcon(PointerIcon.Hand)
             .combinedClickable(
                 interactionSource = cardHoverSrc,
-                indication = null,
+                indication = LocalIndication.current,
                 onClick = onClick,
                 onLongClick = onLongClick
             )
             .testTag("project_card_${project.id}"),
         colors = CardDefaults.cardColors(containerColor = cardBgColor),
-        border = BorderStroke(if (isCardHovered) 1.5.dp else 1.dp, cardBorderColor),
+        border = BorderStroke(if (isCardPressed || isCardHovered) 1.5.dp else 1.dp, cardBorderColor),
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
         shape = RoundedCornerShape(24.dp)
     ) {

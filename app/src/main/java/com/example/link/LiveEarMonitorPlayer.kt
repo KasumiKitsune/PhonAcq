@@ -1,23 +1,30 @@
 package com.example.link
 
+import android.content.BroadcastReceiver
 import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
 import android.media.AudioAttributes
+import android.media.AudioDeviceCallback
 import android.media.AudioDeviceInfo
 import android.media.AudioFormat
 import android.media.AudioManager
 import android.media.AudioTrack
+import android.os.Build
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
 /**
  * Low-latency 16kHz PCM ear-monitor player for the 遥控端 (Remote Controller),
- * equipped with an automatic Headphone Gate to prevent speakerphone acoustic feedback
- * into the nearby fieldwork microphone.
+ * equipped with a real-time Headphone Gate (AudioDeviceCallback + ACTION_AUDIO_BECOMING_NOISY)
+ * to instantly cut off audio if headphones are unplugged mid-session, preventing acoustic
+ * feedback howl into nearby fieldwork microphones.
  */
 class LiveEarMonitorPlayer(private val context: Context) {
 
     companion object {
         const val MONITOR_SAMPLE_RATE = 16000
+        private const val HEADPHONE_POLL_INTERVAL_MS = 1200L
 
         /**
          * Downsamples an arbitrary PCM frame (e.g. 44.1kHz or 48kHz) to 16kHz mono shorts
@@ -42,6 +49,17 @@ class LiveEarMonitorPlayer(private val context: Context) {
             }
             return out
         }
+
+        internal fun isHeadphoneOutputDeviceType(type: Int): Boolean {
+            return type == AudioDeviceInfo.TYPE_WIRED_HEADPHONES ||
+                type == AudioDeviceInfo.TYPE_WIRED_HEADSET ||
+                type == AudioDeviceInfo.TYPE_USB_HEADSET ||
+                type == AudioDeviceInfo.TYPE_USB_DEVICE ||
+                type == AudioDeviceInfo.TYPE_USB_ACCESSORY ||
+                type == AudioDeviceInfo.TYPE_BLUETOOTH_A2DP ||
+                type == AudioDeviceInfo.TYPE_BLUETOOTH_SCO ||
+                type == AudioDeviceInfo.TYPE_BLE_HEADSET
+        }
     }
 
     private val _isMonitoringEnabled = MutableStateFlow(false)
@@ -53,27 +71,106 @@ class LiveEarMonitorPlayer(private val context: Context) {
     private val _headphoneDetected = MutableStateFlow(false)
     val headphoneDetected = _headphoneDetected.asStateFlow()
 
+    private val _autoMutedOnDisconnectCount = MutableStateFlow(0)
+    val autoMutedOnDisconnectCount = _autoMutedOnDisconnectCount.asStateFlow()
+
     @Volatile
     private var audioTrack: AudioTrack? = null
+
+    @Volatile
+    private var lastHeadphoneCheckMs: Long = 0L
+
     private val trackLock = Any()
+    private val guardLock = Any()
+
+    @Volatile
+    private var guardsRegistered = false
+
+    private val audioDeviceCallback = object : AudioDeviceCallback() {
+        override fun onAudioDevicesAdded(addedDevices: Array<out AudioDeviceInfo>?) {
+            refreshHeadphoneState()
+        }
+
+        override fun onAudioDevicesRemoved(removedDevices: Array<out AudioDeviceInfo>?) {
+            val stillHasHeadphones = refreshHeadphoneState()
+            if (!stillHasHeadphones) {
+                emergencyMuteIfUnprotected()
+            }
+        }
+    }
+
+    private val becomingNoisyReceiver = object : BroadcastReceiver() {
+        override fun onReceive(ctx: Context?, intent: Intent?) {
+            if (intent?.action == AudioManager.ACTION_AUDIO_BECOMING_NOISY) {
+                _headphoneDetected.value = false
+                emergencyMuteIfUnprotected()
+            }
+        }
+    }
+
+    /**
+     * Immediately halts monitoring if headphones disappear and speaker override is not granted.
+     * Safe to invoke from main thread, audio thread, or broadcast receiver.
+     */
+    internal fun emergencyMuteIfUnprotected(): Boolean {
+        if (_allowSpeakerOverride.value || !_isMonitoringEnabled.value) return false
+        _isMonitoringEnabled.value = false
+        _autoMutedOnDisconnectCount.value = _autoMutedOnDisconnectCount.value + 1
+        stopTrack()
+        return true
+    }
+
+    private fun registerDisconnectGuards() {
+        synchronized(guardLock) {
+            if (guardsRegistered) return
+            try {
+                val am = context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager
+                am?.registerAudioDeviceCallback(audioDeviceCallback, null)
+            } catch (_: Exception) {
+            }
+            try {
+                val filter = IntentFilter(AudioManager.ACTION_AUDIO_BECOMING_NOISY)
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                    context.applicationContext.registerReceiver(
+                        becomingNoisyReceiver,
+                        filter,
+                        Context.RECEIVER_NOT_EXPORTED
+                    )
+                } else {
+                    @Suppress("UnspecifiedRegisterReceiverFlag")
+                    context.applicationContext.registerReceiver(becomingNoisyReceiver, filter)
+                }
+            } catch (_: Exception) {
+            }
+            guardsRegistered = true
+        }
+    }
+
+    private fun unregisterDisconnectGuards() {
+        synchronized(guardLock) {
+            if (!guardsRegistered) return
+            try {
+                val am = context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager
+                am?.unregisterAudioDeviceCallback(audioDeviceCallback)
+            } catch (_: Exception) {
+            }
+            try {
+                context.applicationContext.unregisterReceiver(becomingNoisyReceiver)
+            } catch (_: Exception) {
+            }
+            guardsRegistered = false
+        }
+    }
 
     fun refreshHeadphoneState(): Boolean {
         val detected = try {
             val am = context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager
             val devices = am?.getDevices(AudioManager.GET_DEVICES_OUTPUTS).orEmpty()
-            devices.any { dev ->
-                dev.type == AudioDeviceInfo.TYPE_WIRED_HEADPHONES ||
-                    dev.type == AudioDeviceInfo.TYPE_WIRED_HEADSET ||
-                    dev.type == AudioDeviceInfo.TYPE_USB_HEADSET ||
-                    dev.type == AudioDeviceInfo.TYPE_USB_DEVICE ||
-                    dev.type == AudioDeviceInfo.TYPE_USB_ACCESSORY ||
-                    dev.type == AudioDeviceInfo.TYPE_BLUETOOTH_A2DP ||
-                    dev.type == AudioDeviceInfo.TYPE_BLUETOOTH_SCO ||
-                    dev.type == AudioDeviceInfo.TYPE_BLE_HEADSET
-            }
+            devices.any { dev -> isHeadphoneOutputDeviceType(dev.type) }
         } catch (_: Exception) {
             false
         }
+        lastHeadphoneCheckMs = System.currentTimeMillis()
         _headphoneDetected.value = detected
         return detected
     }
@@ -95,6 +192,7 @@ class LiveEarMonitorPlayer(private val context: Context) {
         if (forceSpeakerOverride) {
             _allowSpeakerOverride.value = true
         }
+        registerDisconnectGuards()
         ensureTrackStarted()
         _isMonitoringEnabled.value = true
         return true
@@ -112,7 +210,7 @@ class LiveEarMonitorPlayer(private val context: Context) {
                     AudioFormat.CHANNEL_OUT_MONO,
                     AudioFormat.ENCODING_PCM_16BIT
                 ).coerceAtLeast(3200)
-                val track = AudioTrack.Builder()
+                val builder = AudioTrack.Builder()
                     .setAudioAttributes(
                         AudioAttributes.Builder()
                             .setUsage(AudioAttributes.USAGE_MEDIA)
@@ -128,7 +226,10 @@ class LiveEarMonitorPlayer(private val context: Context) {
                     )
                     .setBufferSizeInBytes(minBuf * 2)
                     .setTransferMode(AudioTrack.MODE_STREAM)
-                    .build()
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    builder.setPerformanceMode(AudioTrack.PERFORMANCE_MODE_LOW_LATENCY)
+                }
+                val track = builder.build()
                 if (track.state == AudioTrack.STATE_INITIALIZED) {
                     track.play()
                     audioTrack = track
@@ -141,13 +242,17 @@ class LiveEarMonitorPlayer(private val context: Context) {
 
     fun feed16kHzPcmFrame(samples16k: ShortArray) {
         if (!_isMonitoringEnabled.value || samples16k.isEmpty()) return
-        if (!_allowSpeakerOverride.value && !_headphoneDetected.value && !refreshHeadphoneState()) {
-            // Headphone unplugged mid-session: immediately mute to prevent feedback howl
-            _isMonitoringEnabled.value = false
-            stopTrack()
-            return
+        if (!_allowSpeakerOverride.value) {
+            val now = System.currentTimeMillis()
+            val needsRecheck = !_headphoneDetected.value || (now - lastHeadphoneCheckMs >= HEADPHONE_POLL_INTERVAL_MS)
+            if (needsRecheck && !refreshHeadphoneState()) {
+                // Headphone unplugged mid-session: immediately mute to prevent feedback howl
+                emergencyMuteIfUnprotected()
+                return
+            }
         }
         synchronized(trackLock) {
+            if (!_isMonitoringEnabled.value) return
             val track = audioTrack ?: run {
                 ensureTrackStarted()
                 audioTrack
@@ -159,6 +264,7 @@ class LiveEarMonitorPlayer(private val context: Context) {
     }
 
     fun stopTrack() {
+        unregisterDisconnectGuards()
         synchronized(trackLock) {
             try {
                 audioTrack?.pause()

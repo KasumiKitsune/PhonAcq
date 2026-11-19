@@ -117,6 +117,7 @@ fun RecordingScreen(
     val wirelessRole by viewModel.wirelessLink.activeRole.collectAsState()
     val isAutoNext by viewModel.autoNextEnabled.collectAsState()
     val autoPlayAfterRecord by viewModel.autoPlayAfterRecord.collectAsState()
+    val skipSilenceOnPlayback by viewModel.skipSilenceOnPlayback.collectAsState()
     val volumeKeyControlEnabled by viewModel.volumeKeyControlEnabled.collectAsState()
     val participantCleanMode by viewModel.participantCleanMode.collectAsState()
     val keepScreenOn by viewModel.keepScreenOn.collectAsState()
@@ -231,11 +232,18 @@ fun RecordingScreen(
         val audioMgr = context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager
         fun checkBtInput(): Boolean {
             return try {
-                audioMgr?.getDevices(AudioManager.GET_DEVICES_INPUTS)?.any { dev ->
+                val inputs = audioMgr?.getDevices(AudioManager.GET_DEVICES_INPUTS).orEmpty()
+                val hasHigherPriorityWiredOrUsbMic = inputs.any { dev ->
+                    dev.type == AudioDeviceInfo.TYPE_WIRED_HEADSET ||
+                        dev.type == AudioDeviceInfo.TYPE_USB_HEADSET ||
+                        dev.type == AudioDeviceInfo.TYPE_USB_DEVICE ||
+                        dev.type == AudioDeviceInfo.TYPE_USB_ACCESSORY
+                }
+                if (hasHigherPriorityWiredOrUsbMic) return false
+                inputs.any { dev ->
                     dev.type == AudioDeviceInfo.TYPE_BLUETOOTH_SCO ||
-                        dev.type == AudioDeviceInfo.TYPE_BLUETOOTH_A2DP ||
-                        dev.type == AudioDeviceInfo.TYPE_BLE_HEADSET
-                } == true
+                        dev.type == AudioDeviceInfo.TYPE_BLUETOOTH_A2DP
+                }
             } catch (_: Exception) {
                 false
             }
@@ -1127,6 +1135,8 @@ fun RecordingScreen(
                         onAutoAdvanceOnHoldReleaseChange = { viewModel.setAutoAdvanceOnHoldRelease(it) },
                         autoPlayAfterRecord = autoPlayAfterRecord,
                         onAutoPlayChange = { viewModel.setAutoPlayAfterRecord(it) },
+                        skipSilenceOnPlayback = skipSilenceOnPlayback,
+                        onSkipSilenceOnPlaybackChange = { viewModel.setSkipSilenceOnPlayback(it) },
                         volumeKeyControlEnabled = volumeKeyControlEnabled,
                         onVolumeKeyChange = { viewModel.setVolumeKeyControlEnabled(it) },
                         vadThreshold = vadThreshold,

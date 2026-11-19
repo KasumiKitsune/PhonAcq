@@ -116,7 +116,7 @@ object AcousticAnalyzer {
         val medianDurMs: Int = -1
     )
 
-    private data class QuickPitchSummary(
+    internal data class QuickPitchSummary(
         val isValidVoiced: Boolean,
         val perSyllableVoicedMs: Int,
         val interiorCorePitches: FloatArray
@@ -130,11 +130,57 @@ object AcousticAnalyzer {
         val medianVoicedDurationMs: Int
     )
 
-    private val analysisCache = createBoundedLruMap<CacheKey, AnalysisResult>(1200)
-    private val envelopeCache = createBoundedLruMap<String, List<Float>>(1000)
-    private val quickPitchCache = createBoundedLruMap<String, QuickPitchSummary>(1500)
+    private val analysisCache = createBoundedLruMap<CacheKey, AnalysisResult>(4000)
+    private val envelopeCache = createBoundedLruMap<String, List<Float>>(3000)
+    private val playbackSpeechBoundsCache = createBoundedLruMap<String, Pair<Int, Int>>(3000)
+    private val quickPitchCache = createBoundedLruMap<String, QuickPitchSummary>(4000)
     private val autoPitchCache = ConcurrentHashMap<String, SpeakerCorpusAcousticStats>()
     private val corpusStatsLocks = ConcurrentHashMap<String, Any>()
+
+    private val dspWorkerCount: Int by lazy {
+        Runtime.getRuntime().availableProcessors().coerceIn(2, 6)
+    }
+
+    private val dspExecutor: java.util.concurrent.ExecutorService by lazy {
+        java.util.concurrent.Executors.newFixedThreadPool(dspWorkerCount) { runnable ->
+            Thread(runnable, "PhonAcq-DSP-Worker").apply { isDaemon = true }
+        }
+    }
+
+    internal fun isAnalysisCached(
+        file: File,
+        speakerGender: String?,
+        segmentCount: Int = 1,
+        pitchRange: Pair<Float, Float>? = null,
+        segmentLabels: List<String> = emptyList(),
+        speakerMedianVoicedMs: Int = -1
+    ): Boolean {
+        if (!file.exists() || file.length() <= 44L) return false
+        val normGender = speakerGender?.trim() ?: ""
+        val labelSig = segmentLabels.joinToString("|")
+        val pMin = pitchRange?.first?.toInt() ?: -1
+        val pMax = pitchRange?.second?.toInt() ?: -1
+        val key = CacheKey(
+            path = "v3|$normGender|$labelSig|${file.absolutePath}",
+            lastModified = file.lastModified(),
+            genderKey = normGender,
+            segmentCount = segmentCount,
+            pitchMin = pMin,
+            pitchMax = pMax,
+            medianDurMs = speakerMedianVoicedMs
+        )
+        if (analysisCache.containsKey(key)) return true
+        val diskKey = AcousticFeatureDiskCache.buildAnalysisKey(
+            file = file,
+            normGender = normGender,
+            segmentCount = segmentCount,
+            pitchMin = pMin,
+            pitchMax = pMax,
+            medianDurMs = speakerMedianVoicedMs,
+            labelSig = labelSig
+        )
+        return AcousticFeatureDiskCache.getAnalysis(file, diskKey) != null
+    }
 
     data class WavHeaderFormat(
         val sampleRate: Int = 44100,
@@ -219,6 +265,96 @@ object AcousticAnalyzer {
         return result
     }
 
+    /**
+     * Non-destructively detects active speech boundaries [startMs, endMs] for skip-silence audition.
+     * The WAV file on disk is NEVER modified so acoustic details and leading/trailing silence margins remain intact.
+     * Returns null when the file is unavailable, very short, or nearly silent.
+     */
+    fun detectPlaybackSpeechBoundsMs(file: File?): Pair<Int, Int>? {
+        if (file == null || !file.exists() || file.length() <= 44L) return null
+        val cacheKey = "${file.absolutePath}_${file.lastModified()}_${file.length()}"
+        playbackSpeechBoundsCache[cacheKey]?.let { cached ->
+            return if (cached.first < 0 || cached.second <= cached.first) null else cached
+        }
+
+        val fmt = readWavHeaderFormat(file)
+        val pcm = loadWavPcm(file) ?: return null
+        val sr = fmt.sampleRate.coerceAtLeast(8000)
+        val totalMs = ((pcm.size.toLong() * 1000L) / sr.toLong()).toInt()
+        if (totalMs < 280) {
+            playbackSpeechBoundsCache[cacheKey] = -1 to -1
+            return null
+        }
+
+        val frameSamples = (sr / 100).coerceAtLeast(1) // 10ms frames
+        val frameCount = pcm.size / frameSamples
+        if (frameCount < 10) {
+            playbackSpeechBoundsCache[cacheKey] = -1 to -1
+            return null
+        }
+
+        val frameRms = FloatArray(frameCount)
+        for (f in 0 until frameCount) {
+            val base = f * frameSamples
+            var sumSq = 0.0
+            for (i in 0 until frameSamples) {
+                val s = pcm[base + i].toDouble()
+                sumSq += s * s
+            }
+            frameRms[f] = sqrt(sumSq / frameSamples).toFloat()
+        }
+
+        val sorted = frameRms.copyOf()
+        sorted.sort()
+        val noiseFloor = sorted[(frameCount * 0.15f).toInt().coerceIn(0, frameCount - 1)]
+        val peakRms = sorted[(frameCount * 0.96f).toInt().coerceIn(0, frameCount - 1)]
+
+        if (peakRms < 0.008f || peakRms <= noiseFloor * 1.6f) {
+            playbackSpeechBoundsCache[cacheKey] = -1 to -1
+            return null
+        }
+
+        val threshold = maxOf(noiseFloor * 2.5f, peakRms * 0.065f, 0.005f)
+        val strongThreshold = threshold * 1.45f
+
+        var firstSpeechFrame = -1
+        for (f in 0 until frameCount) {
+            val hit = frameRms[f] >= strongThreshold ||
+                (frameRms[f] >= threshold && f + 1 < frameCount && frameRms[f + 1] >= threshold)
+            if (hit) {
+                firstSpeechFrame = f
+                break
+            }
+        }
+        var lastSpeechFrame = -1
+        for (f in frameCount - 1 downTo 0) {
+            val hit = frameRms[f] >= strongThreshold ||
+                (frameRms[f] >= threshold && f - 1 >= 0 && frameRms[f - 1] >= threshold)
+            if (hit) {
+                lastSpeechFrame = f
+                break
+            }
+        }
+
+        if (firstSpeechFrame < 0 || lastSpeechFrame < firstSpeechFrame) {
+            playbackSpeechBoundsCache[cacheKey] = -1 to -1
+            return null
+        }
+
+        // Preserve generous phonetic onset/offset margins (-85ms / +135ms)
+        val startMs = (firstSpeechFrame * 10 - 85).coerceAtLeast(0)
+        val endMs = ((lastSpeechFrame + 1) * 10 + 135).coerceAtMost(totalMs)
+        if (endMs - startMs < 200) {
+            playbackSpeechBoundsCache[cacheKey] = -1 to -1
+            return null
+        }
+
+        val trimmedEnough = startMs >= 60 || (totalMs - endMs) >= 80
+        val bounds = if (trimmedEnough) startMs to endMs else 0 to totalMs
+        playbackSpeechBoundsCache[cacheKey] = bounds
+        return bounds
+    }
+
     fun analyze(
         file: File,
         isFemale: Boolean,
@@ -254,16 +390,32 @@ object AcousticAnalyzer {
         if (!file.exists() || file.length() <= 44L) return null
         val normGender = speakerGender?.trim() ?: ""
         val labelSig = segmentLabels.joinToString("|")
+        val pMin = pitchRange?.first?.toInt() ?: -1
+        val pMax = pitchRange?.second?.toInt() ?: -1
         val key = CacheKey(
             path = "v3|$normGender|$labelSig|${file.absolutePath}",
             lastModified = file.lastModified(),
             genderKey = normGender,
             segmentCount = segmentCount,
-            pitchMin = pitchRange?.first?.toInt() ?: -1,
-            pitchMax = pitchRange?.second?.toInt() ?: -1,
+            pitchMin = pMin,
+            pitchMax = pMax,
             medianDurMs = speakerMedianVoicedMs
         )
         analysisCache[key]?.let { return it }
+
+        val diskKey = AcousticFeatureDiskCache.buildAnalysisKey(
+            file = file,
+            normGender = normGender,
+            segmentCount = segmentCount,
+            pitchMin = pMin,
+            pitchMax = pMax,
+            medianDurMs = speakerMedianVoicedMs,
+            labelSig = labelSig
+        )
+        AcousticFeatureDiskCache.getAnalysis(file, diskKey)?.let { diskCached ->
+            analysisCache[key] = diskCached
+            return diskCached
+        }
 
         val pcm = loadWavPcm(file) ?: return null
         if (pcm.size < 1024) return null
@@ -897,6 +1049,7 @@ object AcousticAnalyzer {
         )
 
         analysisCache[key] = result
+        AcousticFeatureDiskCache.putAnalysis(file, diskKey, result)
         return result
     }
 
@@ -905,6 +1058,7 @@ object AcousticAnalyzer {
         envelopeCache.clear()
         quickPitchCache.clear()
         autoPitchCache.clear()
+        AcousticFeatureDiskCache.clearMemoryIndex()
         FormantTrajectoryAndSpectrogramExtractor.clearCache()
         CorpusPhonologyAnalyzer.clearCache()
     }
@@ -1035,6 +1189,11 @@ object AcousticAnalyzer {
         val normGender = speakerGender?.trim() ?: ""
         val qKey = "v3_${file.absolutePath}_${file.lastModified()}_$normGender"
         quickPitchCache[qKey]?.let { return it }
+        val diskQpKey = AcousticFeatureDiskCache.buildQuickPitchKey(file, normGender)
+        AcousticFeatureDiskCache.getQuickPitch(file, diskQpKey)?.let { diskCached ->
+            quickPitchCache[qKey] = diskCached
+            return diskCached
+        }
 
         val pcm = loadWavPcm(file) ?: return null
         if (pcm.size < 1024) return null
@@ -1193,6 +1352,7 @@ object AcousticAnalyzer {
         if (!isValid) {
             val invalidSummary = QuickPitchSummary(false, 0, FloatArray(0))
             quickPitchCache[qKey] = invalidSummary
+            AcousticFeatureDiskCache.putQuickPitch(file, diskQpKey, invalidSummary, deferFlush = true)
             return invalidSummary
         }
 
@@ -1221,6 +1381,7 @@ object AcousticAnalyzer {
         }
         val summary = QuickPitchSummary(true, perSylDur, interiorList.toFloatArray())
         quickPitchCache[qKey] = summary
+        AcousticFeatureDiskCache.putQuickPitch(file, diskQpKey, summary, deferFlush = true)
         return summary
     }
 
@@ -1288,8 +1449,25 @@ object AcousticAnalyzer {
                 }
                 .take(120)
 
-            for (f in latestPerWord) {
-                val quick = extractQuickPitchSummary(f, speakerGender)
+            val quickSummaries: List<QuickPitchSummary?> = if (latestPerWord.size >= 8 && dspWorkerCount >= 2) {
+                val futures = latestPerWord.map { fileItem ->
+                    dspExecutor.submit<QuickPitchSummary?> {
+                        extractQuickPitchSummary(fileItem, speakerGender)
+                    }
+                }
+                futures.map { f ->
+                    try {
+                        f.get()
+                    } catch (_: Exception) {
+                        null
+                    }
+                }
+            } else {
+                latestPerWord.map { extractQuickPitchSummary(it, speakerGender) }
+            }
+            AcousticFeatureDiskCache.flushProject(projDir)
+
+            for (quick in quickSummaries) {
                 if (quick != null && quick.isValidVoiced) {
                     if (quick.perSyllableVoicedMs in 35..1000) {
                         syllableVoicedDurs.add(quick.perSyllableVoicedMs)

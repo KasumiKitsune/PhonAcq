@@ -56,6 +56,8 @@ import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.DeleteSweep
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.Mic
@@ -801,16 +803,6 @@ internal fun TabletWordSidebar(
                             modifier = Modifier.size(18.dp)
                         )
                     }
-                    if (recordedCount > 0) {
-                        IconButton(onClick = onRequestClearAll, modifier = Modifier.size(34.dp)) {
-                            Icon(
-                                Icons.Default.DeleteSweep,
-                                contentDescription = S.recording.clearSpeakerAudioDesc,
-                                tint = MaterialTheme.colorScheme.error,
-                                modifier = Modifier.size(18.dp)
-                            )
-                        }
-                    }
                 }
             }
 
@@ -921,6 +913,7 @@ fun RecordingQuickSettingsSidebarPane(
     val isPushToTalk by viewModel.pushToTalkEnabled.collectAsState()
     val autoAdvanceOnHoldRelease by viewModel.autoAdvanceOnHoldRelease.collectAsState()
     val autoPlayAfterRecord by viewModel.autoPlayAfterRecord.collectAsState()
+    val skipSilenceOnPlayback by viewModel.skipSilenceOnPlayback.collectAsState()
     val volumeKeyControlEnabled by viewModel.volumeKeyControlEnabled.collectAsState()
     val vadThreshold by viewModel.vadThreshold.collectAsState()
     val silenceDelayMs by viewModel.silenceDelayMs.collectAsState()
@@ -952,6 +945,8 @@ fun RecordingQuickSettingsSidebarPane(
             onAutoAdvanceOnHoldReleaseChange = { viewModel.setAutoAdvanceOnHoldRelease(it) },
             autoPlayAfterRecord = autoPlayAfterRecord,
             onAutoPlayChange = { viewModel.setAutoPlayAfterRecord(it) },
+            skipSilenceOnPlayback = skipSilenceOnPlayback,
+            onSkipSilenceOnPlaybackChange = { viewModel.setSkipSilenceOnPlayback(it) },
             volumeKeyControlEnabled = volumeKeyControlEnabled,
             onVolumeKeyChange = { viewModel.setVolumeKeyControlEnabled(it) },
             vadThreshold = vadThreshold,
@@ -1027,6 +1022,8 @@ internal fun RecordingSettingsSheetContent(
     onAutoAdvanceOnHoldReleaseChange: (Boolean) -> Unit = {},
     autoPlayAfterRecord: Boolean,
     onAutoPlayChange: (Boolean) -> Unit,
+    skipSilenceOnPlayback: Boolean = false,
+    onSkipSilenceOnPlaybackChange: (Boolean) -> Unit = {},
     volumeKeyControlEnabled: Boolean,
     onVolumeKeyChange: (Boolean) -> Unit,
     vadThreshold: Float,
@@ -1130,251 +1127,88 @@ internal fun RecordingSettingsSheetContent(
                 .then(if (isSidebarMode) Modifier.weight(1f) else Modifier.nestedScroll(sheetScrollLock))
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = 16.dp, vertical = 14.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp)
+            verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-
             val currentHabitIndex = when {
                 isPushToTalk -> 1
                 isAutoNext -> 2
                 else -> 0
             }
+            var showAdvancedQualitySection by remember { mutableStateOf(false) }
 
-            if (isSimpleMode) {
-                Card(
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
-                    shape = RoundedCornerShape(16.dp)
-                ) {
-                    Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        FlowRow(
-                            horizontalArrangement = Arrangement.spacedBy(6.dp),
-                            verticalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            StudioFilterChip(
-                                selected = currentHabitIndex == 0,
-                                onClick = {
-                                    onAutoNextChange(false)
-                                    onPushToTalkChange(false)
-                                    onAutoAdvanceOnHoldReleaseChange(false)
-                                },
-                                labelText = "点按录"
-                            )
-                            StudioFilterChip(
-                                selected = currentHabitIndex == 1,
-                                onClick = {
-                                    onPushToTalkChange(true)
-                                    onAutoAdvanceOnHoldReleaseChange(true)
-                                },
-                                labelText = "按住松手跳词"
-                            )
-                            StudioFilterChip(
-                                selected = currentHabitIndex == 2,
-                                onClick = {
-                                    onAutoNextChange(true)
-                                    onAutoAdvanceOnHoldReleaseChange(false)
-                                },
-                                labelText = "读完自动跳词"
-                            )
-                        }
-
-                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
-
-                        StudioSwitchRow(
-                            title = S.recording.autoNextTitle,
-                            subtitle = S.recording.autoNextSubtitle,
-                            checked = isAutoNext,
-                            onCheckedChange = onAutoNextChange,
-                            switchTestTag = "auto_next_switch",
-                            compact = true
-                        )
-
-                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
-
-                        StudioSwitchRow(
-                            title = S.recording.strictPushToTalkTitle,
-                            subtitle = if (DesktopAdaptiveState.isDesktopPlatform) {
-                                S.recording.strictPushToTalkDesktopSub
-                            } else {
-                                S.recording.strictPushToTalkMobileSub
+            // 1. Unified Recording Mode Card (eliminates mutually exclusive duplicate toggles)
+            Card(
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
+                shape = RoundedCornerShape(16.dp)
+            ) {
+                Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text(
+                        text = "录音方式",
+                        style = MaterialTheme.typography.labelLarge,
+                        fontWeight = FontWeight.Bold
+                    )
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        StudioFilterChip(
+                            selected = currentHabitIndex == 0,
+                            onClick = {
+                                onAutoNextChange(false)
+                                onPushToTalkChange(false)
+                                onAutoAdvanceOnHoldReleaseChange(false)
                             },
-                            checked = isPushToTalk,
-                            onCheckedChange = onPushToTalkChange,
-                            switchTestTag = "push_to_talk_switch",
-                            compact = true
+                            labelText = "点按录",
+                            modifier = Modifier.testTag("recording_mode_tap_chip")
                         )
-
-                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
-
-                        StudioSwitchRow(
-                            title = S.recording.holdReleaseNextTitle,
-                            subtitle = S.recording.holdReleaseNextSubtitle,
-                            checked = autoAdvanceOnHoldRelease,
-                            onCheckedChange = onAutoAdvanceOnHoldReleaseChange,
-                            switchTestTag = "hold_release_advance_switch",
-                            compact = true
+                        StudioFilterChip(
+                            selected = currentHabitIndex == 1,
+                            onClick = {
+                                onAutoNextChange(false)
+                                onPushToTalkChange(true)
+                            },
+                            labelText = "按住录",
+                            modifier = Modifier.testTag("push_to_talk_switch")
                         )
-
-                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
-
-                        StudioSwitchRow(
-                            title = S.recording.autoPlayTitle,
-                            subtitle = S.recording.autoPlaySubtitle,
-                            checked = autoPlayAfterRecord,
-                            onCheckedChange = onAutoPlayChange,
-                            switchTestTag = "auto_play_after_record_switch",
-                            compact = true
+                        StudioFilterChip(
+                            selected = currentHabitIndex == 2,
+                            onClick = {
+                                onPushToTalkChange(false)
+                                onAutoNextChange(true)
+                                onAutoAdvanceOnHoldReleaseChange(false)
+                            },
+                            labelText = "读完自动跳词",
+                            modifier = Modifier.testTag("auto_next_switch")
                         )
                     }
-                }
 
-                Card(
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
-                    shape = RoundedCornerShape(16.dp)
-                ) {
-                    Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        Text(S.recording.fontSizeHeader, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
-                        FlowRow(
-                            horizontalArrangement = Arrangement.spacedBy(6.dp),
-                            verticalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            val fontOptions = listOf(
-                                "小" to S.recording.sizeCompact,
-                                "中" to S.recording.sizeStandard,
-                                "大" to S.recording.sizeLarge,
-                                "超大" to S.recording.sizeExtraLarge
-                            )
-                            fontOptions.forEach { (opt, label) ->
-                                StudioFilterChip(
-                                    selected = characterSize == opt,
-                                    onClick = { onCharacterSizeChange(opt) },
-                                    labelText = label,
-                                    modifier = Modifier.testTag("font_size_selector_$opt")
-                                )
-                            }
-                        }
-
-                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
-
-                        StudioSwitchRow(
-                            title = S.recording.hideRemarksInCleanTitle,
-                            subtitle = S.recording.hideRemarksInCleanSub,
-                            checked = hideRemarkInCleanMode,
-                            onCheckedChange = onHideRemarkInCleanModeChange,
-                            compact = true
-                        )
-                    }
-                }
-            } else {
-                // 1. Ergonomic Workflow Switches
-                Card(
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
-                    shape = RoundedCornerShape(16.dp)
-                ) {
-                    Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        FlowRow(
-                            horizontalArrangement = Arrangement.spacedBy(6.dp),
-                            verticalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            StudioFilterChip(
-                                selected = currentHabitIndex == 0,
-                                onClick = {
-                                    onAutoNextChange(false)
-                                    onPushToTalkChange(false)
-                                    onAutoAdvanceOnHoldReleaseChange(false)
-                                },
-                                labelText = "点按录"
-                            )
-                            StudioFilterChip(
-                                selected = currentHabitIndex == 1,
-                                onClick = {
-                                    onPushToTalkChange(true)
-                                    onAutoAdvanceOnHoldReleaseChange(true)
-                                },
-                                labelText = "按住松手跳词"
-                            )
-                            StudioFilterChip(
-                                selected = currentHabitIndex == 2,
-                                onClick = {
-                                    onAutoNextChange(true)
-                                    onAutoAdvanceOnHoldReleaseChange(false)
-                                },
-                                labelText = "读完自动跳词"
-                            )
-                        }
-
-                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
-
-                        StudioSwitchRow(
-                            title = S.recording.desktopAutoNextTitle,
-                            subtitle = S.recording.desktopAutoNextSubtitle,
-                            checked = isAutoNext,
-                            onCheckedChange = onAutoNextChange,
-                            switchTestTag = "auto_next_switch",
-                            compact = true
-                        )
-
-                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
-
-                        StudioSwitchRow(
-                            title = S.recording.strictPushToTalkTitle,
-                            subtitle = if (DesktopAdaptiveState.isDesktopPlatform) {
-                                S.recording.strictPushToTalkDesktopSub
-                            } else {
-                                S.recording.strictPushToTalkMobileSub
-                            },
-                            checked = isPushToTalk,
-                            onCheckedChange = onPushToTalkChange,
-                            switchTestTag = "push_to_talk_switch",
-                            compact = true
-                        )
-
-                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
-
-                        StudioSwitchRow(
-                            title = S.recording.desktopHoldReleaseNextTitle,
-                            subtitle = S.recording.desktopHoldReleaseNextSub,
-                            checked = autoAdvanceOnHoldRelease,
-                            onCheckedChange = onAutoAdvanceOnHoldReleaseChange,
-                            switchTestTag = "hold_release_advance_switch",
-                            compact = true
-                        )
-
-                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
-
-                        StudioSwitchRow(
-                            title = S.recording.desktopAutoPlayTitle,
-                            subtitle = S.recording.desktopAutoPlaySub,
-                            checked = autoPlayAfterRecord,
-                            onCheckedChange = onAutoPlayChange,
-                            switchTestTag = "auto_play_after_record_switch",
-                            compact = true
-                        )
-
-                        if (!DesktopAdaptiveState.isDesktopPlatform) {
-                            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
-
+                    // Contextual sub-control for Hold-to-Record
+                    AnimatedVisibility(
+                        visible = isPushToTalk,
+                        enter = expandVertically(spring(stiffness = Spring.StiffnessMediumLow)) + fadeIn(tween(150)),
+                        exit = shrinkVertically(spring(stiffness = Spring.StiffnessMediumLow)) + fadeOut(tween(110))
+                    ) {
+                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f))
                             StudioSwitchRow(
-                                title = S.recording.volumeKeyControlTitle,
-                                subtitle = S.recording.volumeKeyControlSub,
-                                checked = volumeKeyControlEnabled,
-                                onCheckedChange = onVolumeKeyChange,
-                                switchTestTag = "volume_key_control_switch",
+                                title = if (isSimpleMode) S.recording.holdReleaseNextTitle else S.recording.desktopHoldReleaseNextTitle,
+                                subtitle = if (isSimpleMode) S.recording.holdReleaseNextSubtitle else S.recording.desktopHoldReleaseNextSub,
+                                checked = autoAdvanceOnHoldRelease,
+                                onCheckedChange = onAutoAdvanceOnHoldReleaseChange,
+                                switchTestTag = "hold_release_advance_switch",
                                 compact = true
                             )
                         }
                     }
-                }
 
-                // 2. Auto-flip Parameters
-                AnimatedVisibility(
-                    visible = isAutoNext && !isPushToTalk,
-                    enter = expandVertically(spring(stiffness = Spring.StiffnessMediumLow)) + fadeIn(tween(160)),
-                    exit = shrinkVertically(spring(stiffness = Spring.StiffnessMediumLow)) + fadeOut(tween(120))
-                ) {
-                    Card(
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
-                        shape = RoundedCornerShape(16.dp)
+                    // Contextual sub-controls for Auto-Flip VAD (Advanced mode only)
+                    AnimatedVisibility(
+                        visible = !isSimpleMode && isAutoNext && !isPushToTalk,
+                        enter = expandVertically(spring(stiffness = Spring.StiffnessMediumLow)) + fadeIn(tween(150)),
+                        exit = shrinkVertically(spring(stiffness = Spring.StiffnessMediumLow)) + fadeOut(tween(110))
                     ) {
-                        Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f))
                             val activePreset = when {
                                 vadThreshold <= 850f -> "高灵敏"
                                 vadThreshold >= 1650f -> "抗噪"
@@ -1387,7 +1221,8 @@ internal fun RecordingSettingsSheetContent(
                             ) {
                                 Text(
                                     text = S.recording.vadSensitivityValue.withArgs("value" to S.settings.displayVadPreset(activePreset)),
-                                    style = MaterialTheme.typography.labelLarge
+                                    style = MaterialTheme.typography.labelMedium,
+                                    fontWeight = FontWeight.SemiBold
                                 )
                                 Text(
                                     text = S.recording.vadDirectionHint,
@@ -1415,10 +1250,10 @@ internal fun RecordingSettingsSheetContent(
                                     .pointerHoverIcon(PointerIcon.Hand)
                                     .testTag("vad_threshold_slider")
                             )
-
                             Text(
                                 text = S.recording.vadDelayValue.withArgs("ms" to silenceDelayMs),
-                                style = MaterialTheme.typography.labelLarge
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = FontWeight.SemiBold
                             )
                             Slider(
                                 value = silenceDelayMs.toFloat(),
@@ -1430,46 +1265,86 @@ internal fun RecordingSettingsSheetContent(
                             )
                         }
                     }
-                }
 
-                // 3. Prompt Font Size & Word List Shuffling Strategy
-                Card(
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
-                    shape = RoundedCornerShape(16.dp)
-                ) {
-                    Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        Text(S.recording.cardSizeHeader, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
-                        FlowRow(
-                            horizontalArrangement = Arrangement.spacedBy(6.dp),
-                            verticalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            val fontOptions = listOf(
-                                "小" to S.recording.sizeCompact,
-                                "中" to S.recording.sizeStandard,
-                                "大" to S.recording.sizeLarge,
-                                "超大" to S.recording.sizeExtraLarge
-                            )
-                            fontOptions.forEach { (opt, label) ->
-                                StudioFilterChip(
-                                    selected = characterSize == opt,
-                                    onClick = { onCharacterSizeChange(opt) },
-                                    labelText = label,
-                                    modifier = Modifier.testTag("font_size_selector_$opt")
-                                )
-                            }
-                        }
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f))
 
-                        Spacer(Modifier.height(2.dp))
+                    StudioSwitchRow(
+                        title = if (isSimpleMode) S.recording.autoPlayTitle else S.recording.desktopAutoPlayTitle,
+                        subtitle = if (isSimpleMode) S.recording.autoPlaySubtitle else S.recording.desktopAutoPlaySub,
+                        checked = autoPlayAfterRecord,
+                        onCheckedChange = onAutoPlayChange,
+                        switchTestTag = "auto_play_after_record_switch",
+                        compact = true
+                    )
+
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f))
+
+                    StudioSwitchRow(
+                        title = "试听跳过头尾静音",
+                        subtitle = "试听与连播时跳过首尾空白，原音频不裁切",
+                        checked = skipSilenceOnPlayback,
+                        onCheckedChange = onSkipSilenceOnPlaybackChange,
+                        switchTestTag = "skip_silence_on_playback_switch",
+                        compact = true
+                    )
+
+                    if (!isSimpleMode && !DesktopAdaptiveState.isDesktopPlatform) {
+                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f))
                         StudioSwitchRow(
-                            title = S.recording.hideRemarksInCleanTitle,
-                            subtitle = S.recording.hideRemarksInCleanSub,
-                            checked = hideRemarkInCleanMode,
-                            onCheckedChange = onHideRemarkInCleanModeChange,
+                            title = S.recording.volumeKeyControlTitle,
+                            subtitle = S.recording.volumeKeyControlSub,
+                            checked = volumeKeyControlEnabled,
+                            onCheckedChange = onVolumeKeyChange,
+                            switchTestTag = "volume_key_control_switch",
                             compact = true
                         )
+                    }
+                }
+            }
 
-                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+            // 2. Prompt Display & Order Card
+            Card(
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
+                shape = RoundedCornerShape(16.dp)
+            ) {
+                Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text(
+                        text = if (isSimpleMode) S.recording.fontSizeHeader else S.recording.cardSizeHeader,
+                        style = MaterialTheme.typography.labelLarge,
+                        fontWeight = FontWeight.Bold
+                    )
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        val fontOptions = listOf(
+                            "小" to S.recording.sizeCompact,
+                            "中" to S.recording.sizeStandard,
+                            "大" to S.recording.sizeLarge,
+                            "超大" to S.recording.sizeExtraLarge
+                        )
+                        fontOptions.forEach { (opt, label) ->
+                            StudioFilterChip(
+                                selected = characterSize == opt,
+                                onClick = { onCharacterSizeChange(opt) },
+                                labelText = label,
+                                modifier = Modifier.testTag("font_size_selector_$opt")
+                            )
+                        }
+                    }
 
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f))
+
+                    StudioSwitchRow(
+                        title = S.recording.hideRemarksInCleanTitle,
+                        subtitle = S.recording.hideRemarksInCleanSub,
+                        checked = hideRemarkInCleanMode,
+                        onCheckedChange = onHideRemarkInCleanModeChange,
+                        compact = true
+                    )
+
+                    if (!isSimpleMode) {
+                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f))
                         StudioSwitchRow(
                             title = S.recording.shuffleOrderTitle,
                             checked = isShuffleEnabled,
@@ -1478,8 +1353,8 @@ internal fun RecordingSettingsSheetContent(
                         )
                         AnimatedVisibility(
                             visible = isShuffleEnabled,
-                            enter = expandVertically(spring(stiffness = Spring.StiffnessMediumLow)) + fadeIn(tween(160)),
-                            exit = shrinkVertically(spring(stiffness = Spring.StiffnessMediumLow)) + fadeOut(tween(120))
+                            enter = expandVertically(spring(stiffness = Spring.StiffnessMediumLow)) + fadeIn(tween(150)),
+                            exit = shrinkVertically(spring(stiffness = Spring.StiffnessMediumLow)) + fadeOut(tween(110))
                         ) {
                             FlowRow(
                                 horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -1501,67 +1376,111 @@ internal fun RecordingSettingsSheetContent(
                         }
                     }
                 }
+            }
 
-                // 4. Quality Reminder Thresholds
+            // 3. Collapsible Low-Frequency Quality & Cleanup Section (Advanced mode only, collapsed by default)
+            if (!isSimpleMode) {
+                val lowVolLevelLabel = when {
+                    lowVolumeThreshold < 400f -> "宽松"
+                    lowVolumeThreshold > 950f -> "严格"
+                    else -> "适中"
+                }
                 Card(
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
                     shape = RoundedCornerShape(16.dp)
                 ) {
-                    Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        val lowVolLevelLabel = when {
-                            lowVolumeThreshold < 400f -> "宽松"
-                            lowVolumeThreshold > 950f -> "严格"
-                            else -> "适中"
-                        }
-                        Text(S.recording.qualityReminderHeader, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
-                        Text(
-                            text = S.recording.lowVolThresholdValue.withArgs("value" to lowVolLevelLabel),
-                            style = MaterialTheme.typography.bodySmall
-                        )
-                        Slider(
-                            value = lowVolumeThreshold,
-                            onValueChange = onLowVolumeThresholdChange,
-                            valueRange = 150f..2500f,
+                    Column(modifier = Modifier.fillMaxWidth()) {
+                        Row(
                             modifier = Modifier
-                                .pointerHoverIcon(PointerIcon.Hand)
-                                .testTag("low_volume_threshold_slider")
-                        )
-
-                        Text(S.recording.creakySensitivityLabel, style = MaterialTheme.typography.bodySmall)
-                        FlowRow(
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                                .fillMaxWidth()
+                                .clickable { showAdvancedQualitySection = !showAdvancedQualitySection }
+                                .padding(horizontal = 14.dp, vertical = 12.dp)
+                                .testTag("quick_settings_advanced_toggle"),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            val creakyOptions = listOf("低", "中", "高", "关闭")
-                            creakyOptions.forEach { option ->
-                                StudioFilterChip(
-                                    selected = creakySensitivity == option,
-                                    onClick = { onCreakySensitivityChange(option) },
-                                    labelText = S.settings.displayCreakyOption(option),
-                                    modifier = Modifier.testTag("creaky_sensitivity_$option")
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = "更多质检与清理选项",
+                                    style = MaterialTheme.typography.labelLarge,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Text(
+                                    text = "音量阈值：$lowVolLevelLabel · 嘎裂声：${S.settings.displayCreakyOption(creakySensitivity)}",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
                                 )
                             }
+                            Icon(
+                                imageVector = if (showAdvancedQualitySection) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
                         }
-                    }
-                }
 
-                if (recordedCount > 0) {
-                    OutlinedButton(
-                        onClick = onRequestClearAll,
-                        colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
-                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.5f)),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Icon(Icons.Default.DeleteSweep, contentDescription = null, modifier = Modifier.size(18.dp))
-                        Spacer(Modifier.width(6.dp))
-                        Text(
-                            S.recording.clearSpeakerRecordingsBtn.withArgs("count" to recordedCount),
-                            fontSize = 12.5.sp,
-                            fontWeight = FontWeight.Bold,
-                            maxLines = 1,
-                            softWrap = false,
-                            overflow = TextOverflow.Ellipsis
-                        )
+                        AnimatedVisibility(
+                            visible = showAdvancedQualitySection,
+                            enter = expandVertically(spring(stiffness = Spring.StiffnessMediumLow)) + fadeIn(tween(150)),
+                            exit = shrinkVertically(spring(stiffness = Spring.StiffnessMediumLow)) + fadeOut(tween(110))
+                        ) {
+                            Column(
+                                modifier = Modifier.padding(start = 14.dp, end = 14.dp, bottom = 14.dp),
+                                verticalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f))
+                                Text(
+                                    text = S.recording.lowVolThresholdValue.withArgs("value" to lowVolLevelLabel),
+                                    style = MaterialTheme.typography.bodySmall
+                                )
+                                Slider(
+                                    value = lowVolumeThreshold,
+                                    onValueChange = onLowVolumeThresholdChange,
+                                    valueRange = 150f..2500f,
+                                    modifier = Modifier
+                                        .pointerHoverIcon(PointerIcon.Hand)
+                                        .testTag("low_volume_threshold_slider")
+                                )
+
+                                Text(S.recording.creakySensitivityLabel, style = MaterialTheme.typography.bodySmall)
+                                FlowRow(
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    val creakyOptions = listOf("低", "中", "高", "关闭")
+                                    creakyOptions.forEach { option ->
+                                        StudioFilterChip(
+                                            selected = creakySensitivity == option,
+                                            onClick = { onCreakySensitivityChange(option) },
+                                            labelText = S.settings.displayCreakyOption(option),
+                                            modifier = Modifier.testTag("creaky_sensitivity_$option")
+                                        )
+                                    }
+                                }
+
+                                if (recordedCount > 0) {
+                                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f))
+                                    OutlinedButton(
+                                        onClick = onRequestClearAll,
+                                        colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
+                                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.5f)),
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        Icon(Icons.Default.DeleteSweep, contentDescription = null, modifier = Modifier.size(18.dp))
+                                        Spacer(Modifier.width(6.dp))
+                                        Text(
+                                            S.recording.clearSpeakerRecordingsBtn.withArgs("count" to recordedCount),
+                                            fontSize = 12.5.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            maxLines = 1,
+                                            softWrap = false,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
             }

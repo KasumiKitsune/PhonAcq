@@ -7,9 +7,27 @@ import com.example.i18n.S
 import com.example.i18n.withArgs
 import java.io.File
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.Executors
+import java.util.concurrent.atomic.AtomicInteger
 import kotlin.math.*
 
+data class CorpusAnalysisProgress(
+    val completed: Int,
+    val total: Int,
+    val cacheHits: Int = 0
+)
+
 object CorpusPhonologyAnalyzer {
+
+    private val corpusWorkerCount: Int by lazy {
+        Runtime.getRuntime().availableProcessors().coerceIn(2, 6)
+    }
+
+    private val corpusExecutor by lazy {
+        Executors.newFixedThreadPool(corpusWorkerCount) { runnable ->
+            Thread(runnable, "PhonAcq-Corpus-Worker").apply { isDaemon = true }
+        }
+    }
 
     private data class ReportCacheKey(
         val projectId: Long,
@@ -57,7 +75,9 @@ object CorpusPhonologyAnalyzer {
         context: Context,
         projectId: Long,
         speaker: Speaker?,
-        words: List<Word>
+        words: List<Word>,
+        onProgress: ((CorpusAnalysisProgress) -> Unit)? = null,
+        isCancelled: () -> Boolean = { false }
     ): SpeakerCorpusPhonologyReport {
         val speakerId = speaker?.id ?: -1L
         val speakerName = speaker?.name?.ifBlank { S.common.defaultSpeakerFallback } ?: S.common.defaultSpeakerFallback
@@ -74,6 +94,7 @@ object CorpusPhonologyAnalyzer {
         val cacheKey = ReportCacheKey(projectId, speakerId, recordedWords.size, sigHash)
         reportCache[cacheKey]?.let { cached ->
             latestReportByProjectSpeaker["${projectId}_${speakerId}"] = cached
+            onProgress?.invoke(CorpusAnalysisProgress(recordedWords.size, recordedWords.size, recordedWords.size))
             return cached
         }
 
@@ -82,6 +103,8 @@ object CorpusPhonologyAnalyzer {
         val pMin = sp.getFloat("pitch_min_$speakerId", -1f)
         val pMax = sp.getFloat("pitch_max_$speakerId", -1f)
         val manualRange = if (pMin > 40f && pMax > pMin + 15f) Pair(pMin, pMax) else null
+
+        onProgress?.invoke(CorpusAnalysisProgress(0, recordedWords.size, 0))
 
         val corpusStats = AcousticAnalyzer.resolveSpeakerCorpusStats(
             projDir = projDir,
@@ -97,25 +120,67 @@ object CorpusPhonologyAnalyzer {
             val result: AcousticAnalyzer.AnalysisResult
         )
 
-        val analyzedTokens = ArrayList<AnalyzedToken>(recordedWords.size)
-        for (w in recordedWords) {
-            val fn = w.recordingFile ?: continue
-            val f = File(projDir, fn)
-            if (!f.exists() || f.length() <= 44L) continue
-            val parts = AcousticAnalyzer.extractSyllableUnits(w.text)
+        val totalCount = recordedWords.size
+        val completedCounter = AtomicInteger(0)
+        val cacheHitCounter = AtomicInteger(0)
+        val lastReportedStep = AtomicInteger(0)
+        val reportStride = (totalCount / 24).coerceIn(1, 16)
 
-            val res = AcousticAnalyzer.analyzeByGender(
+        fun analyzeSingleWord(w: Word): AnalyzedToken? {
+            if (isCancelled()) return null
+            val fn = w.recordingFile ?: return null
+            val f = File(projDir, fn)
+            if (!f.exists() || f.length() <= 44L) return null
+            val parts = AcousticAnalyzer.extractSyllableUnits(w.text)
+            val segCount = parts.size.coerceAtLeast(1)
+            val wasCached = AcousticAnalyzer.isAnalysisCached(
                 file = f,
                 speakerGender = speakerGender,
-                segmentCount = parts.size.coerceAtLeast(1),
+                segmentCount = segCount,
                 pitchRange = effectivePitchRange,
                 segmentLabels = parts,
                 speakerMedianVoicedMs = medianVoicedMs
             )
-            if (res != null && res.isValidVoiced) {
-                analyzedTokens.add(AnalyzedToken(w, res))
+            if (wasCached) {
+                cacheHitCounter.incrementAndGet()
             }
+            val res = AcousticAnalyzer.analyzeByGender(
+                file = f,
+                speakerGender = speakerGender,
+                segmentCount = segCount,
+                pitchRange = effectivePitchRange,
+                segmentLabels = parts,
+                speakerMedianVoicedMs = medianVoicedMs
+            )
+            val done = completedCounter.incrementAndGet()
+            if (onProgress != null && (done == totalCount || done - lastReportedStep.get() >= reportStride)) {
+                lastReportedStep.set(done)
+                onProgress.invoke(CorpusAnalysisProgress(done, totalCount, cacheHitCounter.get()))
+            }
+            return if (res != null && res.isValidVoiced) AnalyzedToken(w, res) else null
         }
+
+        val analyzedTokens: List<AnalyzedToken> = if (totalCount >= 8 && corpusWorkerCount >= 2) {
+            val futures = recordedWords.map { w ->
+                corpusExecutor.submit<AnalyzedToken?> { analyzeSingleWord(w) }
+            }
+            futures.mapNotNull { fut ->
+                if (isCancelled()) {
+                    fut.cancel(false)
+                    null
+                } else {
+                    try {
+                        fut.get()
+                    } catch (_: Exception) {
+                        null
+                    }
+                }
+            }
+        } else {
+            recordedWords.mapNotNull { analyzeSingleWord(it) }
+        }
+        AcousticFeatureDiskCache.flushProject(projDir)
+        onProgress?.invoke(CorpusAnalysisProgress(totalCount, totalCount, cacheHitCounter.get()))
 
         if (analyzedTokens.isEmpty()) {
             val emptyReport = SpeakerCorpusPhonologyReport(
@@ -332,12 +397,43 @@ object CorpusPhonologyAnalyzer {
     fun buildMultiSpeakerComparisonReport(
         context: Context,
         projectId: Long,
-        speakerWordPairs: List<Pair<Speaker, List<Word>>>
+        speakerWordPairs: List<Pair<Speaker, List<Word>>>,
+        onProgress: ((CorpusAnalysisProgress) -> Unit)? = null,
+        isCancelled: () -> Boolean = { false }
     ): MultiSpeakerVowelComparisonReport {
+        val totalWordsAcrossSpeakers = speakerWordPairs.sumOf { (_, wList) ->
+            wList.count { it.isRecorded && !it.recordingFile.isNullOrEmpty() }
+        }
+        var cumulativeDone = 0
+        var cumulativeHits = 0
         val reports = speakerWordPairs.mapNotNull { (spk, wList) ->
-            val r = buildSpeakerPhonologyReport(context, projectId, spk, wList)
+            if (isCancelled()) return@mapNotNull null
+            val spkRecorded = wList.count { it.isRecorded && !it.recordingFile.isNullOrEmpty() }
+            val baseDone = cumulativeDone
+            val baseHits = cumulativeHits
+            var lastSpkHits = 0
+            val r = buildSpeakerPhonologyReport(
+                context = context,
+                projectId = projectId,
+                speaker = spk,
+                words = wList,
+                onProgress = { p ->
+                    lastSpkHits = p.cacheHits
+                    onProgress?.invoke(
+                        CorpusAnalysisProgress(
+                            completed = (baseDone + p.completed).coerceAtMost(totalWordsAcrossSpeakers),
+                            total = totalWordsAcrossSpeakers,
+                            cacheHits = baseHits + p.cacheHits
+                        )
+                    )
+                },
+                isCancelled = isCancelled
+            )
+            cumulativeDone += spkRecorded
+            cumulativeHits += lastSpkHits
             if (r.vowelTokens.isNotEmpty()) r else null
         }
+        onProgress?.invoke(CorpusAnalysisProgress(totalWordsAcrossSpeakers, totalWordsAcrossSpeakers, cumulativeHits))
         val allTokens = reports.flatMap { it.vowelTokens }
         // Also compute overall per-speaker vowel space hull/ellipse + per-group ellipses
         val allEllipses = reports.flatMap { it.vowelEllipses }

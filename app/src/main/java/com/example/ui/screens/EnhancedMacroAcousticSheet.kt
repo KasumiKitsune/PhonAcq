@@ -120,19 +120,25 @@ fun ProjectAcousticSummarySheet(
     var isMultiSpeakerCompareMode by remember { mutableStateOf(false) }
     val vowelOverrideRevision by VowelGlideOverrideStore.overrideRevision.collectAsState()
 
+    var singleSpeakerProgress by remember { mutableStateOf<CorpusAnalysisProgress?>(null) }
+    var multiSpeakerProgress by remember { mutableStateOf<CorpusAnalysisProgress?>(null) }
+
     val speakerReportState by produceState<SpeakerCorpusPhonologyReport?>(
         initialValue = null,
         key1 = effectiveProjectId,
         key2 = activeSheetSpeaker?.id,
         key3 = recordedWords.size * 10000 + vowelOverrideRevision
     ) {
+        singleSpeakerProgress = CorpusAnalysisProgress(0, recordedWords.size, 0)
         if (vowelOverrideRevision == 0) delay(55)
         value = withContext(Dispatchers.Default) {
             CorpusPhonologyAnalyzer.buildSpeakerPhonologyReport(
                 context = context,
                 projectId = effectiveProjectId,
                 speaker = activeSheetSpeaker,
-                words = activeSheetWords
+                words = activeSheetWords,
+                onProgress = { progress -> singleSpeakerProgress = progress },
+                isCancelled = { !coroutineContext[kotlinx.coroutines.Job]!!.isActive }
             )
         }
     }
@@ -163,11 +169,17 @@ fun ProjectAcousticSummarySheet(
         if (!isMultiSpeakerCompareMode || multiSpeakerPairsState.size < 2) {
             if (multiSpeakerPairsState.size < 2) value = null
         } else {
+            val totalRec = multiSpeakerPairsState.sumOf { (_, wList) ->
+                wList.count { it.isRecorded && !it.recordingFile.isNullOrEmpty() }
+            }
+            multiSpeakerProgress = CorpusAnalysisProgress(0, totalRec, 0)
             value = withContext(Dispatchers.Default) {
                 CorpusPhonologyAnalyzer.buildMultiSpeakerComparisonReport(
                     context = context,
                     projectId = effectiveProjectId,
-                    speakerWordPairs = multiSpeakerPairsState
+                    speakerWordPairs = multiSpeakerPairsState,
+                    onProgress = { progress -> multiSpeakerProgress = progress },
+                    isCancelled = { !coroutineContext[kotlinx.coroutines.Job]!!.isActive }
                 )
             }
         }
@@ -495,15 +507,10 @@ fun ProjectAcousticSummarySheet(
                                 modifier = Modifier.fillMaxSize(),
                                 contentAlignment = Alignment.Center
                             ) {
-                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                    CircularProgressIndicator()
-                                    Spacer(Modifier.height(14.dp))
-                                    Text(
-                                        text = S.acoustics.computingMacroAnalysis,
-                                        fontSize = 13.5.sp,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                }
+                                MacroAnalysisProgressIndicator(
+                                    title = S.acoustics.computingMacroAnalysis,
+                                    progress = singleSpeakerProgress
+                                )
                             }
                         } else if (report.analyzedCount == 0 && !isMultiSpeakerCompareMode) {
                             Box(
@@ -545,15 +552,10 @@ fun ProjectAcousticSummarySheet(
                                     modifier = Modifier.fillMaxSize(),
                                     contentAlignment = Alignment.Center
                                 ) {
-                                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                        CircularProgressIndicator()
-                                        Spacer(Modifier.height(14.dp))
-                                        Text(
-                                            text = S.acoustics.computingLobanovAnalysis,
-                                            fontSize = 13.5.sp,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                                        )
-                                    }
+                                    MacroAnalysisProgressIndicator(
+                                        title = S.acoustics.computingLobanovAnalysis,
+                                        progress = multiSpeakerProgress
+                                    )
                                 }
                             } else {
                                 Box(
@@ -787,15 +789,10 @@ fun ProjectAcousticSummarySheet(
                         .height(320.dp),
                     contentAlignment = Alignment.Center
                 ) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        CircularProgressIndicator()
-                        Spacer(Modifier.height(12.dp))
-                        Text(
-                            text = S.acoustics.computingMacroAnalysis,
-                            fontSize = 13.sp,
-                            color = MaterialTheme.colorScheme.outline
-                        )
-                    }
+                    MacroAnalysisProgressIndicator(
+                        title = S.acoustics.computingMacroAnalysis,
+                        progress = singleSpeakerProgress
+                    )
                 }
             } else if (report.analyzedCount == 0 && !isMultiSpeakerCompareMode) {
                 Box(
@@ -829,15 +826,10 @@ fun ProjectAcousticSummarySheet(
                                     .height(260.dp),
                                 contentAlignment = Alignment.Center
                             ) {
-                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                    CircularProgressIndicator()
-                                    Spacer(Modifier.height(12.dp))
-                                    Text(
-                                        text = S.acoustics.computingLobanovAnalysis,
-                                        fontSize = 13.sp,
-                                        color = MaterialTheme.colorScheme.outline
-                                    )
-                                }
+                                MacroAnalysisProgressIndicator(
+                                    title = S.acoustics.computingLobanovAnalysis,
+                                    progress = multiSpeakerProgress
+                                )
                             }
                         } else {
                             MultiSpeakerComparisonWorkbench(
@@ -1268,3 +1260,63 @@ internal fun VowelTypeManualOverrideRow(
         }
     }
 }
+
+@Composable
+private fun MacroAnalysisProgressIndicator(
+    title: String,
+    progress: CorpusAnalysisProgress?
+) {
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+        modifier = Modifier
+            .widthIn(max = 360.dp)
+            .padding(horizontal = 24.dp)
+    ) {
+        val total = progress?.total ?: 0
+        val completed = (progress?.completed ?: 0).coerceIn(0, total.coerceAtLeast(1))
+        val cacheHits = (progress?.cacheHits ?: 0).coerceAtMost(completed)
+        if (total > 0) {
+            val targetFraction = (completed.toFloat() / total.toFloat()).coerceIn(0f, 1f)
+            val animatedFraction by animateFloatAsState(
+                targetValue = targetFraction,
+                animationSpec = tween(160),
+                label = "macroProgressFraction"
+            )
+            LinearProgressIndicator(
+                progress = { animatedFraction },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(6.dp)
+                    .clip(RoundedCornerShape(999.dp))
+            )
+            Text(
+                text = title,
+                fontSize = 13.5.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onSurface,
+                textAlign = TextAlign.Center
+            )
+            val detailText = if (cacheHits > 0) {
+                "已提取 $completed / $total 词 · 命中缓存 $cacheHits"
+            } else {
+                "已提取 $completed / $total 词（多核并行加速中）"
+            }
+            Text(
+                text = detailText,
+                fontSize = 12.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center
+            )
+        } else {
+            CircularProgressIndicator()
+            Text(
+                text = title,
+                fontSize = 13.5.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center
+            )
+        }
+    }
+}
+

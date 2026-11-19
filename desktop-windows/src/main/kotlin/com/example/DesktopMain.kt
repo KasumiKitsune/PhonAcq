@@ -113,6 +113,9 @@ fun main(args: Array<String>) = application {
     }
 
     val currentProject by viewModel.currentProject.collectAsState()
+    val pushToTalkEnabled by viewModel.pushToTalkEnabled.collectAsState()
+    var isSpaceKeyDown by remember { mutableStateOf(false) }
+    var isSpacePushToTalkHeld by remember { mutableStateOf(false) }
     val windowIconPainter = DesktopIconRenderer.rememberWindowIconPainter()
 
     val windowState = rememberWindowState(
@@ -134,10 +137,24 @@ fun main(args: Array<String>) = application {
         title = windowTitle,
         icon = windowIconPainter,
         onPreviewKeyEvent = { keyEvent ->
+            if (keyEvent.key == Key.Spacebar && keyEvent.type == KeyEventType.KeyUp) {
+                isSpaceKeyDown = false
+                if (isSpacePushToTalkHeld) {
+                    isSpacePushToTalkHeld = false
+                    if (viewModel.isRecording.value) {
+                        viewModel.triggerStopRecordingFromHoldRelease()
+                    }
+                    return@Window true
+                }
+                return@Window false
+            }
+
             if (keyEvent.type == KeyEventType.KeyDown) {
                 val bareAllowed = DesktopAdaptiveState.canTriggerBareKeyShortcuts
                 when (keyEvent.key) {
                     Key.Escape -> {
+                        isSpaceKeyDown = false
+                        isSpacePushToTalkHeld = false
                         if (viewModel.isRecording.value) {
                             viewModel.triggerStopRecording()
                             return@Window true
@@ -179,6 +196,22 @@ fun main(args: Array<String>) = application {
 
                     Key.Spacebar -> {
                         if (bareAllowed && viewModel.currentProject.value != null) {
+                            if (viewModel.pushToTalkEnabled.value) {
+                                // Push-to-talk: hold Spacebar to record, ignore OS key auto-repeats, release to stop.
+                                if (!isSpacePushToTalkHeld) {
+                                    isSpaceKeyDown = true
+                                    isSpacePushToTalkHeld = true
+                                    if (!viewModel.isRecording.value) {
+                                        viewModel.triggerStartRecording()
+                                    }
+                                }
+                                return@Window true
+                            }
+                            if (isSpaceKeyDown) {
+                                // Ignore OS key auto-repeat while held in click-to-toggle mode
+                                return@Window true
+                            }
+                            isSpaceKeyDown = true
                             if (viewModel.isRecording.value) {
                                 viewModel.triggerStopRecording()
                             } else {
@@ -245,15 +278,29 @@ fun main(args: Array<String>) = application {
             false
         }
     ) {
-        // Apply multi-resolution AWT Window icons (16, 24, 32, 48, 64, 128, 256) for crisp Windows taskbar & titlebar
+        // Apply multi-resolution AWT Window icons and guard Spacebar PTT release on window focus loss
         DisposableEffect(window) {
             DesktopFilePickerController.attachMainWindow(window)
+            val focusListener = object : java.awt.event.WindowFocusListener {
+                override fun windowGainedFocus(e: java.awt.event.WindowEvent?) {}
+                override fun windowLostFocus(e: java.awt.event.WindowEvent?) {
+                    isSpaceKeyDown = false
+                    if (isSpacePushToTalkHeld) {
+                        isSpacePushToTalkHeld = false
+                        if (viewModel.isRecording.value) {
+                            viewModel.triggerStopRecordingFromHoldRelease()
+                        }
+                    }
+                }
+            }
+            window.addWindowFocusListener(focusListener)
             try {
                 window.minimumSize = Dimension(960, 640)
                 window.iconImages = DesktopIconRenderer.getMultiResolutionWindowIcons()
             } catch (_: Exception) {
             }
             onDispose {
+                window.removeWindowFocusListener(focusListener)
                 DesktopFilePickerController.attachMainWindow(null)
             }
         }
@@ -271,7 +318,10 @@ fun main(args: Array<String>) = application {
         // Register the integrated studio bar slot into MainScreen so NavigationRail spans full window height
         DisposableEffect(Unit) {
             DesktopAdaptiveState.desktopTopBarSlot = {
-                DesktopTopStudioBar(appContext = appContext)
+                DesktopTopStudioBar(
+                    appContext = appContext,
+                    isPushToTalk = pushToTalkEnabled
+                )
             }
             onDispose {
                 DesktopAdaptiveState.desktopTopBarSlot = null
@@ -330,7 +380,10 @@ fun main(args: Array<String>) = application {
 }
 
 @Composable
-private fun DesktopTopStudioBar(appContext: Context) {
+private fun DesktopTopStudioBar(
+    appContext: Context,
+    isPushToTalk: Boolean = false
+) {
     val inputDevices by DesktopAudioDeviceSelector.availableInputDevices.collectAsState()
     val selectedDevice by DesktopAudioDeviceSelector.selectedInputDevice.collectAsState()
     var showDeviceMenu by remember { mutableStateOf(false) }
@@ -638,14 +691,20 @@ private fun DesktopTopStudioBar(appContext: Context) {
                             )
                             when {
                                 showFullShortcuts -> {
-                                    KeycapBadge(keyText = "Space", actionText = S.desktop.keyRecStop)
+                                    KeycapBadge(
+                                        keyText = "Space",
+                                        actionText = if (isPushToTalk) "按住录音" else S.desktop.keyRecStop
+                                    )
                                     KeycapBadge(keyText = "← / →", actionText = S.desktop.keyPrevNext)
                                     KeycapBadge(keyText = "Enter", actionText = S.desktop.keyListen)
                                     KeycapBadge(keyText = "M", actionText = S.desktop.keyFullClean)
                                     KeycapBadge(keyText = "Esc", actionText = S.desktop.keyBack)
                                 }
                                 showCompactShortcuts -> {
-                                    KeycapBadge(keyText = "Space", actionText = S.desktop.keyRecCompact)
+                                    KeycapBadge(
+                                        keyText = "Space",
+                                        actionText = if (isPushToTalk) "按住录" else S.desktop.keyRecCompact
+                                    )
                                     KeycapBadge(keyText = "← / →", actionText = S.desktop.keyTurnCompact)
                                     KeycapBadge(keyText = "M", actionText = S.desktop.keyFullCompact)
                                     Text(

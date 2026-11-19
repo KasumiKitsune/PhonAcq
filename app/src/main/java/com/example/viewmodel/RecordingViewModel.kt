@@ -112,6 +112,9 @@ class RecordingViewModel(
     private val _autoPlayAfterRecord = MutableStateFlow(sharedPrefs.getBoolean("auto_play_after", false))
     val autoPlayAfterRecord = _autoPlayAfterRecord.asStateFlow()
 
+    private val _skipSilenceOnPlayback = MutableStateFlow(sharedPrefs.getBoolean("skip_silence_on_playback", false))
+    val skipSilenceOnPlayback = _skipSilenceOnPlayback.asStateFlow()
+
     private val _volumeKeyControlEnabled = MutableStateFlow(sharedPrefs.getBoolean("volume_key_ctrl", false))
     val volumeKeyControlEnabled = _volumeKeyControlEnabled.asStateFlow()
 
@@ -532,6 +535,7 @@ class RecordingViewModel(
         setAutoAdvanceOnHoldRelease(true)
         setHoldOnQualityIssue(true)
         setAutoPlayAfterRecord(false)
+        setSkipSilenceOnPlayback(false)
         setVolumeKeyControlEnabled(false)
         setVolumeKeyAction("RECORD_NEXT")
         setConfirmOverwriteRecording(false)
@@ -805,6 +809,11 @@ class RecordingViewModel(
     fun setAutoPlayAfterRecord(enabled: Boolean) {
         _autoPlayAfterRecord.value = enabled
         sharedPrefs.edit().putBoolean("auto_play_after", enabled).apply()
+    }
+
+    fun setSkipSilenceOnPlayback(enabled: Boolean) {
+        _skipSilenceOnPlayback.value = enabled
+        sharedPrefs.edit().putBoolean("skip_silence_on_playback", enabled).apply()
     }
 
     fun setVolumeKeyControlEnabled(enabled: Boolean) {
@@ -2464,41 +2473,79 @@ class RecordingViewModel(
         }
         stopPlayback()
         _playingWordId.value = tagId
+        _playbackProgress.value = 0f
 
         playbackJob = viewModelScope.launch(Dispatchers.IO) {
             if (!audioFile.exists() || audioFile.length() <= 44L) {
-                _playingWordId.value = null
-                return@launch
-            }
-            try {
-                val mp = MediaPlayer().apply {
-                    setDataSource(context, Uri.fromFile(audioFile))
-                    prepare()
-                    start()
-                }
-                mediaPlayer = mp
-                val fileDurationMs = ((audioFile.length() - 44L) * 1000L / (44100L * 2L)).toFloat().coerceAtLeast(1f)
-                val realDuration = maxOf(mp.duration.toFloat(), fileDurationMs)
-
-                mp.setOnCompletionListener {
-                    if (_playingWordId.value == tagId) {
-                        _playingWordId.value = null
-                        _playbackProgress.value = 0f
-                    }
-                    playbackJob?.cancel()
-                    viewModelScope.launch(Dispatchers.IO) {
-                        try { it.release() } catch (ignored: Exception) {}
-                    }
-                }
-
-                while (mp.isPlaying) {
-                    _playbackProgress.value = (mp.currentPosition / realDuration).coerceIn(0f, 1f)
-                    delay(35)
-                }
                 if (_playingWordId.value == tagId) {
                     _playingWordId.value = null
                     _playbackProgress.value = 0f
                 }
+                return@launch
+            }
+            try {
+                val skipSilence = _skipSilenceOnPlayback.value
+                val speechBounds = if (skipSilence) {
+                    AcousticAnalyzer.detectPlaybackSpeechBoundsMs(audioFile)
+                } else {
+                    null
+                }
+                val finished = java.util.concurrent.atomic.AtomicBoolean(false)
+                val mp = MediaPlayer().apply {
+                    setDataSource(context, Uri.fromFile(audioFile))
+                    prepare()
+                }
+                val exactWavMs = (AcousticAnalyzer.getExactWavDurationSec(audioFile) * 1000.0).toInt().coerceAtLeast(100)
+                val realDurationMs = maxOf(mp.duration, exactWavMs).coerceAtLeast(100)
+                val playStartMs = speechBounds?.first?.coerceIn(0, (realDurationMs - 150).coerceAtLeast(0)) ?: 0
+                val playEndMs = speechBounds?.second?.coerceIn(playStartMs + 150, realDurationMs) ?: realDurationMs
+                val playSpanMs = (playEndMs - playStartMs).coerceAtLeast(1).toFloat()
+
+                fun finishOnce() {
+                    if (!finished.compareAndSet(false, true)) return
+                    if (_playingWordId.value == tagId) {
+                        _playingWordId.value = null
+                        _playbackProgress.value = 0f
+                    }
+                    if (mediaPlayer === mp) {
+                        mediaPlayer = null
+                    }
+                    viewModelScope.launch(Dispatchers.IO) {
+                        try { mp.stop() } catch (_: Exception) {}
+                        try { mp.release() } catch (_: Exception) {}
+                    }
+                }
+
+                mp.setOnCompletionListener {
+                    finishOnce()
+                }
+                if (playStartMs > 20) {
+                    try { mp.seekTo(playStartMs) } catch (_: Exception) {}
+                }
+                mediaPlayer = mp
+                mp.start()
+
+                val startedAt = System.currentTimeMillis()
+                val trimTailActive = skipSilence && playEndMs < realDurationMs - 30
+                while (!finished.get() && _playingWordId.value == tagId) {
+                    val elapsed = System.currentTimeMillis() - startedAt
+                    val playingNow = try { mp.isPlaying } catch (_: Exception) { false }
+                    if (!playingNow && elapsed > 300L) {
+                        break
+                    }
+                    val posMs = try { mp.currentPosition } catch (_: Exception) { playStartMs }
+                    val progress = ((posMs - playStartMs) / playSpanMs).coerceIn(0f, 1f)
+                    _playbackProgress.value = progress
+                    if (trimTailActive && posMs >= playEndMs && elapsed >= 60L) {
+                        _playbackProgress.value = 1f
+                        break
+                    }
+                    if (elapsed > playSpanMs.toLong() + 1200L) {
+                        break
+                    }
+                    delay(30)
+                }
+                finishOnce()
             } catch (e: Exception) {
                 if (e !is kotlinx.coroutines.CancellationException) {
                     Log.e(tag, "playSpecificAudioFile error: ${e.message}")
@@ -2527,61 +2574,101 @@ class RecordingViewModel(
         val audioFile = File(File(context.getExternalFilesDir(null), "project_${project.id}"), recordingName)
 
         _playingWordId.value = word.id
+        _playbackProgress.value = 0f
 
         playbackJob = viewModelScope.launch(Dispatchers.IO) {
-            if (!audioFile.exists() || audioFile.length() == 0L) {
+            if (!audioFile.exists() || audioFile.length() <= 44L) {
                 Log.e(tag, "Audio file is missing or empty.")
-                _playingWordId.value = null
-                _playbackProgress.value = 0f
-                if (keepContinuous) {
+                if (_playingWordId.value == word.id) {
+                    _playingWordId.value = null
+                    _playbackProgress.value = 0f
+                }
+                if (keepContinuous && _isContinuousPlaying.value) {
                     withContext(Dispatchers.Main) { advanceContinuousPlayback() }
                 }
                 return@launch
             }
 
             try {
+                val skipSilence = _skipSilenceOnPlayback.value
+                val speechBounds = if (skipSilence) {
+                    AcousticAnalyzer.detectPlaybackSpeechBoundsMs(audioFile)
+                } else {
+                    null
+                }
+                val finished = java.util.concurrent.atomic.AtomicBoolean(false)
                 val mp = MediaPlayer().apply {
                     setDataSource(context, Uri.fromFile(audioFile))
                     prepare()
-                    start()
                 }
-                mediaPlayer = mp
-                val fileDurationMs = ((audioFile.length() - 44L) * 1000L / (44100L * 2L)).toFloat().coerceAtLeast(1f)
-                val realDuration = maxOf(mp.duration.toFloat(), fileDurationMs)
+                val exactWavMs = (AcousticAnalyzer.getExactWavDurationSec(audioFile) * 1000.0).toInt().coerceAtLeast(100)
+                val realDurationMs = maxOf(mp.duration, exactWavMs).coerceAtLeast(100)
+                val playStartMs = speechBounds?.first?.coerceIn(0, (realDurationMs - 150).coerceAtLeast(0)) ?: 0
+                val playEndMs = speechBounds?.second?.coerceIn(playStartMs + 150, realDurationMs) ?: realDurationMs
+                val playSpanMs = (playEndMs - playStartMs).coerceAtLeast(1).toFloat()
 
-                mp.setOnCompletionListener {
+                fun finishOnce(allowContinue: Boolean) {
+                    if (!finished.compareAndSet(false, true)) return
                     if (_playingWordId.value == word.id) {
                         _playingWordId.value = null
                         _playbackProgress.value = 0f
                     }
-                    playbackJob?.cancel()
-                    viewModelScope.launch(Dispatchers.IO) {
-                        try { it.release() } catch (ignored: Exception) {}
+                    if (mediaPlayer === mp) {
+                        mediaPlayer = null
                     }
-                    if (_isContinuousPlaying.value) {
+                    viewModelScope.launch(Dispatchers.IO) {
+                        try { mp.stop() } catch (_: Exception) {}
+                        try { mp.release() } catch (_: Exception) {}
+                    }
+                    if (allowContinue && _isContinuousPlaying.value) {
                         viewModelScope.launch {
-                            delay(480)
-                            if (_isContinuousPlaying.value) {
+                            delay(380)
+                            if (_isContinuousPlaying.value && _playingWordId.value == null) {
                                 advanceContinuousPlayback()
                             }
                         }
                     }
                 }
 
-                while (mp.isPlaying) {
-                    _playbackProgress.value = (mp.currentPosition / realDuration).coerceIn(0f, 1f)
-                    delay(35)
+                mp.setOnCompletionListener {
+                    finishOnce(allowContinue = true)
                 }
-                if (_playingWordId.value == word.id) {
-                    _playingWordId.value = null
-                    _playbackProgress.value = 0f
+                if (playStartMs > 20) {
+                    try { mp.seekTo(playStartMs) } catch (_: Exception) {}
                 }
+                mediaPlayer = mp
+                mp.start()
+
+                val startedAt = System.currentTimeMillis()
+                val trimTailActive = skipSilence && playEndMs < realDurationMs - 30
+                while (!finished.get() && _playingWordId.value == word.id) {
+                    val elapsed = System.currentTimeMillis() - startedAt
+                    val playingNow = try { mp.isPlaying } catch (_: Exception) { false }
+                    if (!playingNow && elapsed > 300L) {
+                        break
+                    }
+                    val posMs = try { mp.currentPosition } catch (_: Exception) { playStartMs }
+                    val progress = ((posMs - playStartMs) / playSpanMs).coerceIn(0f, 1f)
+                    _playbackProgress.value = progress
+                    if (trimTailActive && posMs >= playEndMs && elapsed >= 60L) {
+                        _playbackProgress.value = 1f
+                        break
+                    }
+                    if (elapsed > playSpanMs.toLong() + 1200L) {
+                        break
+                    }
+                    delay(30)
+                }
+                val stillActive = _playingWordId.value == word.id
+                finishOnce(allowContinue = stillActive)
             } catch (e: Exception) {
                 if (e !is kotlinx.coroutines.CancellationException) {
                     Log.e(tag, "Playback error: ${e.message}")
-                    _playingWordId.value = null
-                    _playbackProgress.value = 0f
-                    if (keepContinuous) {
+                    if (_playingWordId.value == word.id) {
+                        _playingWordId.value = null
+                        _playbackProgress.value = 0f
+                    }
+                    if (keepContinuous && _isContinuousPlaying.value) {
                         withContext(Dispatchers.Main) { advanceContinuousPlayback() }
                     }
                 }

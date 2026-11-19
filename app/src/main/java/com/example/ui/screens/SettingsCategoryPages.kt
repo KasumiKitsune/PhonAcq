@@ -291,6 +291,7 @@ internal fun RecordingControlCategoryContent(
 ) {
     val autoAdvanceOnHoldRelease by viewModel.autoAdvanceOnHoldRelease.collectAsState()
     val holdOnQualityIssue by viewModel.holdOnQualityIssue.collectAsState()
+    val skipSilenceOnPlayback by viewModel.skipSilenceOnPlayback.collectAsState()
 
     val currentHabitIndex = when {
         isPushToTalk -> 1
@@ -458,6 +459,15 @@ internal fun RecordingControlCategoryContent(
             subtitle = S.settings.autoPlaySub,
             checked = autoPlayAfterRecord,
             onCheckedChange = { viewModel.setAutoPlayAfterRecord(it) }
+        )
+
+        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+
+        SettingsSwitchRow(
+            title = "试听跳过头尾静音",
+            subtitle = "仅在试听和连续播放时自动跳过开头与结尾空白，原音频文件不做任何裁切以保留声学细节",
+            checked = skipSilenceOnPlayback,
+            onCheckedChange = { viewModel.setSkipSilenceOnPlayback(it) }
         )
     }
 

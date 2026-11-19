@@ -11,6 +11,7 @@ object Build {
     }
 
     object VERSION_CODES {
+        const val O: Int = 26
         const val R: Int = 30
         const val S: Int = 31
         const val TIRAMISU: Int = 33

@@ -112,12 +112,23 @@ fun RemoteControllerLinkScreen(
     val remoteIsClipping by wireless.remoteIsClipping.collectAsState()
     val remoteWaveform by wireless.remoteWaveform.collectAsState()
     val isMonitoring by wireless.earMonitor.isMonitoringEnabled.collectAsState()
+    val autoMutedOnDisconnectCount by wireless.earMonitor.autoMutedOnDisconnectCount.collectAsState()
     val isAuditionPlaying by wireless.isRemoteAuditionPlaying.collectAsState()
     val statusBanner by wireless.statusBanner.collectAsState()
     val pendingSyncCount by wireless.pendingSyncCount.collectAsState()
     val imageCacheVersion by wireless.imageCacheVersion.collectAsState()
     val isPushToTalk by viewModel.pushToTalkEnabled.collectAsState()
     val isThisDeviceActiveMic = activeMicOwner == ActiveMicOwner.CONTROLLER_MIC
+
+    LaunchedEffect(autoMutedOnDisconnectCount) {
+        if (autoMutedOnDisconnectCount > 0) {
+            Toast.makeText(
+                context,
+                "检测到耳机断开，已自动关闭耳返以防啸叫",
+                Toast.LENGTH_SHORT
+            ).show()
+        }
+    }
 
     var showHeadphoneGuardDialog by remember { mutableStateOf(false) }
     var showPolicyBottomSheet by remember { mutableStateOf(false) }

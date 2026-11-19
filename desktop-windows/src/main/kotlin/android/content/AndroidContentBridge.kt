@@ -22,6 +22,7 @@ open class Context {
         const val MODE_PRIVATE = 0
         const val CLIPBOARD_SERVICE = "clipboard"
         const val AUDIO_SERVICE = "audio"
+        const val RECEIVER_NOT_EXPORTED = 4
 
         val appDataRootDir: File by lazy {
             val osName = System.getProperty("os.name", "").lowercase()
@@ -80,6 +81,12 @@ open class Context {
         }
     }
 
+    open fun registerReceiver(receiver: BroadcastReceiver?, filter: IntentFilter?): Intent? = null
+
+    open fun registerReceiver(receiver: BroadcastReceiver?, filter: IntentFilter?, flags: Int): Intent? = null
+
+    open fun unregisterReceiver(receiver: BroadcastReceiver?) {}
+
     open fun startActivity(intent: Intent) {
         val targetUri = intent.getParcelableExtraUri(Intent.EXTRA_STREAM)
         val file = targetUri?.toFile()
@@ -103,6 +110,18 @@ open class Context {
             }
         }
     }
+}
+
+abstract class BroadcastReceiver {
+    abstract fun onReceive(context: Context?, intent: Intent?)
+}
+
+class IntentFilter(vararg actions: String) {
+    private val actionSet = actions.toMutableSet()
+    fun addAction(action: String) {
+        actionSet.add(action)
+    }
+    fun hasAction(action: String): Boolean = action in actionSet
 }
 
 class ContentResolver {

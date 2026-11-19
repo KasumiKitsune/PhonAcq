@@ -540,17 +540,26 @@ fun SoundCheckScreen(
                         val mp = MediaPlayer().apply {
                             setDataSource(tempWavFile.absolutePath)
                             prepare()
-                            start()
                         }
                         activePlayerRef[0] = mp
                         isPlayingBack = true
+                        playbackProgress = 0f
                         val totalDur = mp.duration.coerceAtLeast(1)
                         mp.setOnCompletionListener {
                             stopPlaybackIfNeeded()
                         }
-                        while (isPlayingBack && mp.isPlaying) {
+                        mp.start()
+                        val startedAt = System.currentTimeMillis()
+                        while (isPlayingBack) {
+                            val elapsed = System.currentTimeMillis() - startedAt
+                            val playingNow = try { mp.isPlaying } catch (_: Exception) { false }
+                            if (!playingNow && elapsed > 300L) break
                             playbackProgress = (mp.currentPosition.toFloat() / totalDur).coerceIn(0f, 1f)
-                            delay(35)
+                            if (elapsed > totalDur + 1000L) break
+                            delay(30)
+                        }
+                        if (isPlayingBack && activePlayerRef[0] === mp) {
+                            stopPlaybackIfNeeded()
                         }
                     } catch (_: Exception) {
                         stopPlaybackIfNeeded()
@@ -1671,19 +1680,6 @@ private fun detectActiveMicHardware(context: Context): MicHardwareStatus {
         val am = context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager
             ?: return MicHardwareStatus()
         val inputs = am.getDevices(AudioManager.GET_DEVICES_INPUTS)
-        val btDevice = inputs.firstOrNull { dev ->
-            dev.type == AudioDeviceInfo.TYPE_BLUETOOTH_SCO ||
-                (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && dev.type == AudioDeviceInfo.TYPE_BLE_HEADSET)
-        }
-        if (btDevice != null) {
-            val productName = btDevice.productName?.toString()?.takeIf { it.isNotBlank() }
-            return MicHardwareStatus(
-                deviceName = if (productName != null) S.soundCheck.bluetoothMicWithName.withArgs("name" to productName) else S.soundCheck.bluetoothHeadsetMic,
-                isBluetooth = true,
-                isExternalWiredOrUsb = false
-            )
-        }
-
         val usbDevice = inputs.firstOrNull { dev ->
             dev.type == AudioDeviceInfo.TYPE_USB_DEVICE ||
                 dev.type == AudioDeviceInfo.TYPE_USB_HEADSET ||
@@ -1706,6 +1702,18 @@ private fun detectActiveMicHardware(context: Context): MicHardwareStatus {
                 deviceName = S.soundCheck.wiredHeadsetMic,
                 isBluetooth = false,
                 isExternalWiredOrUsb = true
+            )
+        }
+
+        val btDevice = inputs.firstOrNull { dev ->
+            dev.type == AudioDeviceInfo.TYPE_BLUETOOTH_SCO
+        }
+        if (btDevice != null) {
+            val productName = btDevice.productName?.toString()?.takeIf { it.isNotBlank() }
+            return MicHardwareStatus(
+                deviceName = if (productName != null) S.soundCheck.bluetoothMicWithName.withArgs("name" to productName) else S.soundCheck.bluetoothHeadsetMic,
+                isBluetooth = true,
+                isExternalWiredOrUsb = false
             )
         }
 

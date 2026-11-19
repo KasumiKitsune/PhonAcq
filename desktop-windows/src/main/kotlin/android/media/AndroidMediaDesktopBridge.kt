@@ -41,14 +41,32 @@ object DesktopAudioDeviceSelector {
         refreshDevices()
     }
 
+    private val probeFormats: List<JavaAudioFormat> = listOf(
+        JavaAudioFormat(48000f, 16, 1, true, false),
+        JavaAudioFormat(48000f, 16, 2, true, false),
+        JavaAudioFormat(44100f, 16, 1, true, false),
+        JavaAudioFormat(44100f, 16, 2, true, false),
+        JavaAudioFormat(22050f, 16, 1, true, false)
+    )
+
+    private fun isMixerSupportingAnyInput(mixer: Mixer): Boolean {
+        for (fmt in probeFormats) {
+            try {
+                if (mixer.isLineSupported(DataLine.Info(TargetDataLine::class.java, fmt))) {
+                    return true
+                }
+            } catch (_: Exception) {
+            }
+        }
+        return false
+    }
+
     fun refreshDevices(): List<String> {
-        val format = JavaAudioFormat(44100f, 16, 1, true, false)
-        val lineInfo = DataLine.Info(TargetDataLine::class.java, format)
         val names = try {
             AudioSystem.getMixerInfo()
                 .filter { info ->
                     try {
-                        AudioSystem.getMixer(info).isLineSupported(lineInfo)
+                        isMixerSupportingAnyInput(AudioSystem.getMixer(info))
                     } catch (_: Exception) {
                         false
                     }
@@ -58,12 +76,15 @@ object DesktopAudioDeviceSelector {
         } catch (_: Exception) {
             emptyList()
         }
-        _availableInputDevices.value = names
-        _isMicAvailable.value = names.isNotEmpty() || try {
-            AudioSystem.isLineSupported(lineInfo)
-        } catch (_: Exception) {
-            false
+        val fallbackSupported = names.isNotEmpty() || probeFormats.any { fmt ->
+            try {
+                AudioSystem.isLineSupported(DataLine.Info(TargetDataLine::class.java, fmt))
+            } catch (_: Exception) {
+                false
+            }
         }
+        _availableInputDevices.value = names
+        _isMicAvailable.value = fallbackSupported
         if (_selectedInputDevice.value != null && _selectedInputDevice.value !in names) {
             _selectedInputDevice.value = names.firstOrNull()
         }
@@ -95,34 +116,54 @@ object DesktopAudioDeviceSelector {
     }
 
     fun openTargetDataLine(sampleRate: Int, bufferSizeInBytes: Int): TargetDataLine? {
-        val candidateRates = listOf(sampleRate, 44100, 48000, 22050).distinct()
+        val candidateRates = listOf(sampleRate, 48000, 44100, 22050).distinct()
+        val candidateChannels = listOf(1, 2)
         val preferredName = _selectedInputDevice.value
 
-        for (rate in candidateRates) {
-            val format = JavaAudioFormat(rate.toFloat(), 16, 1, true, false)
-            val info = DataLine.Info(TargetDataLine::class.java, format)
-            try {
-                if (!preferredName.isNullOrBlank()) {
-                    val matchedMixerInfo = AudioSystem.getMixerInfo().firstOrNull { it.name == preferredName }
-                    if (matchedMixerInfo != null) {
-                        val mixer: Mixer = AudioSystem.getMixer(matchedMixerInfo)
-                        if (mixer.isLineSupported(info)) {
-                            val line = mixer.getLine(info) as TargetDataLine
-                            line.open(format, bufferSizeInBytes.coerceAtLeast(4096))
-                            line.flush()
-                            _isMicAvailable.value = true
-                            return line
-                        }
+        // First try the explicitly selected mixer across mono & stereo formats
+        if (!preferredName.isNullOrBlank()) {
+            val matchedMixerInfo = try {
+                AudioSystem.getMixerInfo().firstOrNull { it.name == preferredName }
+            } catch (_: Exception) {
+                null
+            }
+            if (matchedMixerInfo != null) {
+                val mixer: Mixer = AudioSystem.getMixer(matchedMixerInfo)
+                for (rate in candidateRates) {
+                    for (channels in candidateChannels) {
+                        val format = JavaAudioFormat(rate.toFloat(), 16, channels, true, false)
+                        val info = DataLine.Info(TargetDataLine::class.java, format)
+                        try {
+                            if (mixer.isLineSupported(info)) {
+                                val line = mixer.getLine(info) as TargetDataLine
+                                val frameAlignedBuf = (bufferSizeInBytes * channels).coerceAtLeast(4096 * channels)
+                                line.open(format, frameAlignedBuf)
+                                line.flush()
+                                _isMicAvailable.value = true
+                                return line
+                            }
+                        } catch (_: Exception) {}
                     }
                 }
-                if (AudioSystem.isLineSupported(info)) {
-                    val line = AudioSystem.getLine(info) as TargetDataLine
-                    line.open(format, bufferSizeInBytes.coerceAtLeast(4096))
-                    line.flush()
-                    _isMicAvailable.value = true
-                    return line
-                }
-            } catch (_: Exception) {}
+            }
+        }
+
+        // Fallback to OS default line across mono & stereo formats
+        for (rate in candidateRates) {
+            for (channels in candidateChannels) {
+                val format = JavaAudioFormat(rate.toFloat(), 16, channels, true, false)
+                val info = DataLine.Info(TargetDataLine::class.java, format)
+                try {
+                    if (AudioSystem.isLineSupported(info)) {
+                        val line = AudioSystem.getLine(info) as TargetDataLine
+                        val frameAlignedBuf = (bufferSizeInBytes * channels).coerceAtLeast(4096 * channels)
+                        line.open(format, frameAlignedBuf)
+                        line.flush()
+                        _isMicAvailable.value = true
+                        return line
+                    }
+                } catch (_: Exception) {}
+            }
         }
         _isMicAvailable.value = false
         return null
@@ -176,6 +217,8 @@ class AudioTrack private constructor(
         const val STATE_UNINITIALIZED = 0
         const val STATE_INITIALIZED = 1
         const val WRITE_NON_BLOCKING = 1
+        const val PERFORMANCE_MODE_NONE = 0
+        const val PERFORMANCE_MODE_LOW_LATENCY = 1
 
         fun getMinBufferSize(sampleRateInHz: Int, channelConfig: Int, audioFormat: Int): Int {
             return (sampleRateInHz * 2 / 12).coerceAtLeast(2048)
@@ -190,10 +233,12 @@ class AudioTrack private constructor(
         fun setAudioFormat(fmt: AudioFormat) = apply { sampleRate = fmt.sampleRate }
         fun setBufferSizeInBytes(size: Int) = apply { bufferSize = size }
         fun setTransferMode(mode: Int) = apply {}
+        fun setPerformanceMode(mode: Int) = apply {}
         fun build(): AudioTrack = AudioTrack(sampleRate, bufferSize)
     }
 
     private var sourceLine: SourceDataLine? = null
+    private var writeByteBuffer = ByteArray(4096)
     var state: Int = STATE_UNINITIALIZED
         private set
 
@@ -249,10 +294,13 @@ class AudioTrack private constructor(
         val line = sourceLine ?: return -1
         if (sizeInShorts <= 0) return 0
         return try {
-            val bytes = ByteArray(sizeInShorts * 2)
-            ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN).asShortBuffer()
+            val neededBytes = sizeInShorts * 2
+            if (writeByteBuffer.size < neededBytes) {
+                writeByteBuffer = ByteArray(neededBytes)
+            }
+            ByteBuffer.wrap(writeByteBuffer, 0, neededBytes).order(ByteOrder.LITTLE_ENDIAN).asShortBuffer()
                 .put(audioData, offsetInShorts, sizeInShorts)
-            line.write(bytes, 0, bytes.size) / 2
+            line.write(writeByteBuffer, 0, neededBytes) / 2
         } catch (_: Exception) {
             -1
         }
@@ -327,14 +375,19 @@ class AudioRecord(
         return read(audioData, offsetInShorts, sizeInShorts, READ_BLOCKING)
     }
 
+    private var smoothedLeftEnergy = 0.0
+    private var smoothedRightEnergy = 0.0
+
     fun read(audioData: ShortArray, offsetInShorts: Int, sizeInShorts: Int, readMode: Int): Int {
         val line = targetLine ?: return -1
         if (recordingState != RECORDSTATE_RECORDING) return -1
         if (sizeInShorts <= 0) return 0
 
-        val requestedBytes = sizeInShorts * 2
+        val hwChannels = line.format?.channels?.coerceAtLeast(1) ?: 1
+        val frameBytes = 2 * hwChannels
+        val requestedBytes = sizeInShorts * frameBytes
         val bytesToRead = if (readMode == READ_NON_BLOCKING) {
-            val avail = line.available() and -2 // align to 2-byte 16-bit PCM frame
+            val avail = (line.available() / frameBytes) * frameBytes
             if (avail <= 0) return 0
             minOf(requestedBytes, avail)
         } else {
@@ -347,12 +400,54 @@ class AudioRecord(
         return try {
             val bytesRead = line.read(rawByteBuffer, 0, bytesToRead)
             if (bytesRead <= 0) return bytesRead
-            val shortsRead = bytesRead / 2
-            val bb = ByteBuffer.wrap(rawByteBuffer, 0, shortsRead * 2).order(ByteOrder.LITTLE_ENDIAN)
-            for (i in 0 until shortsRead) {
-                audioData[offsetInShorts + i] = bb.short
+            val framesRead = bytesRead / frameBytes
+            val bb = ByteBuffer.wrap(rawByteBuffer, 0, framesRead * frameBytes).order(ByteOrder.LITTLE_ENDIAN)
+            if (hwChannels == 1) {
+                for (i in 0 until framesRead) {
+                    audioData[offsetInShorts + i] = bb.short
+                }
+            } else {
+                // Transparently convert stereo-only USB interfaces (e.g. 2-channel XLR soundcards
+                // where Ch1 has the mic and Ch2 is silent) into full-level mono without -6 dB loss.
+                var sumL = 0L
+                var sumR = 0L
+                val leftBuf = ShortArray(framesRead)
+                val rightBuf = ShortArray(framesRead)
+                for (i in 0 until framesRead) {
+                    val l = bb.short
+                    val r = bb.short
+                    for (extra in 2 until hwChannels) {
+                        bb.short
+                    }
+                    leftBuf[i] = l
+                    rightBuf[i] = r
+                    sumL += kotlin.math.abs(l.toInt())
+                    sumR += kotlin.math.abs(r.toInt())
+                }
+                val avgL = sumL.toDouble() / framesRead.coerceAtLeast(1)
+                val avgR = sumR.toDouble() / framesRead.coerceAtLeast(1)
+                smoothedLeftEnergy = smoothedLeftEnergy * 0.85 + avgL * 0.15
+                smoothedRightEnergy = smoothedRightEnergy * 0.85 + avgR * 0.15
+
+                val useLeftOnly = smoothedLeftEnergy > 120.0 && smoothedRightEnergy < smoothedLeftEnergy * 0.15
+                val useRightOnly = smoothedRightEnergy > 120.0 && smoothedLeftEnergy < smoothedRightEnergy * 0.15
+
+                when {
+                    useLeftOnly -> {
+                        for (i in 0 until framesRead) audioData[offsetInShorts + i] = leftBuf[i]
+                    }
+                    useRightOnly -> {
+                        for (i in 0 until framesRead) audioData[offsetInShorts + i] = rightBuf[i]
+                    }
+                    else -> {
+                        for (i in 0 until framesRead) {
+                            val mixed = (leftBuf[i].toInt() + rightBuf[i].toInt()) / 2
+                            audioData[offsetInShorts + i] = mixed.coerceIn(Short.MIN_VALUE.toInt(), Short.MAX_VALUE.toInt()).toShort()
+                        }
+                    }
+                }
             }
-            shortsRead
+            framesRead
         } catch (_: Exception) {
             -1
         }
@@ -384,6 +479,10 @@ class MediaPlayer {
     private var sourceFile: File? = null
     private var clip: Clip? = null
     private var completionListener: OnCompletionListener? = null
+    @Volatile private var isStarted: Boolean = false
+    @Volatile private var hasObservedRunning: Boolean = false
+    @Volatile private var startedAtMs: Long = 0L
+    @Volatile private var pendingSeekMicros: Long? = null
 
     fun setDataSource(path: String) {
         sourceFile = File(path)
@@ -397,18 +496,31 @@ class MediaPlayer {
         val file = sourceFile ?: return
         if (!file.exists() || file.length() <= 44L) return
         try {
+            isStarted = false
+            hasObservedRunning = false
             clip?.close()
             BufferedInputStream(FileInputStream(file)).use { bis ->
                 val audioStream = AudioSystem.getAudioInputStream(bis)
                 val newClip = AudioSystem.getClip()
                 newClip.open(audioStream)
                 newClip.addLineListener { event ->
-                    if (event.type == LineEvent.Type.STOP) {
+                    if (event.type == LineEvent.Type.START) {
+                        hasObservedRunning = true
+                    } else if (event.type == LineEvent.Type.STOP) {
                         val c = clip
-                        if (c != null && c.microsecondPosition >= c.microsecondLength - 15_000L) {
+                        val reachedEnd = c != null && c.microsecondLength > 0L &&
+                            c.microsecondPosition >= c.microsecondLength - 25_000L
+                        if (isStarted && reachedEnd) {
+                            isStarted = false
                             completionListener?.onCompletion(this)
                         }
                     }
+                }
+                pendingSeekMicros?.let { targetUs ->
+                    val clamped = targetUs.coerceIn(0L, newClip.microsecondLength.coerceAtLeast(0L))
+                    try {
+                        newClip.microsecondPosition = clamped
+                    } catch (_: Exception) {}
                 }
                 clip = newClip
             }
@@ -417,25 +529,50 @@ class MediaPlayer {
         }
     }
 
+    fun seekTo(msec: Int) {
+        val targetUs = (msec.toLong() * 1000L).coerceAtLeast(0L)
+        val c = clip
+        if (c != null) {
+            val clamped = targetUs.coerceIn(0L, c.microsecondLength.coerceAtLeast(0L))
+            try {
+                c.microsecondPosition = clamped
+            } catch (_: Exception) {}
+            pendingSeekMicros = clamped
+        } else {
+            pendingSeekMicros = targetUs
+        }
+    }
+
     fun start() {
+        val c = clip ?: return
         try {
-            clip?.start()
-        } catch (_: Exception) {}
+            hasObservedRunning = false
+            startedAtMs = System.currentTimeMillis()
+            isStarted = true
+            c.start()
+        } catch (_: Exception) {
+            isStarted = false
+        }
     }
 
     fun pause() {
+        isStarted = false
         try {
             clip?.stop()
         } catch (_: Exception) {}
     }
 
     fun stop() {
+        isStarted = false
         try {
             clip?.stop()
         } catch (_: Exception) {}
     }
 
     fun release() {
+        isStarted = false
+        hasObservedRunning = false
+        pendingSeekMicros = null
         try {
             clip?.stop()
             clip?.close()
@@ -444,7 +581,19 @@ class MediaPlayer {
     }
 
     val isPlaying: Boolean
-        get() = clip?.isRunning == true
+        get() {
+            val c = clip ?: return false
+            if (!isStarted || !c.isOpen) return false
+            if (c.isRunning) {
+                hasObservedRunning = true
+                return true
+            }
+            // JavaSound Clip starts asynchronously; grant a brief startup window before checking stop.
+            if (!hasObservedRunning && (System.currentTimeMillis() - startedAtMs) < 450L) {
+                return true
+            }
+            return false
+        }
 
     val duration: Int
         get() = ((clip?.microsecondLength ?: 0L) / 1000L).toInt()
@@ -484,6 +633,7 @@ class AudioManager {
     companion object {
         const val GET_DEVICES_INPUTS = 1
         const val GET_DEVICES_OUTPUTS = 2
+        const val ACTION_AUDIO_BECOMING_NOISY = "android.media.AUDIO_BECOMING_NOISY"
         val instance = AudioManager()
     }
 
@@ -501,12 +651,21 @@ class AudioManager {
 
     fun getDevices(flags: Int): Array<AudioDeviceInfo> {
         if (flags == GET_DEVICES_OUTPUTS) {
-            val fmt = JavaAudioFormat(16000f, 16, 1, true, false)
-            val outInfo = DataLine.Info(SourceDataLine::class.java, fmt)
+            val outFormats = listOf(
+                JavaAudioFormat(48000f, 16, 2, true, false),
+                JavaAudioFormat(44100f, 16, 2, true, false),
+                JavaAudioFormat(16000f, 16, 1, true, false)
+            )
             val outputs = try {
                 AudioSystem.getMixerInfo().filter { info ->
+                    val lower = info.name.lowercase()
+                    // Exclude pure capture-only microphones so a USB mic never triggers false headphone detection
+                    val looksLikeCaptureOnly = (lower.contains("microphone") || lower.contains("麦克风") || lower.contains("line in")) &&
+                        !lower.contains("headset") && !lower.contains("headphone") && !lower.contains("耳机") && !lower.contains("playback")
+                    if (looksLikeCaptureOnly) return@filter false
                     try {
-                        AudioSystem.getMixer(info).isLineSupported(outInfo)
+                        val mixer = AudioSystem.getMixer(info)
+                        outFormats.any { fmt -> mixer.isLineSupported(DataLine.Info(SourceDataLine::class.java, fmt)) }
                     } catch (_: Exception) {
                         false
                     }
@@ -515,7 +674,7 @@ class AudioManager {
                     val t = when {
                         lower.contains("headphone") || lower.contains("headset") || lower.contains("耳机") || lower.contains("earphone") ->
                             AudioDeviceInfo.TYPE_WIRED_HEADPHONES
-                        lower.contains("usb") || lower.contains("scarlett") || lower.contains("dac") ->
+                        lower.contains("scarlett") || lower.contains("dac") || lower.contains("usb audio") || lower.contains("usb headphone") ->
                             AudioDeviceInfo.TYPE_USB_HEADSET
                         lower.contains("bluetooth") || lower.contains("airpods") ->
                             AudioDeviceInfo.TYPE_BLUETOOTH_A2DP
