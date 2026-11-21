@@ -58,6 +58,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.data.Word
+import com.example.data.assignedSpeakerIdSet
+import com.example.data.matchesProjectGroup
 import com.example.i18n.S
 import com.example.i18n.withArgs
 import com.example.ui.components.AnimatedDialogVisibility
@@ -627,11 +629,14 @@ fun ArchiveExplorerScreen(
                     playingWordId?.let { pid -> words.firstOrNull { it.id == pid } }
                 }
                 val projectGroup = project?.speakerGroupName ?: ""
-                val sortedSpeakers = remember(speakers, projectGroup, isSimpleMode) {
-                    if (!isSimpleMode && projectGroup.isNotBlank()) {
-                        speakers.sortedByDescending { it.groupName == projectGroup }
-                    } else {
-                        speakers
+                val assignedSet = remember(project?.assignedSpeakerIds) {
+                    project?.assignedSpeakerIdSet ?: emptySet<Long>()
+                }
+                val sortedSpeakers = remember(speakers, projectGroup, assignedSet, isSimpleMode) {
+                    when {
+                        assignedSet.isNotEmpty() -> speakers.sortedByDescending { it.id in assignedSet }
+                        !isSimpleMode && projectGroup.isNotBlank() -> speakers.sortedByDescending { it.matchesProjectGroup(projectGroup) }
+                        else -> speakers
                     }
                 }
                 val wordIdToIndexMap = remember(words) {

@@ -60,6 +60,16 @@ class ProjectRepository(private val database: AppDatabase) {
         return wordDao.getWordCount(projectId) to wordDao.getRecordedCount(projectId, speakerId)
     }
 
+    suspend fun getRecordedSpeakerIdsInProjectSync(projectId: Long): Set<Long> {
+        val result = LinkedHashSet<Long>()
+        for (t in wordDao.getAllProjectSpeakerRecordingCounts()) {
+            if (t.projectId == projectId && t.recordedCount > 0) {
+                result.add(t.speakerId)
+            }
+        }
+        return result
+    }
+
     suspend fun getProjectMultiSpeakerSummarySync(
         project: Project,
         allSpeakers: List<Speaker>,
@@ -68,11 +78,11 @@ class ProjectRepository(private val database: AppDatabase) {
         val totalWords = wordDao.getWordCount(project.id)
         val totalRecs = wordDao.getTotalRecordingsInProject(project.id)
         val progressList = mutableListOf<SpeakerProgressInfo>()
+        val assignedSet = project.assignedSpeakerIdSet
 
         for (spk in allSpeakers) {
             val recCount = wordDao.getRecordedCount(project.id, spk.id)
-            val inTargetGroup = if (ignoreSpeakerGroups) true else spk.matchesProjectGroup(project.speakerGroupName)
-            if (inTargetGroup || recCount > 0) {
+            if (project.isSpeakerCandidate(spk, recCount, ignoreSpeakerGroups, assignedSet)) {
                 progressList.add(
                     SpeakerProgressInfo(
                         speaker = spk,
@@ -122,11 +132,11 @@ class ProjectRepository(private val database: AppDatabase) {
             countsMap[p.id] = totalWords to activeRecorded
 
             val totalRecs = totalRecsByProject[p.id] ?: 0
+            val assignedSet = p.assignedSpeakerIdSet
             val progressList = ArrayList<SpeakerProgressInfo>(allSpeakers.size)
             for (spk in allSpeakers) {
                 val recCount = recByProjectAndSpeaker[p.id to spk.id] ?: 0
-                val inTargetGroup = if (ignoreSpeakerGroups) true else spk.matchesProjectGroup(p.speakerGroupName)
-                if (inTargetGroup || recCount > 0) {
+                if (p.isSpeakerCandidate(spk, recCount, ignoreSpeakerGroups, assignedSet)) {
                     progressList.add(
                         SpeakerProgressInfo(
                             speaker = spk,
@@ -198,14 +208,17 @@ class ProjectRepository(private val database: AppDatabase) {
         speakerId: Long = 1L,
         speakerGroupName: String = "",
         enablePicturePrompts: Boolean = false,
-        context: Context? = null
+        context: Context? = null,
+        assignedSpeakerIds: String = ""
     ): Long {
+        val normalizedAssigned = formatAssignedSpeakerIds(parseAssignedSpeakerIds(assignedSpeakerIds))
         val project = Project(
             name = name,
             description = description,
             speakerId = speakerId,
-            speakerGroupName = speakerGroupName.trim(),
-            enablePicturePrompts = enablePicturePrompts
+            speakerGroupName = if (normalizedAssigned.isNotBlank()) "" else speakerGroupName.trim(),
+            enablePicturePrompts = enablePicturePrompts,
+            assignedSpeakerIds = normalizedAssigned
         )
         val projectId = projectDao.insertProject(project)
 
@@ -235,7 +248,8 @@ class ProjectRepository(private val database: AppDatabase) {
         speakerId: Long = 1L,
         speakerGroupName: String = "",
         enablePicturePrompts: Boolean = false,
-        context: Context? = null
+        context: Context? = null,
+        assignedSpeakerIds: String = ""
     ): Long {
         val parsed = wordTexts.map { text ->
             val (wText, wRemark) = parseWordAndRemark(text)
@@ -248,7 +262,8 @@ class ProjectRepository(private val database: AppDatabase) {
             speakerId = speakerId,
             speakerGroupName = speakerGroupName,
             enablePicturePrompts = enablePicturePrompts,
-            context = context
+            context = context,
+            assignedSpeakerIds = assignedSpeakerIds
         )
     }
 
@@ -364,13 +379,16 @@ class ProjectRepository(private val database: AppDatabase) {
         speakerGroupName: String,
         drafts: List<EditableWordDraft>,
         context: Context,
-        enablePicturePrompts: Boolean = project.enablePicturePrompts
+        enablePicturePrompts: Boolean = project.enablePicturePrompts,
+        assignedSpeakerIds: String = project.assignedSpeakerIds
     ): Project {
+        val normalizedAssigned = formatAssignedSpeakerIds(parseAssignedSpeakerIds(assignedSpeakerIds))
         val updatedProject = project.copy(
             name = name.trim(),
             description = description.trim(),
-            speakerGroupName = speakerGroupName.trim(),
-            enablePicturePrompts = enablePicturePrompts
+            speakerGroupName = if (normalizedAssigned.isNotBlank()) "" else speakerGroupName.trim(),
+            enablePicturePrompts = enablePicturePrompts,
+            assignedSpeakerIds = normalizedAssigned
         )
 
         val validDrafts = drafts.filter { it.text.isNotBlank() }

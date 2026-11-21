@@ -107,6 +107,7 @@ fun ProjectListScreen(
     var showSpeakerManagerScreen by remember { mutableStateOf(false) }
     var initialSpeakerGroupFilter by remember { mutableStateOf<String?>(null) }
     var selectedProjectForDetails by remember { mutableStateOf<Project?>(null) }
+    var projectForSpeakerRoster by remember { mutableStateOf<Project?>(null) }
     var showSmartImportHub by remember { mutableStateOf(false) }
     var pendingSmartImportUris by remember { mutableStateOf<List<android.net.Uri>>(emptyList()) }
     var pendingMergeTargetProject by remember { mutableStateOf<Project?>(null) }
@@ -125,13 +126,19 @@ fun ProjectListScreen(
         }
     }
 
-    SuspendDesktopShortcutsWhen(showSpeakerManagerScreen || selectedProjectForDetails != null || showSmartImportHub)
+    SuspendDesktopShortcutsWhen(
+        showSpeakerManagerScreen ||
+            selectedProjectForDetails != null ||
+            projectForSpeakerRoster != null ||
+            showSmartImportHub
+    )
 
     val canAcceptHomeGlobalDrop = onOpenImportPage == null &&
         com.example.ui.components.DesktopAdaptiveState.isDesktopPlatform &&
         !showSmartImportHub &&
         !showSpeakerManagerScreen &&
         selectedProjectForDetails == null &&
+        projectForSpeakerRoster == null &&
         com.example.ui.components.DesktopModalManager.entries.isEmpty()
 
     com.example.utils.SmartImportDesktopDropEffect(
@@ -697,10 +704,9 @@ fun ProjectListScreen(
                                                     onProjectOpened()
                                                 }
                                             },
-                                            onManageGroupSpeakers = remember(project.id, project.speakerGroupName, isSimpleMode) {
+                                            onManageGroupSpeakers = remember(project) {
                                                 {
-                                                    initialSpeakerGroupFilter = if (isSimpleMode) null else project.speakerGroupName.takeIf { it.isNotBlank() }
-                                                    showSpeakerManagerScreen = true
+                                                    projectForSpeakerRoster = project
                                                 }
                                             },
                                             onLongClick = remember(project.id) {
@@ -736,27 +742,53 @@ fun ProjectListScreen(
                 }
 
                 com.example.ui.components.AnimatedNullableDialogVisibility(value = selectedProjectForDetails) { targetProj ->
+                    val liveDetailProj = projects.firstOrNull { it.id == targetProj.id } ?: targetProj
                     ProjectDetailEditDialog(
                         viewModel = viewModel,
-                        project = targetProj,
+                        project = liveDetailProj,
                         speakerGroups = speakerGroups,
-                        summary = summariesMap[targetProj.id],
+                        summary = summariesMap[liveDetailProj.id],
                         onDismiss = { selectedProjectForDetails = null },
                         onOpenInWordEditor = if (onOpenWordListEditor != null) {
                             {
                                 selectedProjectForDetails = null
-                                onOpenWordListEditor(targetProj)
+                                onOpenWordListEditor(liveDetailProj)
                             }
                         } else null,
                         onOpenSmartMergeImport = {
                             selectedProjectForDetails = null
-                            launchImportWorkspace(uris = emptyList(), mergeProject = targetProj)
+                            launchImportWorkspace(uris = emptyList(), mergeProject = liveDetailProj)
+                        },
+                        onManageProjectSpeakers = {
+                            projectForSpeakerRoster = liveDetailProj
                         },
                         onUpdate = { name, desc, groupName ->
-                            viewModel.updateProjectDetails(targetProj, name, desc, groupName) {
+                            viewModel.updateProjectDetails(
+                                project = liveDetailProj,
+                                name = name,
+                                description = desc,
+                                speakerGroupName = groupName,
+                                assignedSpeakerIds = liveDetailProj.assignedSpeakerIds
+                            ) {
                                 selectedProjectForDetails = null
                             }
                         }
+                    )
+                }
+
+                com.example.ui.components.AnimatedNullableDialogVisibility(value = projectForSpeakerRoster) { rosterTargetProj ->
+                    val liveRosterProj = projects.firstOrNull { it.id == rosterTargetProj.id } ?: rosterTargetProj
+                    ProjectSpeakerRosterDialog(
+                        viewModel = viewModel,
+                        project = liveRosterProj,
+                        projectDisplayName = liveRosterProj.name,
+                        onStartRecordingWithSpeaker = { clickedSpeaker ->
+                            projectForSpeakerRoster = null
+                            selectedProjectForDetails = null
+                            viewModel.selectProjectAndSpeaker(liveRosterProj, clickedSpeaker)
+                            onProjectOpened()
+                        },
+                        onDismiss = { projectForSpeakerRoster = null }
                     )
                 }
             }
@@ -1066,7 +1098,7 @@ fun ProjectItemCard(
                                 modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
                             )
                         }
-                        if (!isSimpleMode && project.speakerGroupName.isNotBlank()) {
+                        if (!isSimpleMode && project.assignedSpeakerIds.isBlank() && project.speakerGroupName.isNotBlank()) {
                             Surface(
                                 shape = RoundedCornerShape(8.dp),
                                 color = MaterialTheme.colorScheme.secondaryContainer,
@@ -1437,7 +1469,7 @@ fun ProjectItemCard(
                                             fontWeight = FontWeight.Bold,
                                             color = cs.onSurfaceVariant
                                         )
-                                        if (!isSimpleMode && project.speakerGroupName.isNotBlank()) {
+                                        if (!isSimpleMode && project.assignedSpeakerIds.isBlank() && project.speakerGroupName.isNotBlank()) {
                                             Text(
                                                 text = project.speakerGroupName,
                                                 fontSize = 10.5.sp,
@@ -1633,7 +1665,7 @@ fun ProjectItemCard(
                                 "completed" to completedSpeakers,
                                 "tokens" to totalTokens
                             )
-                        } else if (isSimpleMode) {
+                        } else if (isSimpleMode || project.assignedSpeakerIds.isNotBlank() || project.speakerGroupName.isBlank()) {
                             S.project.cardCandidateCount.withArgs("count" to candidateCount, "date" to dateStr)
                         } else {
                             S.project.cardGroupCandidateCount.withArgs("count" to candidateCount, "date" to dateStr)
@@ -2721,6 +2753,127 @@ fun MultiSelectSpeakerGroupField(
     }
 }
 
+@Composable
+internal fun ProjectAssignedSpeakersActionRow(
+    selectedCount: Int,
+    summaryText: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val cs = MaterialTheme.colorScheme
+    val (rowSrc, isHoveredState) = rememberStudioInteraction()
+    val isHovered by isHoveredState
+    val rowBg by animateColorAsState(
+        targetValue = if (isHovered) {
+            lerp(cs.surface, cs.primaryContainer, 0.42f)
+        } else {
+            cs.surface
+        },
+        animationSpec = StudioMotion.microTween(),
+        label = "ProjectAssignedSpeakersRowBg"
+    )
+    val rowBorder by animateColorAsState(
+        targetValue = if (isHovered) {
+            cs.primary.copy(alpha = 0.52f)
+        } else {
+            cs.outlineVariant.copy(alpha = 0.65f)
+        },
+        animationSpec = StudioMotion.microTween(),
+        label = "ProjectAssignedSpeakersRowBorder"
+    )
+
+    Surface(
+        shape = RoundedCornerShape(12.dp),
+        color = rowBg,
+        border = BorderStroke(1.dp, rowBorder),
+        shadowElevation = 0.dp,
+        tonalElevation = 0.dp,
+        modifier = modifier
+            .fillMaxWidth()
+            .defaultMinSize(minHeight = 46.dp)
+            .clip(RoundedCornerShape(12.dp))
+            .hoverable(rowSrc)
+            .then(if (DesktopAdaptiveState.isDesktopPlatform) Modifier.pointerHoverIcon(PointerIcon.Hand) else Modifier)
+            .clickable(
+                interactionSource = rowSrc,
+                indication = null,
+                onClick = onClick
+            )
+            .testTag("project_assigned_speakers_action_row")
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 11.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier
+                    .weight(1f)
+                    .padding(end = 8.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Groups,
+                    contentDescription = null,
+                    tint = cs.primary,
+                    modifier = Modifier.size(18.dp)
+                )
+                Column(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(1.dp)
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Text(
+                            text = S.project.detailAssignedSpeakersTitle,
+                            fontSize = 12.5.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = cs.onSurface,
+                            maxLines = 1,
+                            softWrap = false
+                        )
+                        Text(
+                            text = S.project.detailAssignedSpeakersCount.withArgs("count" to selectedCount),
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = cs.primary,
+                            maxLines = 1,
+                            softWrap = false
+                        )
+                    }
+                    Text(
+                        text = summaryText,
+                        fontSize = 11.5.sp,
+                        color = cs.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+            }
+
+            Surface(
+                shape = RoundedCornerShape(9.dp),
+                color = cs.primaryContainer
+            ) {
+                Text(
+                    text = S.project.detailManageSpeakersButton,
+                    fontSize = 11.5.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = cs.onPrimaryContainer,
+                    maxLines = 1,
+                    softWrap = false,
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
+                )
+            }
+        }
+    }
+}
+
 /**
  * Detailed view, metadata editing, and inline single-word CRUD editing of a project.
  */
@@ -2734,14 +2887,15 @@ fun ProjectDetailEditDialog(
     onDismiss: () -> Unit,
     onOpenInWordEditor: (() -> Unit)? = null,
     onOpenSmartMergeImport: (() -> Unit)? = null,
+    onManageProjectSpeakers: (() -> Unit)? = null,
     onUpdate: (String, String, String) -> Unit
 ) {
     val isSimpleMode by viewModel.isSimpleMode.collectAsState()
+    val allSpeakers by viewModel.allSpeakers.collectAsState()
     var isEditingMode by remember { mutableStateOf(false) }
 
-    var edtName by remember { mutableStateOf(project.name) }
-    var edtDesc by remember { mutableStateOf(project.description) }
-    var edtSpeakerGroup by remember { mutableStateOf(project.speakerGroupName) }
+    var edtName by remember(project.id) { mutableStateOf(project.name) }
+    var edtDesc by remember(project.id) { mutableStateOf(project.description) }
 
     // Inline word editing / addition states
     var wordBeingEdited by remember { mutableStateOf<Word?>(null) }
@@ -2752,6 +2906,18 @@ fun ProjectDetailEditDialog(
     val totalWords = summary?.totalWords ?: 0
     val startedCount = summary?.startedSpeakerCount ?: 0
     val completedCount = summary?.completedSpeakerCount ?: 0
+    val candidateSpeakers = remember(summary, allSpeakers, project, isSimpleMode) {
+        if (summary != null) {
+            summary.speakerProgressList.map { it.speaker }
+        } else {
+            val assignedSet = project.assignedSpeakerIdSet
+            allSpeakers.filter { spk -> project.isSpeakerCandidate(spk, 0, isSimpleMode, assignedSet) }
+        }
+    }
+    val candidateCount = candidateSpeakers.size
+    val rosterSummaryText = remember(candidateSpeakers, allSpeakers.size) {
+        formatProjectRosterSummary(candidateSpeakers, allSpeakers.size)
+    }
 
     val hasProjectInputFields = isEditingMode || showAddWordRow
     com.example.ui.components.StudioModalDialog(
@@ -2766,7 +2932,8 @@ fun ProjectDetailEditDialog(
                 targetMaxWidth = 540.dp,
                 maxHeightFraction = 0.88f,
                 shape = RoundedCornerShape(28.dp),
-                containerColor = MaterialTheme.colorScheme.surface
+                containerColor = MaterialTheme.colorScheme.surface,
+                modifier = Modifier.imePadding()
             ) {
             Column(
                 modifier = Modifier
@@ -2777,7 +2944,7 @@ fun ProjectDetailEditDialog(
             ) {
                 Text(
                     text = if (isEditingMode) {
-                        if (isSimpleMode) S.project.editProjectTitleSimple else S.project.editProjectTitleAdv
+                        S.project.editProjectTitleSimple
                     } else {
                         S.project.detailDialogTitle
                     },
@@ -2805,48 +2972,12 @@ fun ProjectDetailEditDialog(
                         shape = RoundedCornerShape(14.dp)
                     )
 
-                    if (!isSimpleMode) {
-                        Column(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            OutlinedTextField(
-                                value = edtSpeakerGroup,
-                                onValueChange = { edtSpeakerGroup = it },
-                                label = { Text(S.project.boundSpeakerGroupLabel) },
-                                placeholder = { Text(S.project.boundSpeakerGroupPlaceholder) },
-                                modifier = Modifier.fillMaxWidth(),
-                                singleLine = true,
-                                shape = RoundedCornerShape(14.dp)
-                            )
-                            val editGroupStripState = rememberLazyListState()
-                            StudioHorizontalLazyStrip(
-                                state = editGroupStripState,
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                LazyRow(
-                                    state = editGroupStripState,
-                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    modifier = Modifier.fillMaxWidth()
-                                ) {
-                                    item {
-                                        StudioFilterChip(
-                                            selected = edtSpeakerGroup.isBlank(),
-                                            onClick = { edtSpeakerGroup = "" },
-                                            labelText = S.project.unlimitedGroupChip
-                                        )
-                                    }
-                                    items(speakerGroups) { grp ->
-                                        StudioFilterChip(
-                                            selected = edtSpeakerGroup.trim() == grp,
-                                            onClick = { edtSpeakerGroup = grp },
-                                            labelText = grp
-                                        )
-                                    }
-                                }
-                            }
-                        }
+                    if (onManageProjectSpeakers != null) {
+                        ProjectAssignedSpeakersActionRow(
+                            selectedCount = candidateCount,
+                            summaryText = rosterSummaryText,
+                            onClick = onManageProjectSpeakers
+                        )
                     }
 
                     Row(
@@ -2860,7 +2991,7 @@ fun ProjectDetailEditDialog(
                         Button(
                             onClick = {
                                 if (edtName.isNotBlank()) {
-                                    onUpdate(edtName.trim(), edtDesc.trim(), edtSpeakerGroup.trim())
+                                    onUpdate(edtName.trim(), edtDesc.trim(), project.speakerGroupName)
                                 }
                             },
                             shape = RoundedCornerShape(14.dp)
@@ -2896,22 +3027,13 @@ fun ProjectDetailEditDialog(
                                         overflow = TextOverflow.Ellipsis
                                     )
                                 }
-                                val groupLabel = if (project.speakerGroupName.isNotBlank()) project.speakerGroupName else S.project.detailAllSpeakers
                                 Text(
-                                    text = if (isSimpleMode) {
-                                        S.project.detailProgressSimple.withArgs(
-                                            "words" to totalWords,
-                                            "started" to startedCount,
-                                            "completed" to completedCount
-                                        )
-                                    } else {
-                                        S.project.detailProgressAdv.withArgs(
-                                            "words" to totalWords,
-                                            "group" to groupLabel,
-                                            "started" to startedCount,
-                                            "completed" to completedCount
-                                        )
-                                    },
+                                    text = S.project.detailProgressWithRoster.withArgs(
+                                        "words" to totalWords,
+                                        "candidates" to candidateCount,
+                                        "started" to startedCount,
+                                        "completed" to completedCount
+                                    ),
                                     fontSize = 11.sp,
                                     fontWeight = FontWeight.SemiBold,
                                     color = MaterialTheme.colorScheme.primary,
@@ -2919,6 +3041,14 @@ fun ProjectDetailEditDialog(
                                     overflow = TextOverflow.Ellipsis
                                 )
                             }
+                        }
+
+                        if (onManageProjectSpeakers != null) {
+                            ProjectAssignedSpeakersActionRow(
+                                selectedCount = candidateCount,
+                                summaryText = rosterSummaryText,
+                                onClick = onManageProjectSpeakers
+                            )
                         }
 
                         Row(
@@ -3195,7 +3325,7 @@ fun ProjectDetailEditDialog(
                         TextButton(onClick = { isEditingMode = true }) {
                             Icon(Icons.Default.Edit, contentDescription = null, modifier = Modifier.size(16.dp))
                             Spacer(modifier = Modifier.width(4.dp))
-                            Text(if (isSimpleMode) S.project.modifyProjectInfo else S.project.modifyProjectAndGroup, maxLines = 1, softWrap = false)
+                            Text(S.project.modifyProjectInfo, maxLines = 1, softWrap = false)
                         }
                         Button(onClick = onDismiss, shape = RoundedCornerShape(14.dp)) {
                             Text(S.common.close, maxLines = 1, softWrap = false)

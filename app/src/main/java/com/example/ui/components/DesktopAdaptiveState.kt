@@ -1027,7 +1027,7 @@ fun StudioSegmentedControl(
     onOptionSelected: (Int) -> Unit,
     modifier: Modifier = Modifier,
     optionTestTags: List<String>? = null,
-    maxWidth: Dp = (options.size * 176).dp.coerceAtMost(480.dp)
+    maxControlWidth: Dp = (options.size * 176).dp.coerceAtMost(480.dp)
 ) {
     if (options.isEmpty()) return
     val colorScheme = MaterialTheme.colorScheme
@@ -1042,7 +1042,7 @@ fun StudioSegmentedControl(
         animationSpec = if (isDragging) {
             spring(dampingRatio = 1f, stiffness = 2800f)
         } else {
-            spring(dampingRatio = 0.76f, stiffness = 480f)
+            spring(dampingRatio = 0.84f, stiffness = 520f)
         },
         label = "SegmentedThumbIndex"
     )
@@ -1054,7 +1054,7 @@ fun StudioSegmentedControl(
         shadowElevation = 0.dp,
         tonalElevation = 0.dp,
         modifier = modifier
-            .widthIn(max = maxWidth)
+            .widthIn(max = maxControlWidth)
             .fillMaxWidth()
             .height(40.dp)
     ) {
@@ -1087,8 +1087,10 @@ fun StudioSegmentedControl(
                     )
                 }
         ) {
-            val segmentWidth = maxWidth / options.size
+            val innerWidth = this@BoxWithConstraints.maxWidth
+            val segmentWidth = innerWidth / options.size
             val segmentWidthPx = with(LocalDensity.current) { segmentWidth.toPx() }
+            val clampedIndex = animatedIndex.coerceIn(0f, options.lastIndex.toFloat())
 
             // Sliding active pill indicator
             Surface(
@@ -1100,7 +1102,7 @@ fun StudioSegmentedControl(
                 modifier = Modifier
                     .width(segmentWidth)
                     .fillMaxHeight()
-                    .offset { IntOffset((animatedIndex * segmentWidthPx).roundToInt(), 0) }
+                    .offset { IntOffset((clampedIndex * segmentWidthPx).roundToInt(), 0) }
             ) {}
 
             Row(modifier = Modifier.fillMaxSize()) {

@@ -318,6 +318,9 @@ object ZipUtility {
                     put("description", project.description)
                     put("created_at", project.createdAt)
                     put("speaker_group_name", project.speakerGroupName)
+                    if (project.assignedSpeakerIds.isNotBlank()) {
+                        put("assigned_speaker_ids", project.assignedSpeakerIds)
+                    }
                     put("enable_picture_prompts", project.enablePicturePrompts)
                     if (imageCount > 0) {
                         put("exported_image_count", imageCount)
@@ -1927,6 +1930,7 @@ object ZipUtility {
             var projectName = S.zip.importDefaultProjectName
             var projectDesc = S.zip.importDefaultProjectDesc
             var speakerGroupName = ""
+            var rawAssignedSpeakerIds = ""
             var enablePicturePrompts = false
             experimentJsonStr?.let { jsonStr ->
                 try {
@@ -1934,6 +1938,7 @@ object ZipUtility {
                     projectName = obj.optString("name", projectName).ifBlank { projectName }
                     projectDesc = obj.optString("description", projectDesc)
                     speakerGroupName = obj.optString("speaker_group_name", "")
+                    rawAssignedSpeakerIds = obj.optString("assigned_speaker_ids", "")
                     if (obj.optBoolean("enable_picture_prompts", false)) {
                         enablePicturePrompts = true
                     }
@@ -1977,6 +1982,7 @@ object ZipUtility {
             val existingSpeakers = (repository.allSpeakers.firstOrNull() ?: emptyList()).toMutableList()
             val speakerCodeToId = mutableMapOf<String, Long>()
             val speakerNameToId = mutableMapOf<String, Long>()
+            val oldSpeakerIdToLocalId = mutableMapOf<Long, Long>()
             val spPrefs = context.getSharedPreferences("speaker_prefs", Context.MODE_PRIVATE)
 
             suspend fun registerOrMatchSpeaker(
@@ -2048,7 +2054,7 @@ object ZipUtility {
                         val spObj = arr.getJSONObject(i)
                         val oldId = spObj.optLong("id", (i + 1).toLong())
                         val code = spObj.optString("speaker_code", String.format(Locale.US, "SPK%02d", oldId))
-                        registerOrMatchSpeaker(
+                        val mappedLocalId = registerOrMatchSpeaker(
                             code = code,
                             name = spObj.optString("name", S.zip.importDefaultSpeakerName),
                             gender = spObj.optString("gender_identity", "男"),
@@ -2059,6 +2065,9 @@ object ZipUtility {
                             f0Min = spObj.optDouble("calibrated_f0_min_hz", -1.0).toFloat(),
                             f0Max = spObj.optDouble("calibrated_f0_max_hz", -1.0).toFloat()
                         )
+                        if (oldId > 0L) {
+                            oldSpeakerIdToLocalId[oldId] = mappedLocalId
+                        }
                     }
                 } catch (ignored: Exception) {}
             }
@@ -2481,6 +2490,16 @@ object ZipUtility {
 
             val finalEnablePicturePrompts = enablePicturePrompts || parsedWords.any { it.imagePath.isNotBlank() }
 
+            // Map exported assigned_speaker_ids safely to local speaker IDs when available;
+            // legacy archives without assigned_speaker_ids gracefully fall back to "".
+            val resolvedAssignedSpeakerIds = if (rawAssignedSpeakerIds.isNotBlank()) {
+                val mapped = com.example.data.parseAssignedSpeakerIds(rawAssignedSpeakerIds)
+                    .mapNotNull { oldId -> oldSpeakerIdToLocalId[oldId] }
+                com.example.data.formatAssignedSpeakerIds(mapped)
+            } else {
+                ""
+            }
+
             // 5. Create Project & Fetch Inserted Words
             val newProjectId = repository.createProjectWithParsedWords(
                 name = projectName,
@@ -2489,7 +2508,8 @@ object ZipUtility {
                 speakerId = defaultSpeakerId,
                 speakerGroupName = speakerGroupName,
                 enablePicturePrompts = finalEnablePicturePrompts,
-                context = context
+                context = context,
+                assignedSpeakerIds = resolvedAssignedSpeakerIds
             )
             val insertedWords = repository.getWordsForProjectSync(newProjectId).sortedBy { it.originalIndex }
             val restoredImageCount = insertedWords.count { it.imagePath.isNotBlank() }

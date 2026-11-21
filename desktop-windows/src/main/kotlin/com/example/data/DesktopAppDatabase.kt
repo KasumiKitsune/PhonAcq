@@ -60,13 +60,22 @@ private class DesktopSqliteAppDatabase(private val dbFile: File) : AppDatabase()
                         description TEXT NOT NULL DEFAULT '',
                         speakerId INTEGER NOT NULL DEFAULT 1,
                         speakerGroupName TEXT NOT NULL DEFAULT '',
-                        enablePicturePrompts INTEGER NOT NULL DEFAULT 0
+                        enablePicturePrompts INTEGER NOT NULL DEFAULT 0,
+                        assignedSpeakerIds TEXT NOT NULL DEFAULT ''
                     );
                     """.trimIndent()
                 )
-                try {
+                val projectColumns = HashSet<String>()
+                stmt.executeQuery("PRAGMA table_info(projects);").use { rs ->
+                    while (rs.next()) {
+                        rs.getString("name")?.let { projectColumns.add(it) }
+                    }
+                }
+                if ("enablePicturePrompts" !in projectColumns) {
                     stmt.execute("ALTER TABLE projects ADD COLUMN enablePicturePrompts INTEGER NOT NULL DEFAULT 0;")
-                } catch (_: Exception) {
+                }
+                if ("assignedSpeakerIds" !in projectColumns) {
+                    stmt.execute("ALTER TABLE projects ADD COLUMN assignedSpeakerIds TEXT NOT NULL DEFAULT '';")
                 }
                 stmt.execute(
                     """
@@ -158,7 +167,7 @@ private class DesktopSqliteAppDatabase(private val dbFile: File) : AppDatabase()
             withContext(Dispatchers.IO) {
                 synchronized(dbLock) {
                     val list = ArrayList<Project>()
-                    connection.prepareStatement("SELECT id, name, createdAt, description, speakerId, speakerGroupName, enablePicturePrompts FROM projects ORDER BY createdAt DESC").use { ps ->
+                    connection.prepareStatement("SELECT id, name, createdAt, description, speakerId, speakerGroupName, enablePicturePrompts, assignedSpeakerIds FROM projects ORDER BY createdAt DESC").use { ps ->
                         ps.executeQuery().use { rs ->
                             while (rs.next()) {
                                 list.add(
@@ -169,7 +178,8 @@ private class DesktopSqliteAppDatabase(private val dbFile: File) : AppDatabase()
                                         description = rs.getString(4) ?: "",
                                         speakerId = rs.getLong(5),
                                         speakerGroupName = rs.getString(6) ?: "",
-                                        enablePicturePrompts = rs.getInt(7) != 0
+                                        enablePicturePrompts = rs.getInt(7) != 0,
+                                        assignedSpeakerIds = rs.getString(8) ?: ""
                                     )
                                 )
                             }
@@ -182,7 +192,7 @@ private class DesktopSqliteAppDatabase(private val dbFile: File) : AppDatabase()
 
         override suspend fun getProjectById(id: Long): Project? = withContext(Dispatchers.IO) {
             synchronized(dbLock) {
-                connection.prepareStatement("SELECT id, name, createdAt, description, speakerId, speakerGroupName, enablePicturePrompts FROM projects WHERE id = ?").use { ps ->
+                connection.prepareStatement("SELECT id, name, createdAt, description, speakerId, speakerGroupName, enablePicturePrompts, assignedSpeakerIds FROM projects WHERE id = ?").use { ps ->
                     ps.setLong(1, id)
                     ps.executeQuery().use { rs ->
                         if (rs.next()) {
@@ -193,7 +203,8 @@ private class DesktopSqliteAppDatabase(private val dbFile: File) : AppDatabase()
                                 description = rs.getString(4) ?: "",
                                 speakerId = rs.getLong(5),
                                 speakerGroupName = rs.getString(6) ?: "",
-                                enablePicturePrompts = rs.getInt(7) != 0
+                                enablePicturePrompts = rs.getInt(7) != 0,
+                                assignedSpeakerIds = rs.getString(8) ?: ""
                             )
                         } else null
                     }
@@ -205,7 +216,7 @@ private class DesktopSqliteAppDatabase(private val dbFile: File) : AppDatabase()
             val id = synchronized(dbLock) {
                 if (project.id > 0L) {
                     connection.prepareStatement(
-                        "INSERT OR REPLACE INTO projects (id, name, createdAt, description, speakerId, speakerGroupName, enablePicturePrompts) VALUES (?, ?, ?, ?, ?, ?, ?)"
+                        "INSERT OR REPLACE INTO projects (id, name, createdAt, description, speakerId, speakerGroupName, enablePicturePrompts, assignedSpeakerIds) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
                     ).use { ps ->
                         ps.setLong(1, project.id)
                         ps.setString(2, project.name)
@@ -214,12 +225,13 @@ private class DesktopSqliteAppDatabase(private val dbFile: File) : AppDatabase()
                         ps.setLong(5, project.speakerId)
                         ps.setString(6, project.speakerGroupName)
                         ps.setInt(7, if (project.enablePicturePrompts) 1 else 0)
+                        ps.setString(8, project.assignedSpeakerIds)
                         ps.executeUpdate()
                     }
                     project.id
                 } else {
                     connection.prepareStatement(
-                        "INSERT INTO projects (name, createdAt, description, speakerId, speakerGroupName, enablePicturePrompts) VALUES (?, ?, ?, ?, ?, ?)",
+                        "INSERT INTO projects (name, createdAt, description, speakerId, speakerGroupName, enablePicturePrompts, assignedSpeakerIds) VALUES (?, ?, ?, ?, ?, ?, ?)",
                         Statement.RETURN_GENERATED_KEYS
                     ).use { ps ->
                         ps.setString(1, project.name)
@@ -228,6 +240,7 @@ private class DesktopSqliteAppDatabase(private val dbFile: File) : AppDatabase()
                         ps.setLong(4, project.speakerId)
                         ps.setString(5, project.speakerGroupName)
                         ps.setInt(6, if (project.enablePicturePrompts) 1 else 0)
+                        ps.setString(7, project.assignedSpeakerIds)
                         ps.executeUpdate()
                         ps.generatedKeys.use { keys -> if (keys.next()) keys.getLong(1) else 1L }
                     }
@@ -240,7 +253,7 @@ private class DesktopSqliteAppDatabase(private val dbFile: File) : AppDatabase()
         override suspend fun updateProject(project: Project) = withContext(Dispatchers.IO) {
             synchronized(dbLock) {
                 connection.prepareStatement(
-                    "UPDATE projects SET name = ?, createdAt = ?, description = ?, speakerId = ?, speakerGroupName = ?, enablePicturePrompts = ? WHERE id = ?"
+                    "UPDATE projects SET name = ?, createdAt = ?, description = ?, speakerId = ?, speakerGroupName = ?, enablePicturePrompts = ?, assignedSpeakerIds = ? WHERE id = ?"
                 ).use { ps ->
                     ps.setString(1, project.name)
                     ps.setLong(2, project.createdAt)
@@ -248,7 +261,8 @@ private class DesktopSqliteAppDatabase(private val dbFile: File) : AppDatabase()
                     ps.setLong(4, project.speakerId)
                     ps.setString(5, project.speakerGroupName)
                     ps.setInt(6, if (project.enablePicturePrompts) 1 else 0)
-                    ps.setLong(7, project.id)
+                    ps.setString(7, project.assignedSpeakerIds)
+                    ps.setLong(8, project.id)
                     ps.executeUpdate()
                 }
             }

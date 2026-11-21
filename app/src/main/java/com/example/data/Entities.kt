@@ -15,8 +15,9 @@ data class Project(
     val createdAt: Long = System.currentTimeMillis(),
     val description: String = "",
     val speakerId: Long = 1L, // Last active speaker ID remembered per project
-    val speakerGroupName: String = "", // Associated speaker group (empty = all groups)
-    val enablePicturePrompts: Boolean = false // Opt-in Picture Wordlist mode (default off for zero clutter)
+    val speakerGroupName: String = "", // Legacy associated speaker group (kept for backwards compatibility)
+    val enablePicturePrompts: Boolean = false, // Opt-in Picture Wordlist mode (default off for zero clutter)
+    val assignedSpeakerIds: String = "" // Explicit comma-separated speaker IDs assigned to this project (e.g. "1,2,5")
 )
 
 @Immutable
@@ -252,6 +253,58 @@ fun Speaker.matchesProjectGroup(projectGroupName: String): Boolean {
     if (projGroups.isEmpty()) return true
     val spkGroups = this.groupList
     return projGroups.any { pg -> spkGroups.any { sg -> sg.equals(pg, ignoreCase = true) } }
+}
+
+private val ASSIGNED_SPEAKER_ID_SPLIT_REGEX = Regex("[,，\\s;；]+")
+
+fun parseAssignedSpeakerIds(raw: String): LinkedHashSet<Long> {
+    val result = LinkedHashSet<Long>()
+    if (raw.isBlank()) return result
+    raw.split(ASSIGNED_SPEAKER_ID_SPLIT_REGEX).forEach { token ->
+        val id = token.trim().toLongOrNull()
+        if (id != null && id > 0L) {
+            result.add(id)
+        }
+    }
+    return result
+}
+
+fun formatAssignedSpeakerIds(ids: Collection<Long>): String {
+    if (ids.isEmpty()) return ""
+    val unique = LinkedHashSet<Long>(ids.size)
+    ids.forEach { id ->
+        if (id > 0L) unique.add(id)
+    }
+    return unique.joinToString(",")
+}
+
+val Project.assignedSpeakerIdSet: LinkedHashSet<Long>
+    get() = parseAssignedSpeakerIds(assignedSpeakerIds)
+
+/**
+ * Three-state backward-compatible rule determining whether [speaker] belongs to this [Project]'s
+ * candidate roster:
+ * 1. Explicit [Project.assignedSpeakerIds] (highest priority, active in both Simple & Advanced modes):
+ *    `speaker.id in assignedSet || recordedCount > 0`.
+ * 2. Legacy [Project.speakerGroupName] when [Project.assignedSpeakerIds] is blank:
+ *    `if (ignoreSpeakerGroups) true else speaker.matchesProjectGroup(speakerGroupName) || recordedCount > 0`.
+ * 3. Both blank: all speakers in the global library are candidates.
+ */
+fun Project.isSpeakerCandidate(
+    speaker: Speaker,
+    recordedCount: Int,
+    ignoreSpeakerGroups: Boolean = false,
+    parsedAssignedIds: Set<Long> = this.assignedSpeakerIdSet
+): Boolean {
+    return when {
+        assignedSpeakerIds.isNotBlank() && parsedAssignedIds.isNotEmpty() -> {
+            speaker.id in parsedAssignedIds || recordedCount > 0
+        }
+        speakerGroupName.isNotBlank() -> {
+            (if (ignoreSpeakerGroups) true else speaker.matchesProjectGroup(speakerGroupName)) || recordedCount > 0
+        }
+        else -> true
+    }
 }
 
 

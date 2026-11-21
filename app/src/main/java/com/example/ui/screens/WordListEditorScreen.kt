@@ -58,8 +58,10 @@ import androidx.core.content.FileProvider
 import com.example.data.EditableWordDraft
 import com.example.data.ParsedWord
 import com.example.data.Project
-import com.example.data.parseSpeakerGroups
-import com.example.data.toggleSpeakerGroupInRaw
+import com.example.data.assignedSpeakerIdSet
+import com.example.data.formatAssignedSpeakerIds
+import com.example.data.isSpeakerCandidate
+import com.example.data.parseAssignedSpeakerIds
 import com.example.i18n.S
 import com.example.i18n.withArgs
 import com.example.ui.components.DesktopAdaptiveState
@@ -115,16 +117,23 @@ fun WordListEditorScreen(
     val scope = rememberCoroutineScope()
 
     val allProjects by viewModel.allProjects.collectAsState()
-    val speakerGroups by viewModel.speakerGroups.collectAsState()
+    val allSpeakers by viewModel.allSpeakers.collectAsState()
+    val summariesMap by viewModel.projectSummaries.collectAsState()
     val isSimpleMode by viewModel.isSimpleMode.collectAsState()
 
     // null = Create New Project; non-null = Edit Existing Project
     var targetProject by remember(initialProject?.id) { mutableStateOf(initialProject) }
+    val liveTargetProject = remember(targetProject, allProjects) {
+        targetProject?.let { tp -> allProjects.firstOrNull { it.id == tp.id } ?: tp }
+    }
 
     var projectName by remember { mutableStateOf(initialProject?.name ?: "") }
     var projectDesc by remember { mutableStateOf(initialProject?.description ?: "") }
     var speakerGroupName by remember { mutableStateOf(initialProject?.speakerGroupName ?: "") }
     var enablePicturePrompts by remember { mutableStateOf(initialProject?.enablePicturePrompts ?: false) }
+    var draftAssignedSpeakerIds by remember { mutableStateOf<Set<Long>>(emptySet()) }
+    var hasEditedDraftSpeakers by remember { mutableStateOf(false) }
+    var showRosterDialog by remember { mutableStateOf(false) }
 
     val draftItems = remember { mutableStateListOf<WordEditorUiItem>() }
     var isLoadingProjectWords by remember { mutableStateOf(false) }
@@ -239,6 +248,8 @@ fun WordListEditorScreen(
             projectDesc = ""
             speakerGroupName = ""
             enablePicturePrompts = false
+            draftAssignedSpeakerIds = emptySet()
+            hasEditedDraftSpeakers = false
             draftItems.clear()
             rawTxtContent = ""
             rawTxtDirty = false
@@ -249,6 +260,8 @@ fun WordListEditorScreen(
             projectDesc = proj.description
             speakerGroupName = proj.speakerGroupName
             enablePicturePrompts = proj.enablePicturePrompts
+            draftAssignedSpeakerIds = parseAssignedSpeakerIds(proj.assignedSpeakerIds)
+            hasEditedDraftSpeakers = false
             showProjectInfoExpanded = false
             isLoadingProjectWords = true
             scope.launch {
@@ -596,14 +609,20 @@ fun WordListEditorScreen(
             targetProject?.name ?: S.wordEditor.newWordListDefaultName.withArgs("count" to validDrafts.size)
         }
 
-        val existingProj = targetProject
+        val existingProj = liveTargetProject ?: targetProject
         if (existingProj == null) {
+            val resolvedDraftAssigned = if (hasEditedDraftSpeakers) {
+                formatAssignedSpeakerIds(draftAssignedSpeakerIds)
+            } else {
+                ""
+            }
             viewModel.createProjectFromDrafts(
                 name = finalName,
                 description = projectDesc.trim(),
-                speakerGroupName = speakerGroupName.trim(),
+                speakerGroupName = "",
                 drafts = validDrafts,
-                enablePicturePrompts = enablePicturePrompts
+                enablePicturePrompts = enablePicturePrompts,
+                assignedSpeakerIds = resolvedDraftAssigned
             ) { created ->
                 hasUnsavedChanges = false
                 Toast.makeText(
@@ -622,9 +641,10 @@ fun WordListEditorScreen(
                 project = existingProj,
                 name = finalName,
                 description = projectDesc.trim(),
-                speakerGroupName = speakerGroupName.trim(),
+                speakerGroupName = existingProj.speakerGroupName,
                 drafts = validDrafts,
-                enablePicturePrompts = enablePicturePrompts
+                enablePicturePrompts = enablePicturePrompts,
+                assignedSpeakerIds = existingProj.assignedSpeakerIds
             ) { updated ->
                 hasUnsavedChanges = false
                 Toast.makeText(
@@ -903,22 +923,49 @@ fun WordListEditorScreen(
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis
                                 )
+                                val effectiveAssignedSpeakers = remember(
+                                    liveTargetProject,
+                                    summariesMap,
+                                    allSpeakers,
+                                    draftAssignedSpeakerIds,
+                                    hasEditedDraftSpeakers,
+                                    isSimpleMode
+                                ) {
+                                    if (liveTargetProject != null) {
+                                        val projSummary = summariesMap[liveTargetProject.id]
+                                        if (projSummary != null) {
+                                            projSummary.speakerProgressList.map { it.speaker }
+                                        } else {
+                                            val assignedSet = liveTargetProject.assignedSpeakerIdSet
+                                            allSpeakers.filter { spk ->
+                                                liveTargetProject.isSpeakerCandidate(spk, 0, isSimpleMode, assignedSet)
+                                            }
+                                        }
+                                    } else {
+                                        if (hasEditedDraftSpeakers) {
+                                            allSpeakers.filter { it.id in draftAssignedSpeakerIds }
+                                        } else {
+                                            allSpeakers
+                                        }
+                                    }
+                                }
+                                val assignedSummaryText = remember(effectiveAssignedSpeakers, allSpeakers.size) {
+                                    formatProjectRosterSummary(effectiveAssignedSpeakers, allSpeakers.size)
+                                }
                                 val picturedCount = draftItems.count { it.imagePath.isNotBlank() }
                                 val picBadgeText = if (enablePicturePrompts) {
                                     S.wordEditor.imageCardEnabledBadge.withArgs("pictured" to picturedCount, "total" to draftItems.size)
                                 } else {
                                     ""
                                 }
-                                val subtitleHint = if (isSimpleMode) {
-                                    (projectDesc.ifBlank { S.wordEditor.descExpandFallback }) + picBadgeText
-                                } else {
-                                    val groupHint = if (speakerGroupName.isBlank()) {
-                                        S.wordEditor.unlimitedSpeakerGroup
-                                    } else {
-                                        S.wordEditor.groupPrefix.withArgs("group" to speakerGroupName)
+                                val rosterHint = S.wordEditor.assignedSpeakersSubtitlePrefix.withArgs("summary" to assignedSummaryText)
+                                val subtitleHint = buildString {
+                                    append(rosterHint)
+                                    if (projectDesc.isNotBlank()) {
+                                        append(" · ")
+                                        append(projectDesc)
                                     }
-                                    val base = if (projectDesc.isBlank()) groupHint else "$groupHint · $projectDesc"
-                                    base + picBadgeText
+                                    append(picBadgeText)
                                 }
                                 Text(
                                     text = subtitleHint,
@@ -1099,49 +1146,42 @@ fun WordListEditorScreen(
                                     }
                                 }
 
-                                if (!isSimpleMode && speakerGroups.isNotEmpty()) {
-                                    val selectedProjGroups = remember(speakerGroupName) {
-                                        parseSpeakerGroups(speakerGroupName)
-                                    }
-                                    val speakerGroupStripState = rememberLazyListState()
-                                    Column(
-                                        verticalArrangement = Arrangement.spacedBy(4.dp),
-                                        modifier = Modifier.fillMaxWidth()
+                                run {
+                                    val editorRosterSpeakers = remember(
+                                        liveTargetProject,
+                                        summariesMap,
+                                        allSpeakers,
+                                        draftAssignedSpeakerIds,
+                                        hasEditedDraftSpeakers,
+                                        isSimpleMode
                                     ) {
-                                        Text(S.wordEditor.speakerGroupMultiLabel, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                        StudioHorizontalLazyStrip(
-                                            state = speakerGroupStripState,
-                                            modifier = Modifier.fillMaxWidth()
-                                        ) {
-                                            LazyRow(
-                                                state = speakerGroupStripState,
-                                                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                                modifier = Modifier.fillMaxWidth()
-                                            ) {
-                                                item {
-                                                    StudioFilterChip(
-                                                        selected = selectedProjGroups.isEmpty(),
-                                                        onClick = {
-                                                            speakerGroupName = ""
-                                                            hasUnsavedChanges = true
-                                                        },
-                                                        labelText = S.wordEditor.unlimitedChip
-                                                    )
+                                        if (liveTargetProject != null) {
+                                            val projSummary = summariesMap[liveTargetProject.id]
+                                            if (projSummary != null) {
+                                                projSummary.speakerProgressList.map { it.speaker }
+                                            } else {
+                                                val assignedSet = liveTargetProject.assignedSpeakerIdSet
+                                                allSpeakers.filter { spk ->
+                                                    liveTargetProject.isSpeakerCandidate(spk, 0, isSimpleMode, assignedSet)
                                                 }
-                                                items(speakerGroups) { grp ->
-                                                    val isSelected = selectedProjGroups.any { it.equals(grp, ignoreCase = true) }
-                                                    StudioFilterChip(
-                                                        selected = isSelected,
-                                                        onClick = {
-                                                            speakerGroupName = toggleSpeakerGroupInRaw(speakerGroupName, grp)
-                                                            hasUnsavedChanges = true
-                                                        },
-                                                        labelText = grp
-                                                    )
-                                                }
+                                            }
+                                        } else {
+                                            if (hasEditedDraftSpeakers) {
+                                                allSpeakers.filter { it.id in draftAssignedSpeakerIds }
+                                            } else {
+                                                allSpeakers
                                             }
                                         }
                                     }
+                                    val editorRosterSummary = remember(editorRosterSpeakers, allSpeakers.size) {
+                                        formatProjectRosterSummary(editorRosterSpeakers, allSpeakers.size)
+                                    }
+                                    ProjectAssignedSpeakersActionRow(
+                                        selectedCount = editorRosterSpeakers.size,
+                                        summaryText = editorRosterSummary,
+                                        onClick = { showRosterDialog = true },
+                                        modifier = Modifier.testTag("editor_assigned_speakers_row")
+                                    )
                                 }
                             }
                         }
@@ -2697,6 +2737,30 @@ fun WordListEditorScreen(
                     Text(S.wordEditor.continueEditingButton)
                 }
             }
+        )
+    }
+
+    // 7. Project Participating Speakers Roster Dialog (supports both draft & saved project modes)
+    com.example.ui.components.AnimatedDialogVisibility(visible = showRosterDialog) {
+        val initialDraftIds = remember(hasEditedDraftSpeakers, draftAssignedSpeakerIds, allSpeakers) {
+            if (hasEditedDraftSpeakers) {
+                draftAssignedSpeakerIds
+            } else {
+                allSpeakers.mapTo(LinkedHashSet()) { it.id }
+            }
+        }
+        ProjectSpeakerRosterDialog(
+            viewModel = viewModel,
+            project = liveTargetProject,
+            projectDisplayName = projectName.trim().ifEmpty { liveTargetProject?.name.orEmpty() },
+            draftSelectedSpeakerIds = initialDraftIds,
+            onDraftConfirm = { chosenIds ->
+                draftAssignedSpeakerIds = chosenIds
+                hasEditedDraftSpeakers = true
+                hasUnsavedChanges = true
+            },
+            onStartRecordingWithSpeaker = null,
+            onDismiss = { showRosterDialog = false }
         )
     }
 }

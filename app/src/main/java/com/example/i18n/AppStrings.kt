@@ -249,7 +249,11 @@ data class ProjectStrings(
     val fallbackSampleChar: String,
     val speakerCountSimpleSummary: String,
     val overviewRecordedCount: String,
-    val overviewStatsAndCleanup: String
+    val overviewStatsAndCleanup: String,
+    val detailAssignedSpeakersTitle: String,
+    val detailAssignedSpeakersCount: String,
+    val detailManageSpeakersButton: String,
+    val detailProgressWithRoster: String
 )
 
 @Immutable
@@ -298,7 +302,29 @@ data class SpeakerStrings(
     val genderFemale: String,
     val genderDiverse: String,
     val genderPreferNotToSay: String,
-    val genderUnset: String
+    val genderUnset: String,
+    val rosterDialogTitle: String,
+    val rosterDialogDraftTitle: String,
+    val rosterSelectedCount: String,
+    val rosterSelectedWithLockedCount: String,
+    val rosterSearchPlaceholder: String,
+    val rosterSelectAllChip: String,
+    val rosterGroupChipFormat: String,
+    val rosterNotStartedBadge: String,
+    val rosterProgressBadge: String,
+    val rosterGoRecordDesc: String,
+    val rosterLockedHasRecordingToast: String,
+    val rosterGroupAllLockedToast: String,
+    val rosterAtLeastOneHint: String,
+    val rosterEmptySearchTitle: String,
+    val rosterEmptyLibraryTitle: String,
+    val rosterAddNewAndJoinButton: String,
+    val rosterAddNewShortButton: String,
+    val rosterCreateSubTitle: String,
+    val rosterBackToListButton: String,
+    val rosterCreateAndJoinConfirm: String,
+    val rosterCreatedAndJoinedToast: String,
+    val rosterSavedToast: String
 ) {
     fun displayGender(canonical: String): String = when (canonical) {
         "男" -> genderMale
@@ -340,6 +366,12 @@ data class WordEditorStrings(
     val pictureCardToggleSubtitle: String,
     val speakerGroupMultiLabel: String,
     val unlimitedChip: String,
+    val assignedSpeakersLabel: String,
+    val assignedSpeakersManageButton: String,
+    val assignedSpeakersSummaryTwoPlus: String,
+    val assignedSpeakersSummaryAll: String,
+    val assignedSpeakersSummaryNone: String,
+    val assignedSpeakersSubtitlePrefix: String,
     val viewModeWordList: String,
     val viewModeTxtBatch: String,
     val searchPlaceholder: String,
@@ -2690,7 +2722,7 @@ private fun buildZhCnProject(): ProjectStrings = ProjectStrings(
         cardDeleteProjectDesc = "删除项目",
         cardManageSpeakerDesc = "管理此项目发音人",
         cardManageSpeakerSimple = "管理发音人",
-        cardManageSpeakerAdv = "发音人分组",
+        cardManageSpeakerAdv = "管理参与发音人",
         cardProgressSummary = "已参与 {started}/{total} 人 · 录满 {completed} 人 · 共 {tokens} 条语音",
         cardCandidateCount = "共 {count} 位发音人可采录 · 建于 {date}",
         cardGroupCandidateCount = "本组共 {count} 位发音人待采录 · 建于 {date}",
@@ -2745,7 +2777,11 @@ private fun buildZhCnProject(): ProjectStrings = ProjectStrings(
         fallbackSampleChar = "示例单字",
         speakerCountSimpleSummary = "共 {count} 位发音人",
         overviewRecordedCount = "已录 {count} 条",
-        overviewStatsAndCleanup = "统计与清理"
+        overviewStatsAndCleanup = "统计与清理",
+        detailAssignedSpeakersTitle = "参与发音人",
+        detailAssignedSpeakersCount = "已选 {count} 人",
+        detailManageSpeakersButton = "管理",
+        detailProgressWithRoster = "共 {words} 词 · 参与 {candidates} 人（已录 {started} 人 / 录满 {completed} 人）"
     )
 
 private fun buildZhCnSpeaker(): SpeakerStrings = SpeakerStrings(
@@ -2793,7 +2829,29 @@ private fun buildZhCnSpeaker(): SpeakerStrings = SpeakerStrings(
         genderFemale = "女",
         genderDiverse = "多元/不限",
         genderPreferNotToSay = "不愿透露",
-        genderUnset = "未设"
+        genderUnset = "未设",
+        rosterDialogTitle = "《{project}》· 参与发音人",
+        rosterDialogDraftTitle = "参与发音人",
+        rosterSelectedCount = "已选 {count} 人",
+        rosterSelectedWithLockedCount = "已选 {count} 人 · {locked} 人已有录音",
+        rosterSearchPlaceholder = "搜索姓名、方言或分组...",
+        rosterSelectAllChip = "全选",
+        rosterGroupChipFormat = "{group} ({selected}/{total})",
+        rosterNotStartedBadge = "未开始",
+        rosterProgressBadge = "{recorded}/{total}",
+        rosterGoRecordDesc = "去录音",
+        rosterLockedHasRecordingToast = "本字表已有录音，不可移出",
+        rosterGroupAllLockedToast = "该组发音人在本字表均已有录音，不可移出",
+        rosterAtLeastOneHint = "请至少选择 1 位参与发音人",
+        rosterEmptySearchTitle = "未找到匹配的发音人",
+        rosterEmptyLibraryTitle = "暂无发音人，点击下方按钮新建并加入",
+        rosterAddNewAndJoinButton = "新建发音人并加入",
+        rosterAddNewShortButton = "新建发音人",
+        rosterCreateSubTitle = "新建发音人并加入本字表",
+        rosterBackToListButton = "返回清单",
+        rosterCreateAndJoinConfirm = "创建并加入",
+        rosterCreatedAndJoinedToast = "已创建「{name}」并加入本字表",
+        rosterSavedToast = "已保存本字表参与发音人（{count} 人）"
     )
 
 private fun buildZhCnWordEditor(): WordEditorStrings = WordEditorStrings(
@@ -2817,6 +2875,12 @@ private fun buildZhCnWordEditor(): WordEditorStrings = WordEditorStrings(
         pictureCardToggleSubtitle = "适合给不识字的长辈看图说方言；同一字表内任意词条可按需配图或留空",
         speakerGroupMultiLabel = "发音人组(可多选)：",
         unlimitedChip = "不限",
+        assignedSpeakersLabel = "参与发音人",
+        assignedSpeakersManageButton = "管理",
+        assignedSpeakersSummaryTwoPlus = "{names} 等 {count} 人",
+        assignedSpeakersSummaryAll = "全部发音人（{count} 人）",
+        assignedSpeakersSummaryNone = "暂未指定发音人",
+        assignedSpeakersSubtitlePrefix = "参与：{summary}",
         viewModeWordList = "词条列表 ({count})",
         viewModeTxtBatch = "TXT 文本批量编辑",
         searchPlaceholder = "搜索字词、备注或分组...",

@@ -2853,20 +2853,139 @@ class RecordingViewModel(
             viewModelScope.launch {
                 val speakers = allSpeakers.value
                 val remembered = repository.getSpeakerById(project.speakerId)
-                val targetSpeaker = if (_isSimpleMode.value) {
-                    remembered ?: _currentSpeaker.value ?: speakers.firstOrNull()
-                } else {
-                    when {
-                        remembered != null && remembered.matchesProjectGroup(project.speakerGroupName) -> remembered
-                        project.speakerGroupName.isNotBlank() -> {
-                            speakers.firstOrNull { it.matchesProjectGroup(project.speakerGroupName) } ?: remembered ?: speakers.firstOrNull()
+                val assignedSet = project.assignedSpeakerIdSet
+                val targetSpeaker = when {
+                    project.assignedSpeakerIds.isNotBlank() && assignedSet.isNotEmpty() -> {
+                        when {
+                            remembered != null && remembered.id in assignedSet -> remembered
+                            else -> speakers.firstOrNull { it.id in assignedSet }
+                                ?: remembered
+                                ?: _currentSpeaker.value
+                                ?: speakers.firstOrNull()
                         }
-                        else -> remembered ?: _currentSpeaker.value ?: speakers.firstOrNull()
                     }
+                    !_isSimpleMode.value && project.speakerGroupName.isNotBlank() -> {
+                        when {
+                            remembered != null && remembered.matchesProjectGroup(project.speakerGroupName) -> remembered
+                            else -> speakers.firstOrNull { it.matchesProjectGroup(project.speakerGroupName) }
+                                ?: remembered
+                                ?: speakers.firstOrNull()
+                        }
+                    }
+                    else -> remembered ?: _currentSpeaker.value ?: speakers.firstOrNull()
                 }
                 if (targetSpeaker != null) {
                     _currentSpeaker.value = targetSpeaker
                 }
+            }
+        }
+    }
+
+    suspend fun getRecordedSpeakerIdsForProject(projectId: Long): Set<Long> = withContext(Dispatchers.IO) {
+        repository.getRecordedSpeakerIdsInProjectSync(projectId)
+    }
+
+    fun updateProjectAssignedSpeakers(
+        projectId: Long,
+        speakerIds: Collection<Long>,
+        onComplete: () -> Unit = {}
+    ) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val existingProj = repository.getProjectById(projectId)
+            if (existingProj == null) {
+                withContext(Dispatchers.Main) { onComplete() }
+                return@launch
+            }
+            val recordedIds = repository.getRecordedSpeakerIdsInProjectSync(projectId)
+            val mergedIds = LinkedHashSet<Long>().apply {
+                speakerIds.forEach { if (it > 0L) add(it) }
+                addAll(recordedIds)
+            }
+            val formatted = formatAssignedSpeakerIds(mergedIds)
+            val resolvedSpeakerId = if (mergedIds.isNotEmpty() && existingProj.speakerId !in mergedIds) {
+                mergedIds.first()
+            } else {
+                existingProj.speakerId
+            }
+            val updated = existingProj.copy(
+                assignedSpeakerIds = formatted,
+                speakerGroupName = "",
+                speakerId = resolvedSpeakerId
+            )
+            repository.updateProject(updated)
+            forceRefreshCounts()
+            withContext(Dispatchers.Main) {
+                if (_currentProject.value?.id == projectId) {
+                    _currentProject.value = updated
+                    if (mergedIds.isNotEmpty() && _currentSpeaker.value?.id !in mergedIds) {
+                        val fallbackSpk = allSpeakers.value.firstOrNull { it.id == resolvedSpeakerId }
+                            ?: allSpeakers.value.firstOrNull { it.id in mergedIds }
+                        if (fallbackSpk != null) {
+                            _currentSpeaker.value = fallbackSpk
+                        }
+                    }
+                }
+                onComplete()
+            }
+        }
+    }
+
+    fun createSpeakerAndAssignToProject(
+        projectId: Long,
+        name: String,
+        gender: String,
+        age: Int,
+        dialect: String,
+        notes: String,
+        groupName: String,
+        existingVisibleSpeakerIds: Collection<Long>,
+        onComplete: (Speaker) -> Unit = {}
+    ) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val cleanGroup = normalizeSpeakerGroupsString(groupName)
+            val newSpeakerId = repository.createSpeaker(
+                name = name.trim(),
+                gender = gender,
+                age = age,
+                dialect = dialect.trim(),
+                notes = notes.trim(),
+                groupName = cleanGroup
+            )
+            val createdSpeaker = repository.getSpeakerById(newSpeakerId)
+                ?: Speaker(
+                    id = newSpeakerId,
+                    name = name.trim(),
+                    gender = gender,
+                    age = age,
+                    dialect = dialect.trim(),
+                    notes = notes.trim(),
+                    groupName = cleanGroup
+                )
+
+            var updatedProject: Project? = null
+            if (projectId > 0L) {
+                val existingProj = repository.getProjectById(projectId)
+                if (existingProj != null) {
+                    val recordedIds = repository.getRecordedSpeakerIdsInProjectSync(projectId)
+                    val mergedIds = LinkedHashSet<Long>().apply {
+                        existingVisibleSpeakerIds.forEach { if (it > 0L) add(it) }
+                        addAll(recordedIds)
+                        add(newSpeakerId)
+                    }
+                    val updated = existingProj.copy(
+                        assignedSpeakerIds = formatAssignedSpeakerIds(mergedIds),
+                        speakerGroupName = ""
+                    )
+                    repository.updateProject(updated)
+                    updatedProject = updated
+                }
+            }
+            forceRefreshCounts()
+            withContext(Dispatchers.Main) {
+                if (updatedProject != null && _currentProject.value?.id == projectId) {
+                    _currentProject.value = updatedProject
+                }
+                onComplete(createdSpeaker)
             }
         }
     }
@@ -2881,21 +3000,44 @@ class RecordingViewModel(
         description: String,
         rawWordList: String,
         speakerGroupName: String = "",
+        assignedSpeakerIds: String = "",
         onComplete: () -> Unit
     ) {
         viewModelScope.launch(Dispatchers.IO) {
             val cleanGroup = speakerGroupName.trim()
+            val normalizedAssigned = formatAssignedSpeakerIds(parseAssignedSpeakerIds(assignedSpeakerIds))
+            val assignedSet = parseAssignedSpeakerIds(normalizedAssigned)
             val speakers = allSpeakers.value
-            val matchingSpeakerId = if (cleanGroup.isNotEmpty()) {
-                speakers.firstOrNull { it.matchesProjectGroup(cleanGroup) }?.id ?: (_currentSpeaker.value?.id ?: 1L)
-            } else {
-                _currentSpeaker.value?.id ?: speakers.firstOrNull()?.id ?: 1L
+            val matchingSpeakerId = when {
+                assignedSet.isNotEmpty() -> {
+                    speakers.firstOrNull { it.id in assignedSet }?.id ?: assignedSet.first()
+                }
+                cleanGroup.isNotEmpty() -> {
+                    speakers.firstOrNull { it.matchesProjectGroup(cleanGroup) }?.id ?: (_currentSpeaker.value?.id ?: 1L)
+                }
+                else -> {
+                    _currentSpeaker.value?.id ?: speakers.firstOrNull()?.id ?: 1L
+                }
             }
             val parsedWords = parseImportTextToParsedWords(rawWordList)
             val id = if (parsedWords.isEmpty()) {
-                repository.createProjectWithParsedWords(name, description, listOf(ParsedWord(S.project.fallbackTestChar)), matchingSpeakerId, cleanGroup)
+                repository.createProjectWithParsedWords(
+                    name = name,
+                    description = description,
+                    parsedWords = listOf(ParsedWord(S.project.fallbackTestChar)),
+                    speakerId = matchingSpeakerId,
+                    speakerGroupName = if (normalizedAssigned.isNotBlank()) "" else cleanGroup,
+                    assignedSpeakerIds = normalizedAssigned
+                )
             } else {
-                repository.createProjectWithParsedWords(name, description, parsedWords, matchingSpeakerId, cleanGroup)
+                repository.createProjectWithParsedWords(
+                    name = name,
+                    description = description,
+                    parsedWords = parsedWords,
+                    speakerId = matchingSpeakerId,
+                    speakerGroupName = if (normalizedAssigned.isNotBlank()) "" else cleanGroup,
+                    assignedSpeakerIds = normalizedAssigned
+                )
             }
             forceRefreshCounts()
             val updatedProj = repository.getProjectById(id)
@@ -2913,13 +3055,17 @@ class RecordingViewModel(
         name: String,
         description: String,
         speakerGroupName: String = project.speakerGroupName,
+        assignedSpeakerIds: String = project.assignedSpeakerIds,
         onComplete: () -> Unit
     ) {
         viewModelScope.launch(Dispatchers.IO) {
-            val updated = project.copy(
+            val latest = repository.getProjectById(project.id) ?: project
+            val normalizedAssigned = formatAssignedSpeakerIds(parseAssignedSpeakerIds(assignedSpeakerIds))
+            val updated = latest.copy(
                 name = name.trim(),
                 description = description.trim(),
-                speakerGroupName = speakerGroupName.trim()
+                speakerGroupName = if (normalizedAssigned.isNotBlank()) "" else speakerGroupName.trim(),
+                assignedSpeakerIds = normalizedAssigned
             )
             repository.updateProject(updated)
             forceRefreshCounts()
@@ -2938,15 +3084,24 @@ class RecordingViewModel(
         speakerGroupName: String = "",
         drafts: List<EditableWordDraft>,
         enablePicturePrompts: Boolean = false,
+        assignedSpeakerIds: String = "",
         onComplete: (Project?) -> Unit
     ) {
         viewModelScope.launch(Dispatchers.IO) {
             val cleanGroup = speakerGroupName.trim()
+            val normalizedAssigned = formatAssignedSpeakerIds(parseAssignedSpeakerIds(assignedSpeakerIds))
+            val assignedSet = parseAssignedSpeakerIds(normalizedAssigned)
             val speakers = allSpeakers.value
-            val matchingSpeakerId = if (cleanGroup.isNotEmpty()) {
-                speakers.firstOrNull { it.matchesProjectGroup(cleanGroup) }?.id ?: (_currentSpeaker.value?.id ?: 1L)
-            } else {
-                _currentSpeaker.value?.id ?: speakers.firstOrNull()?.id ?: 1L
+            val matchingSpeakerId = when {
+                assignedSet.isNotEmpty() -> {
+                    speakers.firstOrNull { it.id in assignedSet }?.id ?: assignedSet.first()
+                }
+                cleanGroup.isNotEmpty() -> {
+                    speakers.firstOrNull { it.matchesProjectGroup(cleanGroup) }?.id ?: (_currentSpeaker.value?.id ?: 1L)
+                }
+                else -> {
+                    _currentSpeaker.value?.id ?: speakers.firstOrNull()?.id ?: 1L
+                }
             }
             val parsedWords = drafts
                 .filter { it.text.isNotBlank() }
@@ -2965,9 +3120,10 @@ class RecordingViewModel(
                 description = description.trim(),
                 parsedWords = parsedWords,
                 speakerId = matchingSpeakerId,
-                speakerGroupName = cleanGroup,
+                speakerGroupName = if (normalizedAssigned.isNotBlank()) "" else cleanGroup,
                 enablePicturePrompts = enablePicturePrompts,
-                context = context
+                context = context,
+                assignedSpeakerIds = normalizedAssigned
             )
             forceRefreshCounts()
             val createdProj = repository.getProjectById(id)
@@ -2987,17 +3143,20 @@ class RecordingViewModel(
         speakerGroupName: String,
         drafts: List<EditableWordDraft>,
         enablePicturePrompts: Boolean = project.enablePicturePrompts,
+        assignedSpeakerIds: String = project.assignedSpeakerIds,
         onComplete: (Project) -> Unit
     ) {
         viewModelScope.launch(Dispatchers.IO) {
+            val latest = repository.getProjectById(project.id) ?: project
             val updated = repository.saveEditedProjectWords(
-                project = project,
+                project = latest,
                 name = name,
                 description = description,
                 speakerGroupName = speakerGroupName,
                 drafts = drafts,
                 context = context,
-                enablePicturePrompts = enablePicturePrompts
+                enablePicturePrompts = enablePicturePrompts,
+                assignedSpeakerIds = assignedSpeakerIds
             )
             forceRefreshCounts()
             withContext(Dispatchers.Main) {
