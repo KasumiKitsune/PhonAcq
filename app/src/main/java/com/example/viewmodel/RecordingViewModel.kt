@@ -257,11 +257,17 @@ class RecordingViewModel(
     )
     val quickFieldTags = _quickFieldTags.asStateFlow()
 
-    // App Theme State & Material You Dynamic Color
+    // App Theme State, Palette & Material You Dynamic Color
     private val _themeMode = MutableStateFlow(
         sharedPrefs.getString("theme_mode", "SYSTEM") ?: "SYSTEM"
     )
     val themeMode = _themeMode.asStateFlow()
+
+    private val _themePaletteId = MutableStateFlow(
+        sharedPrefs.getString("theme_palette", com.example.ui.theme.PhonAcqThemePalette.STUDIO_BLUE.id)
+            ?: com.example.ui.theme.PhonAcqThemePalette.STUDIO_BLUE.id
+    )
+    val themePaletteId = _themePaletteId.asStateFlow()
 
     private val _dynamicColorEnabled = MutableStateFlow(
         sharedPrefs.getBoolean("dynamic_color", true)
@@ -316,6 +322,12 @@ class RecordingViewModel(
     fun setThemeMode(mode: String) {
         _themeMode.value = mode
         sharedPrefs.edit().putString("theme_mode", mode).apply()
+    }
+
+    fun setThemePaletteId(id: String) {
+        val validId = com.example.ui.theme.PhonAcqThemePalette.fromId(id).id
+        _themePaletteId.value = validId
+        sharedPrefs.edit().putString("theme_palette", validId).apply()
     }
 
     fun setDynamicColorEnabled(enabled: Boolean) {

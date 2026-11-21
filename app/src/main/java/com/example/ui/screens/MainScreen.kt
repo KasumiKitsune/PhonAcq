@@ -1,20 +1,14 @@
 package com.example.ui.screens
 
-import androidx.activity.compose.PredictiveBackHandler
 import androidx.compose.animation.*
 import androidx.compose.animation.core.FastOutLinearInEasing
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearOutSlowInEasing
-import androidx.compose.animation.core.Spring
-import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -25,20 +19,16 @@ import androidx.compose.material.icons.automirrored.filled.LibraryBooks
 import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.material.icons.filled.BrightnessAuto
-import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.DarkMode
 import androidx.compose.material.icons.filled.Devices
 import androidx.compose.material.icons.filled.EditNote
-import androidx.compose.material.icons.filled.Flag
 import androidx.compose.material.icons.filled.Folder
-import androidx.compose.material.icons.filled.OutlinedFlag
 import androidx.compose.material.icons.filled.GraphicEq
 import androidx.compose.material.icons.filled.Groups
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.LightMode
 import androidx.compose.material.icons.filled.Lightbulb
 import androidx.compose.material.icons.filled.Mic
-import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.PieChart
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.UploadFile
@@ -48,22 +38,18 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.PathFillType
 import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.vector.PathParser
-import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.input.pointer.PointerIcon
+import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.example.audio.AcousticAnalyzer
-import com.example.audio.CanonicalToneMember
-import com.example.audio.CorpusPhonologyAnalyzer
 import com.example.data.Project
 import com.example.data.Speaker
 import com.example.data.Word
@@ -71,16 +57,15 @@ import com.example.i18n.S
 import com.example.i18n.withArgs
 import com.example.link.LinkRole
 import com.example.ui.components.DesktopAdaptiveState
+import com.example.ui.components.LocalAppWindowMetrics
 import com.example.ui.components.PredictiveBackGestureHandler
-import com.example.ui.components.StudioFilterChip
+import com.example.ui.components.StudioMotion
 import com.example.ui.components.SuspendDesktopShortcutsWhen
+import com.example.ui.components.computeAppWindowMetrics
 import com.example.ui.components.predictiveBackLayer
 import com.example.ui.components.rememberPredictiveBackVisualState
 import com.example.viewmodel.RecordingViewModel
-import java.io.File
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 
 sealed class AppScreen(val index: Int) {
     object ProjectList : AppScreen(0)
@@ -95,7 +80,6 @@ fun MainScreen(
     modifier: Modifier = Modifier
 ) {
     var currentScreen by remember { mutableStateOf<AppScreen>(AppScreen.ProjectList) }
-    var tabletLeftPane by remember { mutableStateOf<AppScreen>(AppScreen.ProjectList) }
     val currentProject by viewModel.currentProject.collectAsState()
     val showGlobalManagement by viewModel.showGlobalManagement.collectAsState()
     val showPhoneticWord by viewModel.showPhoneticWord.collectAsState()
@@ -104,7 +88,6 @@ fun MainScreen(
     val allProjects by viewModel.allProjects.collectAsState()
     val themeMode by viewModel.themeMode.collectAsState()
     val isSimpleMode by viewModel.isSimpleMode.collectAsState()
-    val hasSelectedUiMode by viewModel.hasSelectedUiMode.collectAsState()
     val hasSeenRecordingTips by viewModel.hasSeenRecordingTips.collectAsState()
     val participantCleanMode by viewModel.participantCleanMode.collectAsState()
 
@@ -112,7 +95,6 @@ fun MainScreen(
     val scope = rememberCoroutineScope()
 
     var openSpeakerManagerTrigger by remember { mutableIntStateOf(0) }
-    var showSettingsOverlay by remember { mutableStateOf(false) }
     var showUserManualOverlay by remember { mutableStateOf(false) }
     var showEncyclopediaOverlay by remember { mutableStateOf(false) }
     var showWordListEditor by remember { mutableStateOf(false) }
@@ -130,6 +112,14 @@ fun MainScreen(
 
     val activeLinkRole by viewModel.wirelessLink.activeRole.collectAsState()
     val isLinkConnected by viewModel.wirelessLink.isConnected.collectAsState()
+
+    fun closePrimaryOverlays() {
+        showWordListEditor = false
+        showImportWorkspace = false
+        showUserManualOverlay = false
+        showEncyclopediaOverlay = false
+        showRoomNoiseCheck = false
+    }
 
     val canAcceptWindowGlobalDrop = DesktopAdaptiveState.isDesktopPlatform &&
         !showImportWorkspace &&
@@ -157,604 +147,935 @@ fun MainScreen(
     )
 
     BoxWithConstraints(modifier = modifier) {
-        val isCompactHeight = maxHeight < 500.dp && !DesktopAdaptiveState.isDesktopPlatform
-        val isSplitWorkspace = DesktopAdaptiveState.isDesktopPlatform || (maxWidth >= 700.dp && !isCompactHeight)
-        val isMobileLandscape = !isSplitWorkspace && maxWidth >= 600.dp
-        val canDockRightInspector = maxWidth >= 1120.dp
-        val isUltraWide = maxWidth >= 1440.dp
+        val windowMetrics = remember(maxWidth, maxHeight) {
+            computeAppWindowMetrics(maxWidth, maxHeight)
+        }
+        val isCompactWidth = windowMetrics.isCompactWidth
+        val isCompactHeightMobile = maxHeight < 500.dp && !DesktopAdaptiveState.isDesktopPlatform
+        val isExpandedSplit = windowMetrics.isExpandedOrWider && !isCompactHeightMobile
+        val showNavRail = !isCompactWidth
+        val canDockRightInspector = maxWidth >= 1120.dp && isExpandedSplit
+        val isUltraWide = windowMetrics.isUltraWide
 
-        // Automatically suspend bare-key recording shortcuts when any non-recording screen or modal is active
-        val shouldSuspendBareShortcuts = showWordListEditor ||
+        val isPrimaryOverlayOpen = showWordListEditor ||
             showImportWorkspace ||
-            showWirelessPairingDialog ||
-            activeLinkRole != LinkRole.STANDALONE ||
             showUserManualOverlay ||
             showEncyclopediaOverlay ||
-            showRoomNoiseCheck ||
-            showSettingsOverlay ||
+            showRoomNoiseCheck
+
+        val hasDockedSideOverlay = canDockRightInspector && (showGlobalManagement || showPhoneticWord != null)
+        val showFullGlobalOverlay = showGlobalManagement && !canDockRightInspector
+
+        val isInRecordingOrSplitTab = currentScreen == AppScreen.ProjectList || currentScreen == AppScreen.RecordingWorkspace
+        val isFullWindowImmersive = participantCleanMode &&
+            currentProject != null &&
+            !isPrimaryOverlayOpen &&
+            !showFullGlobalOverlay &&
+            (if (isExpandedSplit) isInRecordingOrSplitTab else currentScreen == AppScreen.RecordingWorkspace)
+
+        // Inform DesktopTopStudioBar whether a collapsible left project sidebar currently exists on screen
+        val hasCollapsibleSidebarNow = isExpandedSplit &&
+            !isPrimaryOverlayOpen &&
+            !showFullGlobalOverlay &&
+            isInRecordingOrSplitTab &&
+            !isFullWindowImmersive
+        SideEffect {
+            DesktopAdaptiveState.hasCollapsibleProjectSidebar = hasCollapsibleSidebarNow
+        }
+
+        // Automatically suspend bare-key recording shortcuts when any non-recording screen or modal is active
+        val shouldSuspendBareShortcuts = isPrimaryOverlayOpen ||
+            showWirelessPairingDialog ||
+            activeLinkRole != LinkRole.STANDALONE ||
             showGlobalManagement ||
             showPhoneticWord != null ||
             showRecordingTips ||
             !hasSeenRecordingTips ||
             showAboutDialog ||
             currentProject == null ||
-            (isSplitWorkspace && (tabletLeftPane == AppScreen.ArchiveExplorer || tabletLeftPane == AppScreen.Settings)) ||
-            (!isSplitWorkspace && currentScreen != AppScreen.RecordingWorkspace)
+            currentScreen == AppScreen.ArchiveExplorer ||
+            currentScreen == AppScreen.Settings ||
+            (!isExpandedSplit && currentScreen != AppScreen.RecordingWorkspace)
 
         SuspendDesktopShortcutsWhen(shouldSuspendBareShortcuts)
 
         val mainTabBackState = rememberPredictiveBackVisualState()
         val tabletSidePaneBackState = rememberPredictiveBackVisualState()
 
-        if (isSplitWorkspace) {
-            PredictiveBackGestureHandler(
-                enabled = !showWordListEditor && !showImportWorkspace && !showUserManualOverlay && !showEncyclopediaOverlay && !showRoomNoiseCheck &&
-                    (showGlobalManagement || showPhoneticWord != null || showQuickRecordingSettingsInSidebar || tabletLeftPane != AppScreen.ProjectList),
-                state = if (showGlobalManagement || showPhoneticWord != null) tabletSidePaneBackState else mainTabBackState
-            ) {
-                when {
-                    showPhoneticWord != null -> viewModel.showPhoneticWordDetail(null)
-                    showGlobalManagement -> viewModel.setShowGlobalManagement(false)
-                    showQuickRecordingSettingsInSidebar -> showQuickRecordingSettingsInSidebar = false
-                    tabletLeftPane != AppScreen.ProjectList -> tabletLeftPane = AppScreen.ProjectList
-                }
-            }
-        } else {
-            PredictiveBackGestureHandler(
-                enabled = !showWordListEditor && !showImportWorkspace && !showUserManualOverlay && !showEncyclopediaOverlay && !showSettingsOverlay && !showGlobalManagement && !showRoomNoiseCheck &&
-                    (drawerState.isOpen || currentScreen != AppScreen.ProjectList),
-                state = mainTabBackState
-            ) {
-                when {
-                    drawerState.isOpen -> scope.launch { drawerState.close() }
-                    currentScreen == AppScreen.ArchiveExplorer -> currentScreen = AppScreen.RecordingWorkspace
-                    else -> currentScreen = AppScreen.ProjectList
-                }
+        PredictiveBackGestureHandler(
+            enabled = !isPrimaryOverlayOpen && (
+                (isCompactWidth && drawerState.isOpen) ||
+                    showGlobalManagement ||
+                    showPhoneticWord != null ||
+                    showQuickRecordingSettingsInSidebar ||
+                    currentScreen != AppScreen.ProjectList
+                ),
+            state = if (hasDockedSideOverlay) tabletSidePaneBackState else mainTabBackState
+        ) {
+            when {
+                isCompactWidth && drawerState.isOpen -> scope.launch { drawerState.close() }
+                showPhoneticWord != null -> viewModel.showPhoneticWordDetail(null)
+                showGlobalManagement -> viewModel.setShowGlobalManagement(false)
+                showQuickRecordingSettingsInSidebar -> showQuickRecordingSettingsInSidebar = false
+                !isExpandedSplit && currentScreen == AppScreen.ArchiveExplorer -> currentScreen = AppScreen.RecordingWorkspace
+                else -> currentScreen = AppScreen.ProjectList
             }
         }
 
-        if (isSplitWorkspace) {
-            val isFullWindowImmersive = participantCleanMode &&
-                currentProject != null &&
-                !showWordListEditor &&
-                !showImportWorkspace &&
-                !showUserManualOverlay &&
-                !showEncyclopediaOverlay &&
-                !showRoomNoiseCheck &&
-                tabletLeftPane == AppScreen.ProjectList
+        // Cache last non-null docked inspector payload so the 145ms exit slide never flashes empty white
+        var cachedSideOverlay by remember { mutableStateOf<Pair<Boolean, Word?>>(false to null) }
+        if (hasDockedSideOverlay) {
+            cachedSideOverlay = showGlobalManagement to showPhoneticWord
+        }
 
-            AnimatedContent(
-                targetState = isFullWindowImmersive,
-                transitionSpec = {
-                    (fadeIn(tween(220)) + scaleIn(initialScale = 0.975f, animationSpec = tween(220))) togetherWith
-                        fadeOut(tween(160))
-                },
-                label = "FullWindowImmersiveTransition",
-                modifier = Modifier.fillMaxSize()
-            ) { fullImmersive ->
-                if (fullImmersive) {
-                    // Full-window immersive mode ("小眼睛"大字看读模式): covers 100% of the window without sidebars or top bars
-                    RecordingScreen(
-                        viewModel = viewModel,
-                        onNavigateBack = {
-                            viewModel.setParticipantCleanMode(false)
-                        },
-                        onViewArchive = {
-                            viewModel.setParticipantCleanMode(false)
-                            tabletLeftPane = AppScreen.ArchiveExplorer
-                        },
-                        onOpenFullSettings = {
-                            viewModel.setParticipantCleanMode(false)
-                            showQuickRecordingSettingsInSidebar = false
-                            tabletLeftPane = AppScreen.Settings
-                        },
-                        onToggleQuickSettingsSidebar = {
-                            viewModel.setParticipantCleanMode(false)
-                            DesktopAdaptiveState.isProjectSidebarCollapsed = false
-                            showQuickRecordingSettingsInSidebar = true
-                        },
-                        isSplitPaneMode = true,
-                        modifier = Modifier.fillMaxSize()
-                    )
-                } else {
-                    Row(modifier = Modifier.fillMaxSize()) {
-                        val isPrimaryOverlayOpen = showWordListEditor || showImportWorkspace || showUserManualOverlay || showEncyclopediaOverlay || showRoomNoiseCheck
-                        NavigationRail(
-                            containerColor = MaterialTheme.colorScheme.surface,
-                            modifier = Modifier.testTag("app_nav_rail")
-                        ) {
-                            Column(
-                                modifier = Modifier
-                                    .fillMaxHeight()
-                                    .verticalScroll(rememberScrollState())
-                                    .padding(vertical = 6.dp),
-                                horizontalAlignment = Alignment.CenterHorizontally,
-                                verticalArrangement = Arrangement.spacedBy(2.dp)
-                            ) {
-                                PhonAcqLogo(
-                                    modifier = Modifier.padding(vertical = 8.dp).size(38.dp)
-                                )
-                                NavigationRailItem(
-                                    selected = !isPrimaryOverlayOpen && !showQuickRecordingSettingsInSidebar && tabletLeftPane == AppScreen.ProjectList,
-                                    onClick = {
-                                        showWordListEditor = false
-                                        showImportWorkspace = false
-                                        showUserManualOverlay = false
-                                        showEncyclopediaOverlay = false
-                                        showRoomNoiseCheck = false
-                                        showQuickRecordingSettingsInSidebar = false
-                                        DesktopAdaptiveState.isProjectSidebarCollapsed = false
-                                        tabletLeftPane = AppScreen.ProjectList
-                                    },
-                                    icon = { Icon(Icons.AutoMirrored.Filled.List, contentDescription = S.nav.tabProjects) },
-                                    label = { Text(S.nav.tabProjects, fontSize = 11.sp, maxLines = 1, softWrap = false) },
-                                    modifier = Modifier.testTag("rail_project_list")
-                                )
-                                NavigationRailItem(
-                                    selected = !isPrimaryOverlayOpen && tabletLeftPane == AppScreen.ArchiveExplorer,
-                                    onClick = {
-                                        showWordListEditor = false
-                                        showImportWorkspace = false
-                                        showUserManualOverlay = false
-                                        showEncyclopediaOverlay = false
-                                        showRoomNoiseCheck = false
-                                        showQuickRecordingSettingsInSidebar = false
-                                        tabletLeftPane = AppScreen.ArchiveExplorer
-                                    },
-                                    icon = { Icon(Icons.Default.Folder, contentDescription = S.nav.tabArchive) },
-                                    label = { Text(S.nav.tabArchive, maxLines = 1, softWrap = false) },
-                                    modifier = Modifier.testTag("rail_archive_explorer")
-                                )
-                                NavigationRailItem(
-                                    selected = showWordListEditor,
-                                    onClick = {
-                                        showImportWorkspace = false
-                                        showUserManualOverlay = false
-                                        showEncyclopediaOverlay = false
-                                        showRoomNoiseCheck = false
-                                        wordEditorInitialProject = currentProject
-                                        showWordListEditor = true
-                                    },
-                                    icon = { Icon(Icons.Default.EditNote, contentDescription = S.nav.wordListEditor) },
-                                    label = { Text(S.nav.editorShort, maxLines = 1, softWrap = false) },
-                                    modifier = Modifier.testTag("rail_word_editor")
-                                )
-                                NavigationRailItem(
-                                    selected = !isPrimaryOverlayOpen && tabletLeftPane == AppScreen.Settings,
-                                    onClick = {
-                                        showWordListEditor = false
-                                        showImportWorkspace = false
-                                        showUserManualOverlay = false
-                                        showEncyclopediaOverlay = false
-                                        showRoomNoiseCheck = false
-                                        showQuickRecordingSettingsInSidebar = false
-                                        tabletLeftPane = AppScreen.Settings
-                                    },
-                                    icon = { Icon(Icons.Default.Settings, contentDescription = S.nav.settings) },
-                                    label = { Text(S.nav.settings, maxLines = 1, softWrap = false) },
-                                    modifier = Modifier.testTag("rail_settings")
-                                )
-                                NavigationRailItem(
-                                    selected = showWirelessPairingDialog || activeLinkRole != LinkRole.STANDALONE,
-                                    onClick = { showWirelessPairingDialog = true },
-                                    icon = { Icon(Icons.Default.Devices, contentDescription = S.nav.wirelessLink) },
-                                    label = { Text(S.nav.wirelessShort, maxLines = 1, softWrap = false) },
-                                    modifier = Modifier.testTag("rail_wireless_link")
-                                )
+        CompositionLocalProvider(LocalAppWindowMetrics provides windowMetrics) {
+            Column(modifier = Modifier.fillMaxSize()) {
+                // Outermost Desktop Studio Top Bar: stays accessible across Compact, Medium, and Expanded widths
+                AnimatedVisibility(
+                    visible = !isFullWindowImmersive && DesktopAdaptiveState.desktopTopBarSlot != null,
+                    enter = StudioMotion.verticalPanelEnter,
+                    exit = StudioMotion.verticalPanelExit
+                ) {
+                    DesktopAdaptiveState.desktopTopBarSlot?.invoke()
+                }
 
-                                HorizontalDivider(
-                                    modifier = Modifier
-                                        .width(36.dp)
-                                        .padding(vertical = 6.dp),
-                                    color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f)
-                                )
+                Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
+                    val drawerGesturesEnabled = isCompactWidth &&
+                        !isFullWindowImmersive &&
+                        !isPrimaryOverlayOpen &&
+                        !showFullGlobalOverlay &&
+                        currentScreen == AppScreen.ProjectList
 
-                                NavigationRailItem(
-                                    selected = showUserManualOverlay,
-                                    onClick = {
-                                        showWordListEditor = false
-                                        showImportWorkspace = false
-                                        showEncyclopediaOverlay = false
-                                        showRoomNoiseCheck = false
-                                        showUserManualOverlay = !showUserManualOverlay
-                                    },
-                                    icon = { Icon(Icons.AutoMirrored.Filled.MenuBook, contentDescription = S.nav.userManual) },
-                                    label = { Text(S.nav.manualShort, maxLines = 1, softWrap = false) },
-                                    modifier = Modifier.testTag("rail_item_user_manual")
-                                )
-                                NavigationRailItem(
-                                    selected = showEncyclopediaOverlay,
-                                    onClick = {
-                                        showWordListEditor = false
-                                        showImportWorkspace = false
-                                        showUserManualOverlay = false
-                                        showRoomNoiseCheck = false
-                                        showEncyclopediaOverlay = !showEncyclopediaOverlay
-                                    },
-                                    icon = { Icon(Icons.AutoMirrored.Filled.LibraryBooks, contentDescription = S.nav.encyclopedia) },
-                                    label = { Text(S.nav.encyclopediaShort, maxLines = 1, softWrap = false) },
-                                    modifier = Modifier.testTag("rail_item_encyclopedia")
-                                )
-                                NavigationRailItem(
-                                    selected = showRoomNoiseCheck,
-                                    onClick = {
-                                        showWordListEditor = false
-                                        showImportWorkspace = false
-                                        showUserManualOverlay = false
-                                        showEncyclopediaOverlay = false
-                                        showRoomNoiseCheck = !showRoomNoiseCheck
-                                    },
-                                    icon = { Icon(Icons.Default.GraphicEq, contentDescription = S.nav.soundCheck) },
-                                    label = { Text(S.nav.soundCheckShort, maxLines = 1, softWrap = false) },
-                                    modifier = Modifier.testTag("rail_sound_check")
-                                )
-                                NavigationRailItem(
-                                    selected = showRecordingTips,
-                                    onClick = { showRecordingTips = true },
-                                    icon = { Icon(Icons.Default.Lightbulb, contentDescription = S.nav.recordingTips) },
-                                    label = { Text(S.nav.tipsShort, maxLines = 1, softWrap = false) },
-                                    modifier = Modifier.testTag("rail_tips")
-                                )
-                                val themeIcon = when (themeMode) {
-                                    "LIGHT" -> Icons.Default.LightMode
-                                    "DARK" -> Icons.Default.DarkMode
-                                    else -> Icons.Default.BrightnessAuto
-                                }
-                                val themeLabel = when (themeMode) {
-                                    "LIGHT" -> S.nav.themeLightShort
-                                    "DARK" -> S.nav.themeDarkShort
-                                    else -> S.nav.themeSystemShort
-                                }
-                                NavigationRailItem(
-                                    selected = false,
-                                    onClick = {
-                                        val nextMode = when (themeMode) {
-                                            "SYSTEM" -> "LIGHT"
-                                            "LIGHT" -> "DARK"
-                                            else -> "SYSTEM"
-                                        }
-                                        viewModel.setThemeMode(nextMode)
-                                    },
-                                    icon = { Icon(themeIcon, contentDescription = S.nav.switchThemeDesc.withArgs("label" to themeLabel)) },
-                                    label = { Text(themeLabel, maxLines = 1, softWrap = false) },
-                                    modifier = Modifier.testTag("rail_theme_toggle")
-                                )
-                                NavigationRailItem(
-                                    selected = showAboutDialog,
-                                    onClick = { showAboutDialog = true },
-                                    icon = { Icon(Icons.Default.Info, contentDescription = S.nav.aboutPhonAcq) },
-                                    label = { Text(S.nav.aboutShort, maxLines = 1, softWrap = false) },
-                                    modifier = Modifier.testTag("rail_about")
-                                )
-                            }
-                        }
-
-                        VerticalDivider(
-                            modifier = Modifier.fillMaxHeight().width(1.dp),
-                            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
-                        )
-
-                        // Right-hand Main Column (Desktop Studio Top Bar + Workspace Content)
-                        Column(modifier = Modifier.weight(1f).fillMaxHeight()) {
-                            DesktopAdaptiveState.desktopTopBarSlot?.invoke()
-
-                            Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
-                                val hasDockedSideOverlay = (showGlobalManagement && canDockRightInspector) ||
-                                    (showPhoneticWord != null && canDockRightInspector)
-                                val showFullGlobalOverlay = showGlobalManagement && !canDockRightInspector
-
-                                Row(modifier = Modifier.fillMaxSize()) {
-                                    val rightWorkspaceKey = when {
-                                        showFullGlobalOverlay -> "GLOBAL_MANAGEMENT"
-                                        showImportWorkspace -> "IMPORT_WORKSPACE"
-                                        showWordListEditor -> "WORD_EDITOR"
-                                        showUserManualOverlay -> "USER_MANUAL"
-                                        showEncyclopediaOverlay -> "ENCYCLOPEDIA"
-                                        showRoomNoiseCheck -> "SOUND_CHECK"
-                                        tabletLeftPane == AppScreen.ArchiveExplorer -> "ARCHIVE_EXPLORER"
-                                        tabletLeftPane == AppScreen.Settings -> "SETTINGS"
-                                        else -> "SPLIT_WORKSPACE"
+                    ModalNavigationDrawer(
+                        drawerState = drawerState,
+                        gesturesEnabled = drawerGesturesEnabled || (isCompactWidth && drawerState.isOpen),
+                        drawerContent = {
+                            AppNavigationDrawerContent(
+                                projectCount = allProjects.size,
+                                speakerCount = allSpeakers.size,
+                                themeMode = themeMode,
+                                isSimpleMode = isSimpleMode,
+                                onCycleTheme = {
+                                    val nextMode = when (themeMode) {
+                                        "SYSTEM" -> "LIGHT"
+                                        "LIGHT" -> "DARK"
+                                        else -> "SYSTEM"
                                     }
+                                    viewModel.setThemeMode(nextMode)
+                                },
+                                onOpenSpeakerManager = {
+                                    scope.launch { drawerState.close() }
+                                    closePrimaryOverlays()
+                                    currentScreen = AppScreen.ProjectList
+                                    openSpeakerManagerTrigger++
+                                },
+                                onOpenRecordingStats = {
+                                    scope.launch { drawerState.close() }
+                                    viewModel.setShowGlobalManagement(true)
+                                },
+                                onOpenWordListEditor = {
+                                    scope.launch { drawerState.close() }
+                                    closePrimaryOverlays()
+                                    wordEditorInitialProject = currentProject
+                                    showWordListEditor = true
+                                },
+                                onOpenUserManual = {
+                                    scope.launch { drawerState.close() }
+                                    closePrimaryOverlays()
+                                    showUserManualOverlay = true
+                                },
+                                onOpenEncyclopedia = {
+                                    scope.launch { drawerState.close() }
+                                    closePrimaryOverlays()
+                                    showEncyclopediaOverlay = true
+                                },
+                                onOpenRoomNoiseCheck = {
+                                    scope.launch { drawerState.close() }
+                                    closePrimaryOverlays()
+                                    showRoomNoiseCheck = true
+                                },
+                                onOpenRecordingTips = {
+                                    scope.launch { drawerState.close() }
+                                    showRecordingTips = true
+                                },
+                                onOpenSettings = {
+                                    scope.launch { drawerState.close() }
+                                    closePrimaryOverlays()
+                                    currentScreen = AppScreen.Settings
+                                },
+                                onOpenWirelessLink = {
+                                    scope.launch { drawerState.close() }
+                                    showWirelessPairingDialog = true
+                                },
+                                onOpenAbout = {
+                                    scope.launch { drawerState.close() }
+                                    showAboutDialog = true
+                                }
+                            )
+                        }
+                    ) {
+                        val showCompactBottomBar = isCompactWidth &&
+                            !isFullWindowImmersive &&
+                            !isPrimaryOverlayOpen &&
+                            !showFullGlobalOverlay &&
+                            currentScreen != AppScreen.Settings
 
-                                    AnimatedContent(
-                                        targetState = rightWorkspaceKey,
-                                        transitionSpec = {
-                                            (fadeIn(tween(220)) +
-                                                androidx.compose.animation.slideInVertically(tween(220)) { it / 28 } +
-                                                scaleIn(initialScale = 0.985f, animationSpec = tween(220))) togetherWith
-                                                (fadeOut(tween(150)) + scaleOut(targetScale = 0.99f, animationSpec = tween(150)))
-                                        },
-                                        label = "RightWorkspaceAnimatedTransition",
-                                        modifier = Modifier.weight(1f).fillMaxHeight().clipToBounds()
-                                    ) { paneKey ->
-                                        when (paneKey) {
-                                            "GLOBAL_MANAGEMENT" -> {
-                                                GlobalManagementPane(
-                                                    viewModel = viewModel,
-                                                    onDismiss = { viewModel.setShowGlobalManagement(false) }
+                        Scaffold(
+                            contentWindowInsets = if (DesktopAdaptiveState.isDesktopPlatform) {
+                                WindowInsets(0, 0, 0, 0)
+                            } else {
+                                WindowInsets.navigationBars
+                            },
+                            bottomBar = {
+                                androidx.compose.animation.AnimatedVisibility(
+                                    visible = showCompactBottomBar,
+                                    enter = slideInVertically(StudioMotion.mediumInTween()) { it } + fadeIn(StudioMotion.shortInTween()),
+                                    exit = slideOutVertically(StudioMotion.mediumOutTween()) { it } + fadeOut(StudioMotion.shortOutTween())
+                                ) {
+                                    NavigationBar(
+                                        containerColor = MaterialTheme.colorScheme.surface,
+                                        tonalElevation = 0.dp,
+                                        modifier = Modifier.testTag("app_bottom_bar")
+                                    ) {
+                                        NavigationBarItem(
+                                            selected = currentScreen == AppScreen.ProjectList,
+                                            onClick = { currentScreen = AppScreen.ProjectList },
+                                            icon = { Icon(Icons.AutoMirrored.Filled.List, contentDescription = S.nav.tabProjects) },
+                                            label = {
+                                                Text(
+                                                    text = S.nav.tabProjects,
+                                                    fontWeight = if (currentScreen == AppScreen.ProjectList) FontWeight.Bold else FontWeight.Normal,
+                                                    fontSize = 12.sp,
+                                                    maxLines = 1,
+                                                    softWrap = false
                                                 )
-                                            }
-                                            "IMPORT_WORKSPACE" -> {
-                                                SmartImportWorkspaceScreen(
-                                                    viewModel = viewModel,
-                                                    initialUris = importInitialUris,
-                                                    initialMergeProject = importInitialMergeProject,
-                                                    onBack = {
-                                                        showImportWorkspace = false
-                                                        importInitialUris = emptyList()
-                                                        importInitialMergeProject = null
-                                                    },
-                                                    onImportCompleted = {
-                                                        showImportWorkspace = false
-                                                        importInitialUris = emptyList()
-                                                        importInitialMergeProject = null
-                                                        tabletLeftPane = AppScreen.ProjectList
-                                                    },
-                                                    modifier = Modifier.fillMaxSize()
+                                            },
+                                            colors = NavigationBarItemDefaults.colors(
+                                                selectedIconColor = MaterialTheme.colorScheme.primary,
+                                                selectedTextColor = MaterialTheme.colorScheme.primary,
+                                                unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.72f),
+                                                unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.72f),
+                                                indicatorColor = MaterialTheme.colorScheme.primaryContainer
+                                            ),
+                                            modifier = Modifier
+                                                .pointerHoverIcon(PointerIcon.Hand)
+                                                .testTag("tab_project_list")
+                                        )
+                                        NavigationBarItem(
+                                            selected = currentScreen == AppScreen.RecordingWorkspace,
+                                            onClick = { currentScreen = AppScreen.RecordingWorkspace },
+                                            icon = { Icon(Icons.Default.Mic, contentDescription = S.nav.tabRecordingStudio) },
+                                            label = {
+                                                Text(
+                                                    text = S.nav.tabRecordingStudio,
+                                                    fontWeight = if (currentScreen == AppScreen.RecordingWorkspace) FontWeight.Bold else FontWeight.Normal,
+                                                    fontSize = 12.sp,
+                                                    maxLines = 1,
+                                                    softWrap = false
                                                 )
-                                            }
-                                            "WORD_EDITOR" -> {
-                                                    WordListEditorScreen(
-                                                        viewModel = viewModel,
-                                                        initialProject = wordEditorInitialProject,
-                                                        onBack = { showWordListEditor = false },
-                                                        onSavedAndOpenRecording = { savedProj ->
-                                                            viewModel.selectProject(savedProj)
-                                                            showWordListEditor = false
-                                                            tabletLeftPane = AppScreen.ProjectList
+                                            },
+                                            colors = NavigationBarItemDefaults.colors(
+                                                selectedIconColor = MaterialTheme.colorScheme.primary,
+                                                selectedTextColor = MaterialTheme.colorScheme.primary,
+                                                unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.72f),
+                                                unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.72f),
+                                                indicatorColor = MaterialTheme.colorScheme.primaryContainer
+                                            ),
+                                            modifier = Modifier
+                                                .pointerHoverIcon(PointerIcon.Hand)
+                                                .testTag("tab_recording_workspace")
+                                        )
+                                        NavigationBarItem(
+                                            selected = currentScreen == AppScreen.ArchiveExplorer,
+                                            onClick = { currentScreen = AppScreen.ArchiveExplorer },
+                                            icon = { Icon(Icons.Default.Folder, contentDescription = S.nav.tabArchive) },
+                                            label = {
+                                                Text(
+                                                    text = S.nav.tabArchive,
+                                                    fontWeight = if (currentScreen == AppScreen.ArchiveExplorer) FontWeight.Bold else FontWeight.Normal,
+                                                    fontSize = 12.sp,
+                                                    maxLines = 1,
+                                                    softWrap = false
+                                                )
+                                            },
+                                            colors = NavigationBarItemDefaults.colors(
+                                                selectedIconColor = MaterialTheme.colorScheme.primary,
+                                                selectedTextColor = MaterialTheme.colorScheme.primary,
+                                                unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.72f),
+                                                unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.72f),
+                                                indicatorColor = MaterialTheme.colorScheme.primaryContainer
+                                            ),
+                                            modifier = Modifier
+                                                .pointerHoverIcon(PointerIcon.Hand)
+                                                .testTag("tab_archive_explorer")
+                                        )
+                                    }
+                                }
+                            },
+                            containerColor = MaterialTheme.colorScheme.background,
+                            modifier = Modifier.fillMaxSize()
+                        ) { innerPadding ->
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .padding(innerPadding)
+                            ) {
+                                // Unified NavigationRail for Medium (600..959dp) and Expanded (>=960dp)
+                                AnimatedVisibility(
+                                    visible = showNavRail && !isFullWindowImmersive,
+                                    enter = StudioMotion.horizontalPaneEnter,
+                                    exit = StudioMotion.horizontalPaneExit
+                                ) {
+                                    Row(modifier = Modifier.fillMaxHeight()) {
+                                        NavigationRail(
+                                            containerColor = MaterialTheme.colorScheme.surface,
+                                            modifier = Modifier
+                                                .width(if (isExpandedSplit) 80.dp else 72.dp)
+                                                .testTag("app_nav_rail")
+                                        ) {
+                                            Column(
+                                                modifier = Modifier
+                                                    .fillMaxHeight()
+                                                    .verticalScroll(rememberScrollState())
+                                                    .padding(vertical = 6.dp),
+                                                horizontalAlignment = Alignment.CenterHorizontally,
+                                                verticalArrangement = Arrangement.spacedBy(2.dp)
+                                            ) {
+                                                PhonAcqLogo(
+                                                    modifier = Modifier
+                                                        .padding(vertical = 6.dp)
+                                                        .size(if (isExpandedSplit) 36.dp else 30.dp)
+                                                )
+
+                                                // Primary navigation group
+                                                NavigationRailItem(
+                                                    selected = !isPrimaryOverlayOpen &&
+                                                        !showFullGlobalOverlay &&
+                                                        !showQuickRecordingSettingsInSidebar &&
+                                                        (if (isExpandedSplit) isInRecordingOrSplitTab else currentScreen == AppScreen.ProjectList),
+                                                    onClick = {
+                                                        closePrimaryOverlays()
+                                                        viewModel.setShowGlobalManagement(false)
+                                                        showQuickRecordingSettingsInSidebar = false
+                                                        DesktopAdaptiveState.isProjectSidebarCollapsed = false
+                                                        currentScreen = AppScreen.ProjectList
+                                                    },
+                                                    icon = { Icon(Icons.AutoMirrored.Filled.List, contentDescription = S.nav.tabProjects) },
+                                                    label = { Text(S.nav.tabProjects, fontSize = 11.sp, maxLines = 1, softWrap = false) },
+                                                    modifier = Modifier
+                                                        .pointerHoverIcon(PointerIcon.Hand)
+                                                        .testTag(if (isExpandedSplit) "rail_project_list" else "tab_project_list")
+                                                )
+
+                                                if (!isExpandedSplit) {
+                                                    NavigationRailItem(
+                                                        selected = !isPrimaryOverlayOpen &&
+                                                            !showFullGlobalOverlay &&
+                                                            currentScreen == AppScreen.RecordingWorkspace,
+                                                        onClick = {
+                                                            closePrimaryOverlays()
+                                                            viewModel.setShowGlobalManagement(false)
+                                                            currentScreen = AppScreen.RecordingWorkspace
                                                         },
-                                                        modifier = Modifier.fillMaxSize()
+                                                        icon = { Icon(Icons.Default.Mic, contentDescription = S.nav.tabRecordingStudio) },
+                                                        label = { Text(S.nav.tabRecordingStudio, fontSize = 11.sp, maxLines = 1, softWrap = false) },
+                                                        modifier = Modifier
+                                                            .pointerHoverIcon(PointerIcon.Hand)
+                                                            .testTag("tab_recording_workspace")
                                                     )
                                                 }
-                                                "USER_MANUAL" -> {
-                                                    UserManualScreen(
-                                                        onBack = { showUserManualOverlay = false },
-                                                        isSimpleMode = isSimpleMode,
-                                                        onOpenEncyclopedia = {
-                                                            showUserManualOverlay = false
-                                                            showEncyclopediaOverlay = true
+
+                                                NavigationRailItem(
+                                                    selected = !isPrimaryOverlayOpen &&
+                                                        !showFullGlobalOverlay &&
+                                                        currentScreen == AppScreen.ArchiveExplorer,
+                                                    onClick = {
+                                                        closePrimaryOverlays()
+                                                        viewModel.setShowGlobalManagement(false)
+                                                        showQuickRecordingSettingsInSidebar = false
+                                                        currentScreen = AppScreen.ArchiveExplorer
+                                                    },
+                                                    icon = { Icon(Icons.Default.Folder, contentDescription = S.nav.tabArchive) },
+                                                    label = { Text(S.nav.tabArchive, fontSize = 11.sp, maxLines = 1, softWrap = false) },
+                                                    modifier = Modifier
+                                                        .pointerHoverIcon(PointerIcon.Hand)
+                                                        .testTag("rail_archive_explorer")
+                                                )
+
+                                                NavigationRailItem(
+                                                    selected = showWordListEditor,
+                                                    onClick = {
+                                                        showImportWorkspace = false
+                                                        showUserManualOverlay = false
+                                                        showEncyclopediaOverlay = false
+                                                        showRoomNoiseCheck = false
+                                                        viewModel.setShowGlobalManagement(false)
+                                                        wordEditorInitialProject = currentProject
+                                                        showWordListEditor = true
+                                                    },
+                                                    icon = { Icon(Icons.Default.EditNote, contentDescription = S.nav.wordListEditor) },
+                                                    label = { Text(S.nav.editorShort, fontSize = 11.sp, maxLines = 1, softWrap = false) },
+                                                    modifier = Modifier
+                                                        .pointerHoverIcon(PointerIcon.Hand)
+                                                        .testTag("rail_word_editor")
+                                                )
+
+                                                NavigationRailItem(
+                                                    selected = !isPrimaryOverlayOpen &&
+                                                        !showFullGlobalOverlay &&
+                                                        currentScreen == AppScreen.Settings,
+                                                    onClick = {
+                                                        closePrimaryOverlays()
+                                                        viewModel.setShowGlobalManagement(false)
+                                                        showQuickRecordingSettingsInSidebar = false
+                                                        currentScreen = AppScreen.Settings
+                                                    },
+                                                    icon = { Icon(Icons.Default.Settings, contentDescription = S.nav.settings) },
+                                                    label = { Text(S.nav.settings, fontSize = 11.sp, maxLines = 1, softWrap = false) },
+                                                    modifier = Modifier
+                                                        .pointerHoverIcon(PointerIcon.Hand)
+                                                        .testTag("rail_settings")
+                                                )
+
+                                                NavigationRailItem(
+                                                    selected = showWirelessPairingDialog || activeLinkRole != LinkRole.STANDALONE,
+                                                    onClick = { showWirelessPairingDialog = true },
+                                                    icon = { Icon(Icons.Default.Devices, contentDescription = S.nav.wirelessLink) },
+                                                    label = { Text(S.nav.wirelessShort, fontSize = 11.sp, maxLines = 1, softWrap = false) },
+                                                    modifier = Modifier
+                                                        .pointerHoverIcon(PointerIcon.Hand)
+                                                        .testTag("rail_wireless_link")
+                                                )
+
+                                                HorizontalDivider(
+                                                    modifier = Modifier
+                                                        .width(36.dp)
+                                                        .padding(vertical = 6.dp),
+                                                    color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f)
+                                                )
+
+                                                // Utility & reference group
+                                                if (!isExpandedSplit) {
+                                                    NavigationRailItem(
+                                                        selected = false,
+                                                        onClick = {
+                                                            closePrimaryOverlays()
+                                                            viewModel.setShowGlobalManagement(false)
+                                                            currentScreen = AppScreen.ProjectList
+                                                            openSpeakerManagerTrigger++
                                                         },
-                                                        modifier = Modifier.fillMaxSize()
+                                                        icon = { Icon(Icons.Default.Groups, contentDescription = S.nav.speakerManager) },
+                                                        label = { Text(S.nav.speakerShort, fontSize = 11.sp, maxLines = 1, softWrap = false) },
+                                                        modifier = Modifier
+                                                            .pointerHoverIcon(PointerIcon.Hand)
+                                                            .testTag("rail_speakers")
                                                     )
-                                                }
-                                                "ENCYCLOPEDIA" -> {
-                                                    FieldworkEncyclopediaScreen(
-                                                        onBack = { showEncyclopediaOverlay = false },
-                                                        modifier = Modifier.fillMaxSize()
-                                                    )
-                                                }
-                                                "SOUND_CHECK" -> {
-                                                    SoundCheckScreen(
-                                                        viewModel = viewModel,
-                                                        onBack = { showRoomNoiseCheck = false },
-                                                        onGoToRecordingWorkspace = {
-                                                            showRoomNoiseCheck = false
-                                                            tabletLeftPane = AppScreen.ProjectList
-                                                        },
-                                                        modifier = Modifier.fillMaxSize()
-                                                    )
-                                                }
-                                                "SETTINGS" -> {
-                                                    SettingsScreen(
-                                                        viewModel = viewModel,
-                                                        onBack = {
-                                                            tabletLeftPane = AppScreen.ProjectList
-                                                        },
-                                                        onOpenRecordingsCleanup = {
-                                                            viewModel.setShowGlobalManagement(true)
-                                                        },
-                                                        modifier = Modifier.fillMaxSize()
-                                                    )
-                                                }
-                                                "ARCHIVE_EXPLORER" -> {
-                                                    if (currentProject == null) {
-                                                        NoProjectPlaceholder(
-                                                            title = S.nav.selectProjectFirstTitle,
-                                                            description = if (isSimpleMode) {
-                                                                S.nav.selectProjectArchiveHintSimple
-                                                            } else {
-                                                                S.nav.selectProjectArchiveHintAdv
+                                                    if (!isSimpleMode) {
+                                                        NavigationRailItem(
+                                                            selected = showGlobalManagement,
+                                                            onClick = {
+                                                                closePrimaryOverlays()
+                                                                viewModel.setShowGlobalManagement(true)
                                                             },
-                                                            icon = Icons.Default.Folder,
-                                                            buttonText = S.nav.backToProjectAndStudio,
-                                                            onNavigateToProjects = { tabletLeftPane = AppScreen.ProjectList }
-                                                        )
-                                                    } else {
-                                                        ArchiveExplorerScreen(
-                                                            viewModel = viewModel,
-                                                            onNavigateBack = {
-                                                                tabletLeftPane = AppScreen.ProjectList
-                                                            },
-                                                            onSelectedWordPosition = { seqPos ->
-                                                                viewModel.selectWordBySequencePosition(seqPos)
-                                                                tabletLeftPane = AppScreen.ProjectList
-                                                            },
-                                                            isTablet = true,
-                                                            modifier = Modifier.fillMaxSize()
+                                                            icon = { Icon(Icons.Default.PieChart, contentDescription = S.nav.recordingStatsAndCleanup) },
+                                                            label = { Text(S.nav.statsShort, fontSize = 11.sp, maxLines = 1, softWrap = false) },
+                                                            modifier = Modifier
+                                                                .pointerHoverIcon(PointerIcon.Hand)
+                                                                .testTag("rail_stats")
                                                         )
                                                     }
                                                 }
-                                                else -> {
-                                                    // Main Project / Quick-Settings Left Sidebar + Recording Right Workspace
-                                                    // Auto-collapse left sidebar when right inspector is docked on <1440dp so RecordingScreen stays spacious
-                                                    val showLeftSidebar = !DesktopAdaptiveState.isProjectSidebarCollapsed &&
-                                                        !(hasDockedSideOverlay && !isUltraWide)
 
-                                                    Row(modifier = Modifier.fillMaxSize()) {
-                                                        AnimatedVisibility(
-                                                            visible = showLeftSidebar,
-                                                            enter = expandHorizontally(animationSpec = tween(220)) + fadeIn(tween(180)),
-                                                            exit = shrinkHorizontally(animationSpec = tween(200)) + fadeOut(tween(150))
-                                                        ) {
-                                                            Row(modifier = Modifier.fillMaxHeight()) {
-                                                                val leftSidebarMode = if (showQuickRecordingSettingsInSidebar) 1 else 0
+                                                NavigationRailItem(
+                                                    selected = showUserManualOverlay,
+                                                    onClick = {
+                                                        showWordListEditor = false
+                                                        showImportWorkspace = false
+                                                        showEncyclopediaOverlay = false
+                                                        showRoomNoiseCheck = false
+                                                        viewModel.setShowGlobalManagement(false)
+                                                        showUserManualOverlay = !showUserManualOverlay
+                                                    },
+                                                    icon = { Icon(Icons.AutoMirrored.Filled.MenuBook, contentDescription = S.nav.userManual) },
+                                                    label = { Text(S.nav.manualShort, fontSize = 11.sp, maxLines = 1, softWrap = false) },
+                                                    modifier = Modifier
+                                                        .pointerHoverIcon(PointerIcon.Hand)
+                                                        .testTag("rail_item_user_manual")
+                                                )
 
-                                                                AnimatedContent(
-                                                                    targetState = leftSidebarMode,
-                                                                    transitionSpec = {
-                                                                        if (targetState > initialState) {
-                                                                            (slideInHorizontally(tween(220)) { it / 5 } + fadeIn(tween(180))) togetherWith
-                                                                                (slideOutHorizontally(tween(180)) { -it / 6 } + fadeOut(tween(140)))
-                                                                        } else {
-                                                                            (slideInHorizontally(tween(220)) { -it / 6 } + fadeIn(tween(180))) togetherWith
-                                                                                (slideOutHorizontally(tween(180)) { it / 5 } + fadeOut(tween(140)))
-                                                                        }
-                                                                    },
-                                                                    label = "LeftSidebarAnimatedTransition",
-                                                                    modifier = Modifier
-                                                                        .width(if (DesktopAdaptiveState.isDesktopPlatform) 356.dp else 340.dp)
-                                                                        .fillMaxHeight()
-                                                                        .clipToBounds()
-                                                                        .predictiveBackLayer(mainTabBackState)
-                                                                ) { sidebarMode ->
-                                                                    when (sidebarMode) {
-                                                                        1 -> {
-                                                                            RecordingQuickSettingsSidebarPane(
-                                                                                viewModel = viewModel,
-                                                                                onOpenFullSettings = {
-                                                                                    showQuickRecordingSettingsInSidebar = false
-                                                                                    tabletLeftPane = AppScreen.Settings
-                                                                                },
-                                                                                onClose = {
-                                                                                    showQuickRecordingSettingsInSidebar = false
-                                                                                },
-                                                                                modifier = Modifier.fillMaxSize()
-                                                                            )
-                                                                        }
-                                                                        else -> {
-                                                                            ProjectListScreen(
-                                                                                viewModel = viewModel,
-                                                                                onProjectOpened = { },
-                                                                                onOpenSettings = {
-                                                                                    showQuickRecordingSettingsInSidebar = false
-                                                                                    tabletLeftPane = AppScreen.Settings
-                                                                                },
-                                                                                onOpenWirelessLink = {
-                                                                                    showWirelessPairingDialog = true
-                                                                                },
-                                                                                onOpenWordListEditor = { proj ->
-                                                                                    wordEditorInitialProject = proj
-                                                                                    showWordListEditor = true
-                                                                                },
-                                                                                onOpenImportPage = { uris, mergeProj ->
-                                                                                    importInitialUris = uris
-                                                                                    importInitialMergeProject = mergeProj
-                                                                                    showImportWorkspace = true
-                                                                                },
-                                                                                openSpeakerManagerTrigger = openSpeakerManagerTrigger,
-                                                                                onSpeakerManagerTriggerConsumed = { openSpeakerManagerTrigger = 0 },
-                                                                                isSplitPaneMode = true,
-                                                                                modifier = Modifier.fillMaxSize()
-                                                                            )
-                                                                        }
-                                                                    }
-                                                                }
-                                                                VerticalDivider(
-                                                                    modifier = Modifier.fillMaxHeight().width(1.dp),
-                                                                    color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
-                                                                )
-                                                            }
+                                                NavigationRailItem(
+                                                    selected = showEncyclopediaOverlay,
+                                                    onClick = {
+                                                        showWordListEditor = false
+                                                        showImportWorkspace = false
+                                                        showUserManualOverlay = false
+                                                        showRoomNoiseCheck = false
+                                                        viewModel.setShowGlobalManagement(false)
+                                                        showEncyclopediaOverlay = !showEncyclopediaOverlay
+                                                    },
+                                                    icon = { Icon(Icons.AutoMirrored.Filled.LibraryBooks, contentDescription = S.nav.encyclopedia) },
+                                                    label = { Text(S.nav.encyclopediaShort, fontSize = 11.sp, maxLines = 1, softWrap = false) },
+                                                    modifier = Modifier
+                                                        .pointerHoverIcon(PointerIcon.Hand)
+                                                        .testTag("rail_item_encyclopedia")
+                                                )
+
+                                                NavigationRailItem(
+                                                    selected = showRoomNoiseCheck,
+                                                    onClick = {
+                                                        showWordListEditor = false
+                                                        showImportWorkspace = false
+                                                        showUserManualOverlay = false
+                                                        showEncyclopediaOverlay = false
+                                                        viewModel.setShowGlobalManagement(false)
+                                                        showRoomNoiseCheck = !showRoomNoiseCheck
+                                                    },
+                                                    icon = { Icon(Icons.Default.GraphicEq, contentDescription = S.nav.soundCheck) },
+                                                    label = { Text(S.nav.soundCheckShort, fontSize = 11.sp, maxLines = 1, softWrap = false) },
+                                                    modifier = Modifier
+                                                        .pointerHoverIcon(PointerIcon.Hand)
+                                                        .testTag("rail_sound_check")
+                                                )
+
+                                                NavigationRailItem(
+                                                    selected = showRecordingTips,
+                                                    onClick = { showRecordingTips = true },
+                                                    icon = { Icon(Icons.Default.Lightbulb, contentDescription = S.nav.recordingTips) },
+                                                    label = { Text(S.nav.tipsShort, fontSize = 11.sp, maxLines = 1, softWrap = false) },
+                                                    modifier = Modifier
+                                                        .pointerHoverIcon(PointerIcon.Hand)
+                                                        .testTag("rail_tips")
+                                                )
+
+                                                HorizontalDivider(
+                                                    modifier = Modifier
+                                                        .width(36.dp)
+                                                        .padding(vertical = 6.dp),
+                                                    color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f)
+                                                )
+
+                                                // Appearance & About group
+                                                val themeLabel = when (themeMode) {
+                                                    "LIGHT" -> S.nav.themeLightShort
+                                                    "DARK" -> S.nav.themeDarkShort
+                                                    else -> S.nav.themeSystemShort
+                                                }
+                                                NavigationRailItem(
+                                                    selected = false,
+                                                    onClick = {
+                                                        val nextMode = when (themeMode) {
+                                                            "SYSTEM" -> "LIGHT"
+                                                            "LIGHT" -> "DARK"
+                                                            else -> "SYSTEM"
                                                         }
+                                                        viewModel.setThemeMode(nextMode)
+                                                    },
+                                                    icon = {
+                                                        AnimatedContent(
+                                                            targetState = themeMode,
+                                                            transitionSpec = { StudioMotion.subtleFadeScale() },
+                                                            label = "RailThemeIconMorph"
+                                                        ) { mode ->
+                                                            val icon = when (mode) {
+                                                                "LIGHT" -> Icons.Default.LightMode
+                                                                "DARK" -> Icons.Default.DarkMode
+                                                                else -> Icons.Default.BrightnessAuto
+                                                            }
+                                                            Icon(
+                                                                imageVector = icon,
+                                                                contentDescription = S.nav.switchThemeDesc.withArgs("label" to themeLabel)
+                                                            )
+                                                        }
+                                                    },
+                                                    label = { Text(themeLabel, fontSize = 11.sp, maxLines = 1, softWrap = false) },
+                                                    modifier = Modifier
+                                                        .pointerHoverIcon(PointerIcon.Hand)
+                                                        .testTag("rail_theme_toggle")
+                                                )
 
-                                                        Box(modifier = Modifier.weight(1f).fillMaxHeight()) {
-                                                            AnimatedContent(
-                                                                targetState = currentProject?.id ?: -1L,
-                                                                transitionSpec = {
-                                                                    (fadeIn(tween(210)) +
-                                                                        androidx.compose.animation.slideInVertically(tween(210)) { it / 32 }) togetherWith
-                                                                        fadeOut(tween(150))
-                                                                },
-                                                                label = "TabletWorkspaceTransition"
-                                                            ) { activeProjectId ->
-                                                                if (activeProjectId <= 0L || currentProject == null) {
-                                                                    NoProjectPlaceholder(
-                                                                        title = S.nav.selectProjectFirstTitle,
-                                                                        description = S.nav.selectProjectRecordingSidebarHint,
-                                                                        icon = Icons.Default.Mic,
-                                                                        buttonText = S.nav.expandProjectList,
-                                                                        onNavigateToProjects = {
-                                                                            showQuickRecordingSettingsInSidebar = false
-                                                                            DesktopAdaptiveState.isProjectSidebarCollapsed = false
-                                                                            tabletLeftPane = AppScreen.ProjectList
-                                                                        }
-                                                                    )
+                                                NavigationRailItem(
+                                                    selected = showAboutDialog,
+                                                    onClick = { showAboutDialog = true },
+                                                    icon = { Icon(Icons.Default.Info, contentDescription = S.nav.aboutPhonAcq) },
+                                                    label = { Text(S.nav.aboutShort, fontSize = 11.sp, maxLines = 1, softWrap = false) },
+                                                    modifier = Modifier
+                                                        .pointerHoverIcon(PointerIcon.Hand)
+                                                        .testTag("rail_about")
+                                                )
+                                            }
+                                        }
+
+                                        VerticalDivider(
+                                            modifier = Modifier.fillMaxHeight().width(1.dp),
+                                            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
+                                        )
+                                    }
+                                }
+
+                                // Single Unified Main Workspace Router (zero duplicate overlay declarations; state survives breakpoint resizing)
+                                val activeWorkspaceKey = when {
+                                    isFullWindowImmersive -> "IMMERSIVE_RECORDING"
+                                    showFullGlobalOverlay -> "GLOBAL_MANAGEMENT"
+                                    showImportWorkspace -> "IMPORT_WORKSPACE"
+                                    showWordListEditor -> "WORD_EDITOR"
+                                    showUserManualOverlay -> "USER_MANUAL"
+                                    showEncyclopediaOverlay -> "ENCYCLOPEDIA"
+                                    showRoomNoiseCheck -> "SOUND_CHECK"
+                                    currentScreen == AppScreen.Settings -> "SETTINGS"
+                                    currentScreen == AppScreen.ArchiveExplorer -> "ARCHIVE_EXPLORER"
+                                    isExpandedSplit -> "SPLIT_WORKSPACE"
+                                    currentScreen == AppScreen.RecordingWorkspace -> "RECORDING_WORKSPACE"
+                                    else -> "PROJECT_LIST"
+                                }
+
+                                AnimatedContent(
+                                    targetState = activeWorkspaceKey,
+                                    transitionSpec = {
+                                        (fadeIn(StudioMotion.pageInTween()) +
+                                            slideInVertically(StudioMotion.pageInTween()) { it / 32 } +
+                                            scaleIn(initialScale = 0.985f, animationSpec = StudioMotion.pageInTween())) togetherWith
+                                            (fadeOut(StudioMotion.pageOutTween()) + scaleOut(targetScale = 0.99f, animationSpec = StudioMotion.pageOutTween()))
+                                    },
+                                    label = "UnifiedMainWorkspaceTransition",
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .fillMaxHeight()
+                                        .clipToBounds()
+                                ) { paneKey ->
+                                    when (paneKey) {
+                                        "IMMERSIVE_RECORDING" -> {
+                                            RecordingScreen(
+                                                viewModel = viewModel,
+                                                onNavigateBack = {
+                                                    viewModel.setParticipantCleanMode(false)
+                                                },
+                                                onViewArchive = {
+                                                    viewModel.setParticipantCleanMode(false)
+                                                    currentScreen = AppScreen.ArchiveExplorer
+                                                },
+                                                onOpenFullSettings = {
+                                                    viewModel.setParticipantCleanMode(false)
+                                                    showQuickRecordingSettingsInSidebar = false
+                                                    currentScreen = AppScreen.Settings
+                                                },
+                                                onToggleQuickSettingsSidebar = if (isExpandedSplit) {
+                                                    {
+                                                        viewModel.setParticipantCleanMode(false)
+                                                        DesktopAdaptiveState.isProjectSidebarCollapsed = false
+                                                        showQuickRecordingSettingsInSidebar = true
+                                                    }
+                                                } else {
+                                                    null
+                                                },
+                                                isSplitPaneMode = isExpandedSplit,
+                                                modifier = Modifier.fillMaxSize()
+                                            )
+                                        }
+
+                                        "GLOBAL_MANAGEMENT" -> {
+                                            GlobalManagementPane(
+                                                viewModel = viewModel,
+                                                onDismiss = { viewModel.setShowGlobalManagement(false) },
+                                                onOpenProjectInWorkspace = {
+                                                    if (!isExpandedSplit) {
+                                                        currentScreen = AppScreen.RecordingWorkspace
+                                                    }
+                                                }
+                                            )
+                                        }
+
+                                        "IMPORT_WORKSPACE" -> {
+                                            SmartImportWorkspaceScreen(
+                                                viewModel = viewModel,
+                                                initialUris = importInitialUris,
+                                                initialMergeProject = importInitialMergeProject,
+                                                onBack = {
+                                                    showImportWorkspace = false
+                                                    importInitialUris = emptyList()
+                                                    importInitialMergeProject = null
+                                                },
+                                                onImportCompleted = {
+                                                    showImportWorkspace = false
+                                                    importInitialUris = emptyList()
+                                                    importInitialMergeProject = null
+                                                    currentScreen = if (isExpandedSplit) AppScreen.ProjectList else AppScreen.RecordingWorkspace
+                                                },
+                                                modifier = Modifier.fillMaxSize()
+                                            )
+                                        }
+
+                                        "WORD_EDITOR" -> {
+                                            WordListEditorScreen(
+                                                viewModel = viewModel,
+                                                initialProject = wordEditorInitialProject,
+                                                onBack = { showWordListEditor = false },
+                                                onSavedAndOpenRecording = { savedProj ->
+                                                    viewModel.selectProject(savedProj)
+                                                    showWordListEditor = false
+                                                    currentScreen = if (isExpandedSplit) AppScreen.ProjectList else AppScreen.RecordingWorkspace
+                                                },
+                                                modifier = Modifier.fillMaxSize()
+                                            )
+                                        }
+
+                                        "USER_MANUAL" -> {
+                                            UserManualScreen(
+                                                onBack = { showUserManualOverlay = false },
+                                                isSimpleMode = isSimpleMode,
+                                                onOpenEncyclopedia = {
+                                                    showUserManualOverlay = false
+                                                    showEncyclopediaOverlay = true
+                                                },
+                                                modifier = Modifier.fillMaxSize()
+                                            )
+                                        }
+
+                                        "ENCYCLOPEDIA" -> {
+                                            FieldworkEncyclopediaScreen(
+                                                onBack = { showEncyclopediaOverlay = false },
+                                                modifier = Modifier.fillMaxSize()
+                                            )
+                                        }
+
+                                        "SOUND_CHECK" -> {
+                                            SoundCheckScreen(
+                                                viewModel = viewModel,
+                                                onBack = { showRoomNoiseCheck = false },
+                                                onGoToRecordingWorkspace = {
+                                                    showRoomNoiseCheck = false
+                                                    currentScreen = if (isExpandedSplit) AppScreen.ProjectList else AppScreen.RecordingWorkspace
+                                                },
+                                                modifier = Modifier.fillMaxSize()
+                                            )
+                                        }
+
+                                        "SETTINGS" -> {
+                                            SettingsScreen(
+                                                viewModel = viewModel,
+                                                onBack = { currentScreen = AppScreen.ProjectList },
+                                                onOpenRecordingsCleanup = { viewModel.setShowGlobalManagement(true) },
+                                                modifier = Modifier.fillMaxSize()
+                                            )
+                                        }
+
+                                        "ARCHIVE_EXPLORER" -> {
+                                            if (currentProject == null) {
+                                                NoProjectPlaceholder(
+                                                    title = S.nav.selectProjectFirstTitle,
+                                                    description = if (isSimpleMode) {
+                                                        S.nav.selectProjectArchiveHintSimple
+                                                    } else {
+                                                        S.nav.selectProjectArchiveHintAdv
+                                                    },
+                                                    icon = Icons.Default.Folder,
+                                                    buttonText = if (isExpandedSplit) S.nav.backToProjectAndStudio else S.nav.goSelectProject,
+                                                    onNavigateToProjects = { currentScreen = AppScreen.ProjectList }
+                                                )
+                                            } else {
+                                                ArchiveExplorerScreen(
+                                                    viewModel = viewModel,
+                                                    onNavigateBack = {
+                                                        currentScreen = if (isExpandedSplit) AppScreen.ProjectList else AppScreen.RecordingWorkspace
+                                                    },
+                                                    onSelectedWordPosition = { seqPos ->
+                                                        viewModel.selectWordBySequencePosition(seqPos)
+                                                        currentScreen = if (isExpandedSplit) AppScreen.ProjectList else AppScreen.RecordingWorkspace
+                                                    },
+                                                    isTablet = !isCompactWidth,
+                                                    modifier = Modifier.fillMaxSize()
+                                                )
+                                            }
+                                        }
+
+                                        "PROJECT_LIST" -> {
+                                            ProjectListScreen(
+                                                viewModel = viewModel,
+                                                onProjectOpened = {
+                                                    currentScreen = AppScreen.RecordingWorkspace
+                                                },
+                                                onOpenDrawer = if (isCompactWidth) {
+                                                    { scope.launch { drawerState.open() } }
+                                                } else {
+                                                    null
+                                                },
+                                                onOpenSettings = { currentScreen = AppScreen.Settings },
+                                                onOpenWirelessLink = { showWirelessPairingDialog = true },
+                                                onOpenWordListEditor = { proj ->
+                                                    wordEditorInitialProject = proj
+                                                    showWordListEditor = true
+                                                },
+                                                onOpenImportPage = { uris, mergeProj ->
+                                                    importInitialUris = uris
+                                                    importInitialMergeProject = mergeProj
+                                                    showImportWorkspace = true
+                                                },
+                                                openSpeakerManagerTrigger = openSpeakerManagerTrigger,
+                                                onSpeakerManagerTriggerConsumed = { openSpeakerManagerTrigger = 0 },
+                                                isSplitPaneMode = !isCompactWidth,
+                                                modifier = Modifier
+                                                    .fillMaxSize()
+                                                    .predictiveBackLayer(mainTabBackState)
+                                            )
+                                        }
+
+                                        "RECORDING_WORKSPACE" -> {
+                                            if (currentProject == null) {
+                                                NoProjectPlaceholder(
+                                                    title = S.nav.selectProjectFirstTitle,
+                                                    description = S.nav.selectProjectRecordingHint,
+                                                    icon = Icons.Default.Mic,
+                                                    buttonText = S.nav.goSelectProject,
+                                                    onNavigateToProjects = { currentScreen = AppScreen.ProjectList }
+                                                )
+                                            } else {
+                                                RecordingScreen(
+                                                    viewModel = viewModel,
+                                                    onNavigateBack = { currentScreen = AppScreen.ProjectList },
+                                                    onViewArchive = { currentScreen = AppScreen.ArchiveExplorer },
+                                                    onOpenFullSettings = { currentScreen = AppScreen.Settings },
+                                                    onOpenWirelessLink = { showWirelessPairingDialog = true },
+                                                    isSplitPaneMode = false,
+                                                    modifier = Modifier
+                                                        .fillMaxSize()
+                                                        .predictiveBackLayer(mainTabBackState)
+                                                )
+                                            }
+                                        }
+
+                                        else -> {
+                                            // Expanded / UltraWide Split Workspace: Collapsible Left Project/QuickSettings Sidebar + Recording Stage
+                                            val showLeftSidebar = !DesktopAdaptiveState.isProjectSidebarCollapsed &&
+                                                !(hasDockedSideOverlay && !isUltraWide)
+
+                                            Row(modifier = Modifier.fillMaxSize()) {
+                                                AnimatedVisibility(
+                                                    visible = showLeftSidebar,
+                                                    enter = StudioMotion.horizontalPaneEnter,
+                                                    exit = StudioMotion.horizontalPaneExit
+                                                ) {
+                                                    Row(modifier = Modifier.fillMaxHeight()) {
+                                                        val leftSidebarMode = if (showQuickRecordingSettingsInSidebar) 1 else 0
+                                                        val leftSidebarWidth = if (windowMetrics.widthDp >= 1200.dp) 348.dp else 320.dp
+
+                                                        AnimatedContent(
+                                                            targetState = leftSidebarMode,
+                                                            transitionSpec = {
+                                                                if (targetState > initialState) {
+                                                                    (slideInHorizontally(StudioMotion.mediumInTween()) { it / 5 } + fadeIn(StudioMotion.shortInTween())) togetherWith
+                                                                        (slideOutHorizontally(StudioMotion.mediumOutTween()) { -it / 6 } + fadeOut(StudioMotion.shortOutTween()))
                                                                 } else {
-                                                                    RecordingScreen(
+                                                                    (slideInHorizontally(StudioMotion.mediumInTween()) { -it / 6 } + fadeIn(StudioMotion.shortInTween())) togetherWith
+                                                                        (slideOutHorizontally(StudioMotion.mediumOutTween()) { it / 5 } + fadeOut(StudioMotion.shortOutTween()))
+                                                                }
+                                                            },
+                                                            label = "LeftSidebarAnimatedTransition",
+                                                            modifier = Modifier
+                                                                .width(leftSidebarWidth)
+                                                                .fillMaxHeight()
+                                                                .clipToBounds()
+                                                                .predictiveBackLayer(mainTabBackState)
+                                                        ) { sidebarMode ->
+                                                            when (sidebarMode) {
+                                                                1 -> {
+                                                                    RecordingQuickSettingsSidebarPane(
                                                                         viewModel = viewModel,
-                                                                        onNavigateBack = {
-                                                                            showQuickRecordingSettingsInSidebar = false
-                                                                            viewModel.selectProject(null)
-                                                                        },
-                                                                        onViewArchive = {
-                                                                            showQuickRecordingSettingsInSidebar = false
-                                                                            tabletLeftPane = AppScreen.ArchiveExplorer
-                                                                        },
                                                                         onOpenFullSettings = {
                                                                             showQuickRecordingSettingsInSidebar = false
-                                                                            tabletLeftPane = AppScreen.Settings
+                                                                            currentScreen = AppScreen.Settings
+                                                                        },
+                                                                        onClose = {
+                                                                            showQuickRecordingSettingsInSidebar = false
+                                                                        },
+                                                                        modifier = Modifier.fillMaxSize()
+                                                                    )
+                                                                }
+                                                                else -> {
+                                                                    ProjectListScreen(
+                                                                        viewModel = viewModel,
+                                                                        onProjectOpened = { },
+                                                                        onOpenSettings = {
+                                                                            showQuickRecordingSettingsInSidebar = false
+                                                                            currentScreen = AppScreen.Settings
                                                                         },
                                                                         onOpenWirelessLink = {
                                                                             showWirelessPairingDialog = true
                                                                         },
-                                                                        onToggleQuickSettingsSidebar = {
-                                                                            if (showQuickRecordingSettingsInSidebar && !DesktopAdaptiveState.isProjectSidebarCollapsed) {
-                                                                                showQuickRecordingSettingsInSidebar = false
-                                                                            } else {
-                                                                                DesktopAdaptiveState.isProjectSidebarCollapsed = false
-                                                                                showQuickRecordingSettingsInSidebar = true
-                                                                            }
+                                                                        onOpenWordListEditor = { proj ->
+                                                                            wordEditorInitialProject = proj
+                                                                            showWordListEditor = true
                                                                         },
+                                                                        onOpenImportPage = { uris, mergeProj ->
+                                                                            importInitialUris = uris
+                                                                            importInitialMergeProject = mergeProj
+                                                                            showImportWorkspace = true
+                                                                        },
+                                                                        openSpeakerManagerTrigger = openSpeakerManagerTrigger,
+                                                                        onSpeakerManagerTriggerConsumed = { openSpeakerManagerTrigger = 0 },
                                                                         isSplitPaneMode = true,
                                                                         modifier = Modifier.fillMaxSize()
                                                                     )
                                                                 }
                                                             }
                                                         }
+                                                        VerticalDivider(
+                                                            modifier = Modifier.fillMaxHeight().width(1.dp),
+                                                            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
+                                                        )
                                                     }
                                                 }
-                                            }
-                                        }
 
-                                    AnimatedVisibility(
-                                        visible = hasDockedSideOverlay,
-                                        enter = slideInHorizontally(animationSpec = tween(250)) { it } + fadeIn(tween(200)),
-                                        exit = slideOutHorizontally(animationSpec = tween(220)) { it } + fadeOut(tween(180))
-                                    ) {
-                                        Row(modifier = Modifier.fillMaxHeight()) {
-                                            if (hasDockedSideOverlay) {
-                                                VerticalDivider(
-                                                    modifier = Modifier.fillMaxHeight().width(1.dp),
-                                                    color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
-                                                )
-                                            }
-                                            Box(
-                                                modifier = Modifier
-                                                    .then(if (hasDockedSideOverlay) Modifier.width(390.dp) else Modifier.fillMaxWidth())
-                                                    .fillMaxHeight()
-                                                    .clipToBounds()
-                                                    .predictiveBackLayer(tabletSidePaneBackState)
-                                                    .background(MaterialTheme.colorScheme.surface)
-                                            ) {
-                                                AnimatedContent(
-                                                    targetState = Pair(showGlobalManagement, showPhoneticWord),
-                                                    contentKey = { Pair(it.first, it.second?.id) },
-                                                    transitionSpec = {
-                                                        fadeIn(tween(180)) togetherWith fadeOut(tween(140))
-                                                    },
-                                                    label = "SideOverlayContentTransition"
-                                                ) { (isGlobal, phoneticWord) ->
-                                                    if (isGlobal) {
-                                                        GlobalManagementPane(
-                                                            viewModel = viewModel,
-                                                            onDismiss = { viewModel.setShowGlobalManagement(false) }
-                                                        )
-                                                    } else if (phoneticWord != null) {
-                                                        PhoneticDetailsPane(
-                                                            word = phoneticWord,
-                                                            speaker = currentSpeaker,
-                                                            viewModel = viewModel,
-                                                            onDismiss = { viewModel.showPhoneticWordDetail(null) }
-                                                        )
+                                                Box(modifier = Modifier.weight(1f).fillMaxHeight()) {
+                                                    AnimatedContent(
+                                                        targetState = currentProject?.id ?: -1L,
+                                                        transitionSpec = {
+                                                            (fadeIn(StudioMotion.pageInTween()) +
+                                                                slideInVertically(StudioMotion.pageInTween()) { it / 32 }) togetherWith
+                                                                fadeOut(StudioMotion.pageOutTween())
+                                                        },
+                                                        label = "TabletWorkspaceTransition"
+                                                    ) { activeProjectId ->
+                                                        if (activeProjectId <= 0L || currentProject == null) {
+                                                            NoProjectPlaceholder(
+                                                                title = S.nav.selectProjectFirstTitle,
+                                                                description = S.nav.selectProjectRecordingSidebarHint,
+                                                                icon = Icons.Default.Mic,
+                                                                buttonText = S.nav.expandProjectList,
+                                                                onNavigateToProjects = {
+                                                                    showQuickRecordingSettingsInSidebar = false
+                                                                    DesktopAdaptiveState.isProjectSidebarCollapsed = false
+                                                                    currentScreen = AppScreen.ProjectList
+                                                                }
+                                                            )
+                                                        } else {
+                                                            RecordingScreen(
+                                                                viewModel = viewModel,
+                                                                onNavigateBack = {
+                                                                    showQuickRecordingSettingsInSidebar = false
+                                                                    viewModel.selectProject(null)
+                                                                },
+                                                                onViewArchive = {
+                                                                    showQuickRecordingSettingsInSidebar = false
+                                                                    currentScreen = AppScreen.ArchiveExplorer
+                                                                },
+                                                                onOpenFullSettings = {
+                                                                    showQuickRecordingSettingsInSidebar = false
+                                                                    currentScreen = AppScreen.Settings
+                                                                },
+                                                                onOpenWirelessLink = {
+                                                                    showWirelessPairingDialog = true
+                                                                },
+                                                                onToggleQuickSettingsSidebar = {
+                                                                    if (showQuickRecordingSettingsInSidebar && !DesktopAdaptiveState.isProjectSidebarCollapsed) {
+                                                                        showQuickRecordingSettingsInSidebar = false
+                                                                    } else {
+                                                                        DesktopAdaptiveState.isProjectSidebarCollapsed = false
+                                                                        showQuickRecordingSettingsInSidebar = true
+                                                                    }
+                                                                },
+                                                                isSplitPaneMode = true,
+                                                                modifier = Modifier.fillMaxSize()
+                                                            )
+                                                        }
                                                     }
                                                 }
                                             }
@@ -762,436 +1083,59 @@ fun MainScreen(
                                     }
                                 }
 
-                                // On compact desktop/tablet (<1120dp), use full-featured PhoneticDetailsBottomSheet modal
-                                if (showPhoneticWord != null && !canDockRightInspector) {
-                                    PhoneticDetailsBottomSheet(
-                                        word = showPhoneticWord!!,
-                                        speaker = currentSpeaker,
-                                        viewModel = viewModel,
-                                        onDismiss = { viewModel.showPhoneticWordDetail(null) }
-                                    )
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        } else {
-            // Mobile Portrait (Bottom Bar) & Mobile Landscape (Scrollable Left NavigationRail for full vertical height)
-            val gesturesEnabled = (currentScreen == AppScreen.ProjectList || drawerState.isOpen) &&
-                !showSettingsOverlay && !showUserManualOverlay && !showEncyclopediaOverlay && !showWordListEditor && !showImportWorkspace && !showGlobalManagement && !showRoomNoiseCheck
-
-            ModalNavigationDrawer(
-                drawerState = drawerState,
-                gesturesEnabled = gesturesEnabled,
-                drawerContent = {
-                    AppNavigationDrawerContent(
-                        projectCount = allProjects.size,
-                        speakerCount = allSpeakers.size,
-                        themeMode = themeMode,
-                        isSimpleMode = isSimpleMode,
-                        onCycleTheme = {
-                            val nextMode = when (themeMode) {
-                                "SYSTEM" -> "LIGHT"
-                                "LIGHT" -> "DARK"
-                                else -> "SYSTEM"
-                            }
-                            viewModel.setThemeMode(nextMode)
-                        },
-                        onOpenSpeakerManager = {
-                            scope.launch { drawerState.close() }
-                            currentScreen = AppScreen.ProjectList
-                            openSpeakerManagerTrigger++
-                        },
-                        onOpenRecordingStats = {
-                            scope.launch { drawerState.close() }
-                            viewModel.setShowGlobalManagement(true)
-                        },
-                        onOpenWordListEditor = {
-                            scope.launch { drawerState.close() }
-                            wordEditorInitialProject = currentProject
-                            showWordListEditor = true
-                        },
-                        onOpenUserManual = {
-                            scope.launch { drawerState.close() }
-                            showUserManualOverlay = true
-                        },
-                        onOpenEncyclopedia = {
-                            scope.launch { drawerState.close() }
-                            showEncyclopediaOverlay = true
-                        },
-                        onOpenRoomNoiseCheck = {
-                            scope.launch { drawerState.close() }
-                            showRoomNoiseCheck = true
-                        },
-                        onOpenRecordingTips = {
-                            scope.launch { drawerState.close() }
-                            showRecordingTips = true
-                        },
-                        onOpenSettings = {
-                            scope.launch { drawerState.close() }
-                            showSettingsOverlay = true
-                        },
-                        onOpenWirelessLink = {
-                            scope.launch { drawerState.close() }
-                            showWirelessPairingDialog = true
-                        },
-                        onOpenAbout = {
-                            scope.launch { drawerState.close() }
-                            showAboutDialog = true
-                        }
-                    )
-                }
-            ) {
-                Scaffold(
-                    contentWindowInsets = WindowInsets.navigationBars,
-                    bottomBar = {
-                        AnimatedVisibility(
-                            visible = !isMobileLandscape && !(currentScreen == AppScreen.RecordingWorkspace && participantCleanMode),
-                            enter = slideInVertically { it } + fadeIn(),
-                            exit = slideOutVertically { it } + fadeOut()
-                        ) {
-                            NavigationBar(
-                                containerColor = MaterialTheme.colorScheme.surface,
-                                tonalElevation = 4.dp,
-                                modifier = Modifier.testTag("app_bottom_bar")
-                            ) {
-                                NavigationBarItem(
-                                    selected = currentScreen == AppScreen.ProjectList,
-                                    onClick = { currentScreen = AppScreen.ProjectList },
-                                    icon = { Icon(Icons.AutoMirrored.Filled.List, contentDescription = S.nav.tabProjects) },
-                                    label = {
-                                        Text(
-                                            text = S.nav.tabProjects,
-                                            fontWeight = if (currentScreen == AppScreen.ProjectList) FontWeight.Bold else FontWeight.Normal,
-                                            fontSize = 12.sp,
-                                            maxLines = 1,
-                                            softWrap = false
-                                        )
-                                    },
-                                    colors = NavigationBarItemDefaults.colors(
-                                        selectedIconColor = MaterialTheme.colorScheme.primary,
-                                        selectedTextColor = MaterialTheme.colorScheme.primary,
-                                        unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
-                                        unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
-                                        indicatorColor = MaterialTheme.colorScheme.primaryContainer
-                                    ),
-                                    modifier = Modifier.testTag("tab_project_list")
-                                )
-                                NavigationBarItem(
-                                    selected = currentScreen == AppScreen.RecordingWorkspace,
-                                    onClick = { currentScreen = AppScreen.RecordingWorkspace },
-                                    icon = { Icon(Icons.Default.Mic, contentDescription = S.nav.tabRecordingStudio) },
-                                    label = {
-                                        Text(
-                                            text = S.nav.tabRecordingStudio,
-                                            fontWeight = if (currentScreen == AppScreen.RecordingWorkspace) FontWeight.Bold else FontWeight.Normal,
-                                            fontSize = 12.sp,
-                                            maxLines = 1,
-                                            softWrap = false
-                                        )
-                                    },
-                                    colors = NavigationBarItemDefaults.colors(
-                                        selectedIconColor = MaterialTheme.colorScheme.primary,
-                                        selectedTextColor = MaterialTheme.colorScheme.primary,
-                                        unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
-                                        unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
-                                        indicatorColor = MaterialTheme.colorScheme.primaryContainer
-                                    ),
-                                    modifier = Modifier.testTag("tab_recording_workspace")
-                                )
-                                NavigationBarItem(
-                                    selected = currentScreen == AppScreen.ArchiveExplorer,
-                                    onClick = { currentScreen = AppScreen.ArchiveExplorer },
-                                    icon = { Icon(Icons.Default.Folder, contentDescription = S.nav.tabArchive) },
-                                    label = {
-                                        Text(
-                                            text = S.nav.tabArchive,
-                                            fontWeight = if (currentScreen == AppScreen.ArchiveExplorer) FontWeight.Bold else FontWeight.Normal,
-                                            fontSize = 12.sp,
-                                            maxLines = 1,
-                                            softWrap = false
-                                        )
-                                    },
-                                    colors = NavigationBarItemDefaults.colors(
-                                        selectedIconColor = MaterialTheme.colorScheme.primary,
-                                        selectedTextColor = MaterialTheme.colorScheme.primary,
-                                        unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
-                                        unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
-                                        indicatorColor = MaterialTheme.colorScheme.primaryContainer
-                                    ),
-                                    modifier = Modifier.testTag("tab_archive_explorer")
-                                )
-                            }
-                        }
-                    },
-                    containerColor = MaterialTheme.colorScheme.background,
-                    modifier = Modifier.fillMaxSize()
-                ) { innerPadding ->
-                    Row(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .padding(innerPadding)
-                    ) {
-                        AnimatedVisibility(
-                            visible = isMobileLandscape && !(currentScreen == AppScreen.RecordingWorkspace && participantCleanMode),
-                            enter = expandHorizontally(tween(200)) + fadeIn(tween(160)),
-                            exit = shrinkHorizontally(tween(180)) + fadeOut(tween(140))
-                        ) {
-                            Row(modifier = Modifier.fillMaxHeight()) {
-                                NavigationRail(
-                                    containerColor = MaterialTheme.colorScheme.surface,
-                                    modifier = Modifier
-                                        .width(72.dp)
-                                        .testTag("app_nav_rail")
+                                // P0-1 Fixed Right Docked Inspector: constant 390dp width + permanent divider + horizontal squeeze + cached exit content
+                                AnimatedVisibility(
+                                    visible = hasDockedSideOverlay,
+                                    enter = StudioMotion.horizontalPaneEnterFromEnd(),
+                                    exit = StudioMotion.horizontalPaneExitToEnd()
                                 ) {
-                                    Column(
-                                        modifier = Modifier
-                                            .fillMaxHeight()
-                                            .verticalScroll(rememberScrollState())
-                                            .padding(vertical = 4.dp),
-                                        horizontalAlignment = Alignment.CenterHorizontally,
-                                        verticalArrangement = Arrangement.spacedBy(2.dp)
-                                    ) {
-                                        PhonAcqLogo(
-                                            modifier = Modifier.padding(vertical = 4.dp).size(28.dp)
+                                    Row(modifier = Modifier.fillMaxHeight()) {
+                                        VerticalDivider(
+                                            modifier = Modifier.fillMaxHeight().width(1.dp),
+                                            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
                                         )
-                                        NavigationRailItem(
-                                            selected = currentScreen == AppScreen.ProjectList,
-                                            onClick = { currentScreen = AppScreen.ProjectList },
-                                            icon = { Icon(Icons.AutoMirrored.Filled.List, contentDescription = S.nav.tabProjects) },
-                                            label = { Text(S.nav.tabProjects, fontSize = 10.sp, maxLines = 1, softWrap = false) },
-                                            modifier = Modifier.testTag("tab_project_list")
-                                        )
-                                        NavigationRailItem(
-                                            selected = currentScreen == AppScreen.RecordingWorkspace,
-                                            onClick = { currentScreen = AppScreen.RecordingWorkspace },
-                                            icon = { Icon(Icons.Default.Mic, contentDescription = S.nav.tabRecordingStudio) },
-                                            label = { Text(S.nav.tabRecordingStudio, fontSize = 10.sp, maxLines = 1, softWrap = false) },
-                                            modifier = Modifier.testTag("tab_recording_workspace")
-                                        )
-                                        NavigationRailItem(
-                                            selected = currentScreen == AppScreen.ArchiveExplorer,
-                                            onClick = { currentScreen = AppScreen.ArchiveExplorer },
-                                            icon = { Icon(Icons.Default.Folder, contentDescription = S.nav.tabArchive) },
-                                            label = { Text(S.nav.tabArchive, fontSize = 10.sp, maxLines = 1, softWrap = false) },
-                                            modifier = Modifier.testTag("tab_archive_explorer")
-                                        )
-                                        HorizontalDivider(
-                                            modifier = Modifier.width(32.dp).padding(vertical = 4.dp),
-                                            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f)
-                                        )
-                                        NavigationRailItem(
-                                            selected = false,
-                                            onClick = {
-                                                currentScreen = AppScreen.ProjectList
-                                                openSpeakerManagerTrigger++
-                                            },
-                                            icon = { Icon(Icons.Default.Groups, contentDescription = S.nav.speakerManager) },
-                                            label = { Text(S.nav.speakerShort, fontSize = 10.sp, maxLines = 1, softWrap = false) },
-                                            modifier = Modifier.testTag("rail_speakers")
-                                        )
-                                        if (!isSimpleMode) {
-                                            NavigationRailItem(
-                                                selected = showGlobalManagement,
-                                                onClick = { viewModel.setShowGlobalManagement(true) },
-                                                icon = { Icon(Icons.Default.PieChart, contentDescription = S.nav.recordingStatsAndCleanup) },
-                                                label = { Text(S.nav.statsShort, fontSize = 10.sp, maxLines = 1, softWrap = false) },
-                                                modifier = Modifier.testTag("rail_stats")
-                                            )
-                                        }
-                                        NavigationRailItem(
-                                            selected = showWordListEditor,
-                                            onClick = {
-                                                wordEditorInitialProject = currentProject
-                                                showWordListEditor = true
-                                            },
-                                            icon = { Icon(Icons.Default.EditNote, contentDescription = S.nav.wordListEditor) },
-                                            label = { Text(S.nav.editorShort, fontSize = 10.sp, maxLines = 1, softWrap = false) },
-                                            modifier = Modifier.testTag("rail_word_editor")
-                                        )
-                                        NavigationRailItem(
-                                            selected = showSettingsOverlay,
-                                            onClick = { showSettingsOverlay = true },
-                                            icon = { Icon(Icons.Default.Settings, contentDescription = S.nav.settings) },
-                                            label = { Text(S.nav.settings, fontSize = 10.sp, maxLines = 1, softWrap = false) },
-                                            modifier = Modifier.testTag("rail_settings")
-                                        )
-                                        NavigationRailItem(
-                                            selected = showWirelessPairingDialog || activeLinkRole != LinkRole.STANDALONE,
-                                            onClick = { showWirelessPairingDialog = true },
-                                            icon = { Icon(Icons.Default.Devices, contentDescription = S.nav.wirelessLink) },
-                                            label = { Text(S.nav.wirelessShort, fontSize = 10.sp, maxLines = 1, softWrap = false) },
-                                            modifier = Modifier.testTag("rail_wireless_link")
-                                        )
-                                        NavigationRailItem(
-                                            selected = showRoomNoiseCheck,
-                                            onClick = { showRoomNoiseCheck = true },
-                                            icon = { Icon(Icons.Default.GraphicEq, contentDescription = S.nav.soundCheck) },
-                                            label = { Text(S.nav.soundCheckShort, fontSize = 10.sp, maxLines = 1, softWrap = false) },
-                                            modifier = Modifier.testTag("rail_sound_check")
-                                        )
-                                        NavigationRailItem(
-                                            selected = showUserManualOverlay,
-                                            onClick = { showUserManualOverlay = true },
-                                            icon = { Icon(Icons.AutoMirrored.Filled.MenuBook, contentDescription = S.nav.userManual) },
-                                            label = { Text(S.nav.manualShort, fontSize = 10.sp, maxLines = 1, softWrap = false) },
-                                            modifier = Modifier.testTag("rail_item_user_manual")
-                                        )
-                                        NavigationRailItem(
-                                            selected = showEncyclopediaOverlay,
-                                            onClick = { showEncyclopediaOverlay = true },
-                                            icon = { Icon(Icons.AutoMirrored.Filled.LibraryBooks, contentDescription = S.nav.encyclopedia) },
-                                            label = { Text(S.nav.encyclopediaShort, fontSize = 10.sp, maxLines = 1, softWrap = false) },
-                                            modifier = Modifier.testTag("rail_item_encyclopedia")
-                                        )
-                                        NavigationRailItem(
-                                            selected = showRecordingTips,
-                                            onClick = { showRecordingTips = true },
-                                            icon = { Icon(Icons.Default.Lightbulb, contentDescription = S.nav.recordingTips) },
-                                            label = { Text(S.nav.tipsShort, fontSize = 10.sp, maxLines = 1, softWrap = false) },
-                                            modifier = Modifier.testTag("rail_tips")
-                                        )
-                                        val landscapeThemeIcon = when (themeMode) {
-                                            "LIGHT" -> Icons.Default.LightMode
-                                            "DARK" -> Icons.Default.DarkMode
-                                            else -> Icons.Default.BrightnessAuto
-                                        }
-                                        val landscapeThemeLabel = when (themeMode) {
-                                            "LIGHT" -> S.nav.themeLightShort
-                                            "DARK" -> S.nav.themeDarkShort
-                                            else -> S.nav.themeSystemShort
-                                        }
-                                        NavigationRailItem(
-                                            selected = false,
-                                            onClick = {
-                                                val nextMode = when (themeMode) {
-                                                    "SYSTEM" -> "LIGHT"
-                                                    "LIGHT" -> "DARK"
-                                                    else -> "SYSTEM"
-                                                }
-                                                viewModel.setThemeMode(nextMode)
-                                            },
-                                            icon = { Icon(landscapeThemeIcon, contentDescription = S.nav.switchThemeDesc.withArgs("label" to landscapeThemeLabel)) },
-                                            label = { Text(landscapeThemeLabel, fontSize = 10.sp, maxLines = 1, softWrap = false) },
-                                            modifier = Modifier.testTag("rail_theme_toggle")
-                                        )
-                                        NavigationRailItem(
-                                            selected = showAboutDialog,
-                                            onClick = { showAboutDialog = true },
-                                            icon = { Icon(Icons.Default.Info, contentDescription = S.nav.aboutPhonAcq) },
-                                            label = { Text(S.nav.aboutShort, fontSize = 10.sp, maxLines = 1, softWrap = false) },
-                                            modifier = Modifier.testTag("rail_about")
-                                        )
-                                    }
-                                }
-                                VerticalDivider(
-                                    modifier = Modifier.fillMaxHeight().width(1.dp),
-                                    color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
-                                )
-                            }
-                        }
-
-                        BoxTransition(
-                            targetState = currentScreen,
-                            modifier = Modifier
-                                .weight(1f)
-                                .fillMaxHeight()
-                                .predictiveBackLayer(mainTabBackState)
-                        ) { screen ->
-                            when (screen) {
-                                AppScreen.ProjectList -> {
-                                    ProjectListScreen(
-                                        viewModel = viewModel,
-                                        onProjectOpened = {
-                                            currentScreen = AppScreen.RecordingWorkspace
-                                        },
-                                        onOpenDrawer = {
-                                            scope.launch { drawerState.open() }
-                                        },
-                                        onOpenSettings = {
-                                            showSettingsOverlay = true
-                                        },
-                                        onOpenWirelessLink = {
-                                            showWirelessPairingDialog = true
-                                        },
-                                        onOpenWordListEditor = { proj ->
-                                            wordEditorInitialProject = proj
-                                            showWordListEditor = true
-                                        },
-                                        onOpenImportPage = { uris, mergeProj ->
-                                            importInitialUris = uris
-                                            importInitialMergeProject = mergeProj
-                                            showImportWorkspace = true
-                                        },
-                                        openSpeakerManagerTrigger = openSpeakerManagerTrigger,
-                                        onSpeakerManagerTriggerConsumed = { openSpeakerManagerTrigger = 0 },
-                                        isSplitPaneMode = isMobileLandscape,
-                                        modifier = Modifier.fillMaxSize()
-                                    )
-                                }
-                                AppScreen.RecordingWorkspace -> {
-                                    if (currentProject == null) {
-                                        NoProjectPlaceholder(
-                                            title = S.nav.selectProjectFirstTitle,
-                                            description = S.nav.selectProjectRecordingHint,
-                                            icon = Icons.Default.Mic,
-                                            buttonText = S.nav.goSelectProject,
-                                            onNavigateToProjects = { currentScreen = AppScreen.ProjectList }
-                                        )
-                                    } else {
-                                        RecordingScreen(
-                                            viewModel = viewModel,
-                                            onNavigateBack = {
-                                                currentScreen = AppScreen.ProjectList
-                                            },
-                                            onViewArchive = {
-                                                currentScreen = AppScreen.ArchiveExplorer
-                                            },
-                                            onOpenFullSettings = {
-                                                showSettingsOverlay = true
-                                            },
-                                            onOpenWirelessLink = {
-                                                showWirelessPairingDialog = true
-                                            },
-                                            isSplitPaneMode = isMobileLandscape,
-                                            modifier = Modifier.fillMaxSize()
-                                        )
-                                    }
-                                }
-                                else -> {
-                                    if (currentProject == null) {
-                                        NoProjectPlaceholder(
-                                            title = S.nav.selectProjectFirstTitle,
-                                            description = if (isSimpleMode) {
-                                                S.nav.selectProjectArchiveHintSimple
+                                        Box(
+                                            modifier = Modifier
+                                                .width(390.dp)
+                                                .fillMaxHeight()
+                                                .clipToBounds()
+                                                .predictiveBackLayer(tabletSidePaneBackState)
+                                                .background(MaterialTheme.colorScheme.surface)
+                                        ) {
+                                            val displayedOverlay = if (hasDockedSideOverlay) {
+                                                showGlobalManagement to showPhoneticWord
                                             } else {
-                                                S.nav.selectProjectArchiveHintAdv
-                                            },
-                                            icon = Icons.Default.Folder,
-                                            buttonText = S.nav.goSelectProject,
-                                            onNavigateToProjects = { currentScreen = AppScreen.ProjectList }
-                                        )
-                                    } else {
-                                        ArchiveExplorerScreen(
-                                            viewModel = viewModel,
-                                            onNavigateBack = {
-                                                currentScreen = AppScreen.RecordingWorkspace
-                                            },
-                                            onSelectedWordPosition = { seqPos ->
-                                                viewModel.selectWordBySequencePosition(seqPos)
-                                                currentScreen = AppScreen.RecordingWorkspace
-                                            },
-                                            isTablet = isMobileLandscape,
-                                            modifier = Modifier.fillMaxSize()
-                                        )
+                                                cachedSideOverlay
+                                            }
+                                            AnimatedContent(
+                                                targetState = displayedOverlay,
+                                                contentKey = { Pair(it.first, it.second?.id) },
+                                                transitionSpec = { StudioMotion.subtleFadeScale() },
+                                                label = "SideOverlayContentTransition"
+                                            ) { (isGlobal, phoneticWord) ->
+                                                if (isGlobal) {
+                                                    GlobalManagementPane(
+                                                        viewModel = viewModel,
+                                                        onDismiss = { viewModel.setShowGlobalManagement(false) }
+                                                    )
+                                                } else if (phoneticWord != null) {
+                                                    PhoneticDetailsPane(
+                                                        word = phoneticWord,
+                                                        speaker = currentSpeaker,
+                                                        viewModel = viewModel,
+                                                        onDismiss = { viewModel.showPhoneticWordDetail(null) }
+                                                    )
+                                                }
+                                            }
+                                        }
                                     }
                                 }
                             }
                         }
                     }
 
-                    if (showPhoneticWord != null) {
+                    // Non-docked PhoneticDetails modal (Compact / Medium / <1120dp windows)
+                    if (showPhoneticWord != null && !canDockRightInspector) {
                         PhoneticDetailsBottomSheet(
                             word = showPhoneticWord!!,
                             speaker = currentSpeaker,
@@ -1199,251 +1143,119 @@ fun MainScreen(
                             onDismiss = { viewModel.showPhoneticWordDetail(null) }
                         )
                     }
-                }
-            }
 
-            // Full-Screen Settings Overlay (Zero bottomBar layout shift / zero inset jitter)
-            AnimatedVisibility(
-                visible = showSettingsOverlay,
-                enter = slideInHorizontally(animationSpec = tween(220)) { it / 4 } + fadeIn(tween(180)),
-                exit = slideOutHorizontally(animationSpec = tween(180)) { it / 4 } + fadeOut(tween(150)),
-                modifier = Modifier.fillMaxSize()
-            ) {
-                SettingsScreen(
-                    viewModel = viewModel,
-                    onBack = { showSettingsOverlay = false },
-                    onOpenRecordingsCleanup = {
-                        viewModel.setShowGlobalManagement(true)
-                    },
-                    modifier = Modifier.fillMaxSize()
-                )
-            }
-        }
-
-        // Full-Screen Word List Editor Overlay on Mobile (SplitWorkspace renders inside right workspace)
-        AnimatedVisibility(
-            visible = !isSplitWorkspace && showWordListEditor,
-            enter = slideInHorizontally(animationSpec = tween(220)) { it / 4 } + fadeIn(tween(180)),
-            exit = slideOutHorizontally(animationSpec = tween(180)) { it / 4 } + fadeOut(tween(150)),
-            modifier = Modifier.fillMaxSize()
-        ) {
-            WordListEditorScreen(
-                viewModel = viewModel,
-                initialProject = wordEditorInitialProject,
-                onBack = {
-                    showWordListEditor = false
-                },
-                onSavedAndOpenRecording = { savedProj ->
-                    viewModel.selectProject(savedProj)
-                    showWordListEditor = false
-                    currentScreen = AppScreen.RecordingWorkspace
-                },
-                modifier = Modifier.fillMaxSize()
-            )
-        }
-
-        // Full-Screen Import Workspace Page on Mobile (SplitWorkspace renders inside right workspace)
-        AnimatedVisibility(
-            visible = !isSplitWorkspace && showImportWorkspace,
-            enter = slideInHorizontally(animationSpec = tween(220)) { it / 4 } + fadeIn(tween(180)),
-            exit = slideOutHorizontally(animationSpec = tween(180)) { it / 4 } + fadeOut(tween(150)),
-            modifier = Modifier.fillMaxSize()
-        ) {
-            SmartImportWorkspaceScreen(
-                viewModel = viewModel,
-                initialUris = importInitialUris,
-                initialMergeProject = importInitialMergeProject,
-                onBack = {
-                    showImportWorkspace = false
-                    importInitialUris = emptyList()
-                    importInitialMergeProject = null
-                },
-                onImportCompleted = {
-                    showImportWorkspace = false
-                    importInitialUris = emptyList()
-                    importInitialMergeProject = null
-                    currentScreen = AppScreen.RecordingWorkspace
-                },
-                modifier = Modifier.fillMaxSize()
-            )
-        }
-
-        // Full-Screen User Manual Overlay on Mobile (SplitWorkspace renders inside right workspace)
-        AnimatedVisibility(
-            visible = !isSplitWorkspace && showUserManualOverlay,
-            enter = slideInHorizontally(animationSpec = tween(220)) { it / 4 } + fadeIn(tween(180)),
-            exit = slideOutHorizontally(animationSpec = tween(180)) { it / 4 } + fadeOut(tween(150)),
-            modifier = Modifier.fillMaxSize()
-        ) {
-            UserManualScreen(
-                onBack = { showUserManualOverlay = false },
-                isSimpleMode = isSimpleMode,
-                onOpenEncyclopedia = {
-                    showUserManualOverlay = false
-                    showEncyclopediaOverlay = true
-                },
-                modifier = Modifier.fillMaxSize()
-            )
-        }
-
-        // Full-Screen Fieldwork Encyclopedia Overlay on Mobile (SplitWorkspace renders inside right workspace)
-        AnimatedVisibility(
-            visible = !isSplitWorkspace && showEncyclopediaOverlay,
-            enter = slideInHorizontally(animationSpec = tween(220)) { it / 4 } + fadeIn(tween(180)),
-            exit = slideOutHorizontally(animationSpec = tween(180)) { it / 4 } + fadeOut(tween(150)),
-            modifier = Modifier.fillMaxSize()
-        ) {
-            FieldworkEncyclopediaScreen(
-                onBack = { showEncyclopediaOverlay = false },
-                modifier = Modifier.fillMaxSize()
-            )
-        }
-
-        AnimatedVisibility(
-            visible = !isSplitWorkspace && showGlobalManagement,
-            enter = slideInHorizontally(animationSpec = tween(220)) { it / 4 } + fadeIn(tween(180)),
-            exit = slideOutHorizontally(animationSpec = tween(180)) { it / 4 } + fadeOut(tween(150)),
-            modifier = Modifier.fillMaxSize()
-        ) {
-            GlobalManagementDialog(
-                viewModel = viewModel,
-                onDismiss = { viewModel.setShowGlobalManagement(false) },
-                onOpenProjectInWorkspace = {
-                    showSettingsOverlay = false
-                    currentScreen = AppScreen.RecordingWorkspace
-                }
-            )
-        }
-
-        // Full-Screen Sound Check Overlay on Mobile (SplitWorkspace renders inside right workspace)
-        AnimatedVisibility(
-            visible = !isSplitWorkspace && showRoomNoiseCheck,
-            enter = slideInHorizontally(animationSpec = tween(220)) { it / 4 } + fadeIn(tween(180)),
-            exit = slideOutHorizontally(animationSpec = tween(180)) { it / 4 } + fadeOut(tween(150)),
-            modifier = Modifier.fillMaxSize()
-        ) {
-            SoundCheckScreen(
-                viewModel = viewModel,
-                onBack = { showRoomNoiseCheck = false },
-                onGoToRecordingWorkspace = {
-                    showRoomNoiseCheck = false
-                    currentScreen = AppScreen.RecordingWorkspace
-                },
-                modifier = Modifier.fillMaxSize()
-            )
-        }
-
-        // Full-Screen Multi-Device Wireless Collaboration Workspaces (看读端 / 遥控端)
-        AnimatedVisibility(
-            visible = activeLinkRole != LinkRole.STANDALONE && (isLinkConnected || !showWirelessPairingDialog),
-            enter = fadeIn(tween(220)) + scaleIn(initialScale = 0.97f, animationSpec = tween(240)),
-            exit = fadeOut(tween(180)) + scaleOut(targetScale = 0.98f, animationSpec = tween(180)),
-            modifier = Modifier.fillMaxSize()
-        ) {
-            AnimatedContent(
-                targetState = activeLinkRole,
-                transitionSpec = { fadeIn(tween(200)) togetherWith fadeOut(tween(150)) },
-                label = "WirelessLinkRoleTransition",
-                modifier = Modifier.fillMaxSize()
-            ) { linkRole ->
-                when (linkRole) {
-                    LinkRole.PROMPT_DISPLAY -> {
-                        PromptDisplayLinkScreen(
-                            viewModel = viewModel,
-                            onExitSession = { viewModel.wirelessLink.cancelOrDisconnect() },
-                            modifier = Modifier.fillMaxSize()
-                        )
-                    }
-                    LinkRole.CONTROLLER -> {
-                        RemoteControllerLinkScreen(
-                            viewModel = viewModel,
-                            onExitSession = { viewModel.wirelessLink.cancelOrDisconnect() },
-                            modifier = Modifier.fillMaxSize()
-                        )
-                    }
-                    else -> {
-                        Box(modifier = Modifier.fillMaxSize())
-                    }
-                }
-            }
-        }
-
-        com.example.ui.components.AnimatedDialogVisibility(visible = showWirelessPairingDialog) {
-            WirelessLinkPairingDialog(
-                viewModel = viewModel,
-                onDismiss = { showWirelessPairingDialog = false },
-                onOpenLinkSettings = {
-                    if (isSplitWorkspace) {
-                        tabletLeftPane = AppScreen.Settings
-                    } else {
-                        showSettingsOverlay = true
-                    }
-                }
-            )
-        }
-
-        com.example.ui.components.AnimatedDialogVisibility(visible = showRecordingTips || !hasSeenRecordingTips) {
-            RecordingTipsDialog(
-                isFirstLaunch = !hasSeenRecordingTips,
-                isSimpleMode = isSimpleMode,
-                onDismiss = {
-                    showRecordingTips = false
-                    viewModel.markRecordingTipsSeen()
-                }
-            )
-        }
-
-        com.example.ui.components.AnimatedDialogVisibility(visible = showAboutDialog) {
-            AboutPhonAcqDialog(
-                onDismiss = { showAboutDialog = false }
-            )
-        }
-
-        AnimatedVisibility(
-            visible = isGlobalDropHovering,
-            enter = fadeIn(tween(140)),
-            exit = fadeOut(tween(140)),
-            modifier = Modifier.fillMaxSize()
-        ) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(MaterialTheme.colorScheme.scrim.copy(alpha = 0.28f))
-                    .padding(24.dp),
-                contentAlignment = Alignment.Center
-            ) {
-                Surface(
-                    shape = RoundedCornerShape(28.dp),
-                    color = MaterialTheme.colorScheme.primaryContainer,
-                    border = BorderStroke(2.dp, MaterialTheme.colorScheme.primary),
-                    tonalElevation = 4.dp,
-                    modifier = Modifier.widthIn(max = 560.dp)
-                ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 28.dp, vertical = 22.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(16.dp)
+                    // Full-Screen Multi-Device Wireless Collaboration Workspaces (看读端 / 遥控端)
+                    androidx.compose.animation.AnimatedVisibility(
+                        visible = activeLinkRole != LinkRole.STANDALONE && (isLinkConnected || !showWirelessPairingDialog),
+                        enter = fadeIn(StudioMotion.pageInTween()) + scaleIn(initialScale = 0.975f, animationSpec = StudioMotion.pageInTween()),
+                        exit = fadeOut(StudioMotion.pageOutTween()) + scaleOut(targetScale = 0.985f, animationSpec = StudioMotion.pageOutTween()),
+                        modifier = Modifier.fillMaxSize()
                     ) {
-                        Surface(
-                            shape = CircleShape,
-                            color = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(48.dp)
-                        ) {
-                            Box(contentAlignment = Alignment.Center) {
-                                Icon(
-                                    imageVector = Icons.Default.UploadFile,
-                                    contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.onPrimary,
-                                    modifier = Modifier.size(24.dp)
-                                )
+                        AnimatedContent(
+                            targetState = activeLinkRole,
+                            transitionSpec = { StudioMotion.subtleFadeScale() },
+                            label = "WirelessLinkRoleTransition",
+                            modifier = Modifier.fillMaxSize()
+                        ) { linkRole ->
+                            when (linkRole) {
+                                LinkRole.PROMPT_DISPLAY -> {
+                                    PromptDisplayLinkScreen(
+                                        viewModel = viewModel,
+                                        onExitSession = { viewModel.wirelessLink.cancelOrDisconnect() },
+                                        modifier = Modifier.fillMaxSize()
+                                    )
+                                }
+                                LinkRole.CONTROLLER -> {
+                                    RemoteControllerLinkScreen(
+                                        viewModel = viewModel,
+                                        onExitSession = { viewModel.wirelessLink.cancelOrDisconnect() },
+                                        modifier = Modifier.fillMaxSize()
+                                    )
+                                }
+                                else -> {
+                                    Box(modifier = Modifier.fillMaxSize())
+                                }
                             }
                         }
-                        Text(
-                            text = com.example.i18n.SSmartImport.globalDropBannerText,
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onPrimaryContainer
+                    }
+
+                    com.example.ui.components.AnimatedDialogVisibility(visible = showWirelessPairingDialog) {
+                        WirelessLinkPairingDialog(
+                            viewModel = viewModel,
+                            onDismiss = { showWirelessPairingDialog = false },
+                            onOpenLinkSettings = {
+                                closePrimaryOverlays()
+                                currentScreen = AppScreen.Settings
+                            }
                         )
+                    }
+
+                    com.example.ui.components.AnimatedDialogVisibility(visible = showRecordingTips || !hasSeenRecordingTips) {
+                        RecordingTipsDialog(
+                            isFirstLaunch = !hasSeenRecordingTips,
+                            isSimpleMode = isSimpleMode,
+                            onDismiss = {
+                                showRecordingTips = false
+                                viewModel.markRecordingTipsSeen()
+                            }
+                        )
+                    }
+
+                    com.example.ui.components.AnimatedDialogVisibility(visible = showAboutDialog) {
+                        AboutPhonAcqDialog(
+                            onDismiss = { showAboutDialog = false }
+                        )
+                    }
+
+                    androidx.compose.animation.AnimatedVisibility(
+                        visible = isGlobalDropHovering,
+                        enter = fadeIn(StudioMotion.microTween()),
+                        exit = fadeOut(StudioMotion.microTween()),
+                        modifier = Modifier.fillMaxSize()
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .background(MaterialTheme.colorScheme.scrim.copy(alpha = 0.28f))
+                                .padding(24.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Surface(
+                                shape = RoundedCornerShape(24.dp),
+                                color = MaterialTheme.colorScheme.primaryContainer,
+                                border = BorderStroke(2.dp, MaterialTheme.colorScheme.primary),
+                                tonalElevation = 0.dp,
+                                shadowElevation = 0.dp,
+                                modifier = Modifier.widthIn(max = 560.dp)
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 28.dp, vertical = 22.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(16.dp)
+                                ) {
+                                    Surface(
+                                        shape = CircleShape,
+                                        color = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.size(48.dp)
+                                    ) {
+                                        Box(contentAlignment = Alignment.Center) {
+                                            Icon(
+                                                imageVector = Icons.Default.UploadFile,
+                                                contentDescription = null,
+                                                tint = MaterialTheme.colorScheme.onPrimary,
+                                                modifier = Modifier.size(24.dp)
+                                            )
+                                        }
+                                    }
+                                    Text(
+                                        text = com.example.i18n.SSmartImport.globalDropBannerText,
+                                        style = MaterialTheme.typography.titleMedium,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.onPrimaryContainer
+                                    )
+                                }
+                            }
+                        }
                     }
                 }
             }

@@ -4,13 +4,11 @@ import android.net.Uri
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
-import androidx.compose.animation.expandVertically
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -37,6 +35,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -108,17 +107,24 @@ import com.example.i18n.S
 import com.example.i18n.SSmartImport
 import com.example.i18n.withArgs
 import com.example.ui.components.AnimatedDialogVisibility
+import com.example.ui.components.AnimatedNullableDialogVisibility
 import com.example.ui.components.DesktopAdaptiveState
+import com.example.ui.components.PlatformVerticalScrollbar
 import com.example.ui.components.PredictiveBackGestureHandler
+import com.example.ui.components.ResponsiveContentContainer
 import com.example.ui.components.StudioDialogEnterAnimation
 import com.example.ui.components.StudioFilterChip
 import com.example.ui.components.StudioModalDialog
+import com.example.ui.components.StudioMotion
 import com.example.ui.components.StudioSegmentedControl
 import com.example.ui.components.StudioSwitchRow
 import com.example.ui.components.consumeDialogCardTaps
 import com.example.ui.components.predictiveBackLayer
 import com.example.ui.components.rememberPredictiveBackVisualState
 import com.example.ui.components.rememberStudioInteraction
+import com.example.ui.components.studioAnimateItem
+import com.example.ui.components.studioAnimateSize
+import com.example.ui.components.studioRotateOn
 import com.example.utils.AudioWordPairingRow
 import com.example.utils.ImportTargetMode
 import com.example.utils.MergeAudioPolicy
@@ -444,120 +450,133 @@ fun SmartImportWorkspaceScreen(
         bottomBar = {
             Surface(
                 color = cs.surfaceContainerLow,
-                tonalElevation = 2.dp,
+                tonalElevation = 0.dp,
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Column(modifier = Modifier.fillMaxWidth()) {
                     HorizontalDivider(color = cs.outlineVariant.copy(alpha = 0.55f))
-                    BoxWithConstraints(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 20.dp, vertical = 12.dp)
-                    ) {
-                        val wideFooter = maxWidth >= 700.dp
-                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            val prog = activeProgress
-                            if (prog != null) {
-                                Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
-                                    Text(
-                                        text = prog.stageMessage,
-                                        fontSize = 12.sp,
-                                        fontWeight = FontWeight.SemiBold,
-                                        color = cs.primary,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
-                                    )
-                                    LinearProgressIndicator(
-                                        progress = { prog.fraction.coerceIn(0f, 1f) },
-                                        color = cs.primary,
-                                        trackColor = cs.surfaceContainerHighest,
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .height(6.dp)
-                                            .clip(CircleShape)
-                                    )
-                                }
-                            }
+                    ResponsiveContentContainer(maxWidth = 1120.dp) {
+                        BoxWithConstraints(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 20.dp, vertical = 12.dp)
+                        ) {
+                            val wideFooter = maxWidth >= 700.dp
+                            val animatedProgFraction by animateFloatAsState(
+                                targetValue = (activeProgress?.fraction ?: 0f).coerceIn(0f, 1f),
+                                animationSpec = StudioMotion.mediumInTween(),
+                                label = "SmartImportProgressBar"
+                            )
+                            var cachedStageMsg by remember { mutableStateOf("") }
+                            activeProgress?.stageMessage?.let { cachedStageMsg = it }
 
-                            if (wideFooter) {
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.SpaceBetween
+                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                AnimatedVisibility(
+                                    visible = activeProgress != null,
+                                    enter = StudioMotion.verticalPanelEnter,
+                                    exit = StudioMotion.verticalPanelExit
                                 ) {
-                                    Text(
-                                        text = readySummary,
-                                        fontSize = 13.sp,
-                                        fontWeight = if (stagedItems.isNotEmpty()) FontWeight.SemiBold else FontWeight.Normal,
-                                        color = if (stagedItems.isNotEmpty()) cs.onSurface else cs.onSurfaceVariant,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis,
-                                        modifier = Modifier.weight(1f).padding(end = 16.dp)
-                                    )
-                                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                                        TextButton(
-                                            onClick = onBack,
-                                            enabled = !isExecutingImport,
-                                            shape = RoundedCornerShape(12.dp),
+                                    Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                                        Text(
+                                            text = activeProgress?.stageMessage ?: cachedStageMsg,
+                                            fontSize = 12.sp,
+                                            fontWeight = FontWeight.SemiBold,
+                                            color = cs.primary,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                        LinearProgressIndicator(
+                                            progress = { animatedProgFraction },
+                                            color = cs.primary,
+                                            trackColor = cs.surfaceContainerHighest,
                                             modifier = Modifier
-                                                .defaultMinSize(minHeight = 44.dp)
-                                                .pointerHoverIcon(PointerIcon.Hand)
-                                        ) {
-                                            Text(S.common.back, fontWeight = FontWeight.SemiBold)
-                                        }
-                                        Button(
-                                            onClick = { triggerImportExecution() },
-                                            enabled = canStartImport,
-                                            shape = RoundedCornerShape(12.dp),
-                                            contentPadding = PaddingValues(horizontal = 24.dp, vertical = 10.dp),
-                                            modifier = Modifier
-                                                .defaultMinSize(minHeight = 44.dp)
-                                                .pointerHoverIcon(PointerIcon.Hand)
-                                                .testTag("smart_import_confirm_button")
-                                        ) {
-                                            if (isExecutingImport) {
-                                                CircularProgressIndicator(
-                                                    modifier = Modifier.size(16.dp),
-                                                    strokeWidth = 2.dp,
-                                                    color = cs.onPrimary
-                                                )
-                                                Spacer(modifier = Modifier.width(8.dp))
-                                                Text(SSmartImport.btnImporting, fontWeight = FontWeight.Bold)
-                                            } else {
-                                                Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(18.dp))
-                                                Spacer(modifier = Modifier.width(6.dp))
-                                                Text(SSmartImport.btnStartImport, fontWeight = FontWeight.Bold)
+                                                .fillMaxWidth()
+                                                .height(6.dp)
+                                                .clip(CircleShape)
+                                        )
+                                    }
+                                }
+
+                                if (wideFooter) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.SpaceBetween
+                                    ) {
+                                        Text(
+                                            text = readySummary,
+                                            fontSize = 13.sp,
+                                            fontWeight = if (stagedItems.isNotEmpty()) FontWeight.SemiBold else FontWeight.Normal,
+                                            color = if (stagedItems.isNotEmpty()) cs.onSurface else cs.onSurfaceVariant,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
+                                            modifier = Modifier.weight(1f).padding(end = 16.dp)
+                                        )
+                                        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                            TextButton(
+                                                onClick = onBack,
+                                                enabled = !isExecutingImport,
+                                                shape = RoundedCornerShape(12.dp),
+                                                modifier = Modifier
+                                                    .defaultMinSize(minHeight = 44.dp)
+                                                    .pointerHoverIcon(PointerIcon.Hand)
+                                            ) {
+                                                Text(S.common.back, fontWeight = FontWeight.SemiBold, maxLines = 1, softWrap = false)
+                                            }
+                                            Button(
+                                                onClick = { triggerImportExecution() },
+                                                enabled = canStartImport,
+                                                shape = RoundedCornerShape(12.dp),
+                                                contentPadding = PaddingValues(horizontal = 24.dp, vertical = 10.dp),
+                                                modifier = Modifier
+                                                    .defaultMinSize(minHeight = 44.dp)
+                                                    .pointerHoverIcon(PointerIcon.Hand)
+                                                    .testTag("smart_import_confirm_button")
+                                            ) {
+                                                if (isExecutingImport) {
+                                                    CircularProgressIndicator(
+                                                        modifier = Modifier.size(16.dp),
+                                                        strokeWidth = 2.dp,
+                                                        color = cs.onPrimary
+                                                    )
+                                                    Spacer(modifier = Modifier.width(8.dp))
+                                                    Text(SSmartImport.btnImporting, fontWeight = FontWeight.Bold, maxLines = 1, softWrap = false)
+                                                } else {
+                                                    Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(18.dp))
+                                                    Spacer(modifier = Modifier.width(6.dp))
+                                                    Text(SSmartImport.btnStartImport, fontWeight = FontWeight.Bold, maxLines = 1, softWrap = false)
+                                                }
                                             }
                                         }
                                     }
-                                }
-                            } else {
-                                Text(
-                                    text = readySummary,
-                                    fontSize = 12.sp,
-                                    color = cs.onSurfaceVariant,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                                Button(
-                                    onClick = { triggerImportExecution() },
-                                    enabled = canStartImport,
-                                    shape = RoundedCornerShape(14.dp),
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .defaultMinSize(minHeight = 48.dp)
-                                        .testTag("smart_import_confirm_button")
-                                ) {
-                                    if (isExecutingImport) {
-                                        CircularProgressIndicator(
-                                            modifier = Modifier.size(18.dp),
-                                            strokeWidth = 2.dp,
-                                            color = cs.onPrimary
-                                        )
-                                        Spacer(modifier = Modifier.width(8.dp))
-                                        Text(SSmartImport.btnImporting, fontWeight = FontWeight.Bold)
-                                    } else {
-                                        Text(SSmartImport.btnStartImport, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                                } else {
+                                    Text(
+                                        text = readySummary,
+                                        fontSize = 12.sp,
+                                        color = cs.onSurfaceVariant,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                    Button(
+                                        onClick = { triggerImportExecution() },
+                                        enabled = canStartImport,
+                                        shape = RoundedCornerShape(14.dp),
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .defaultMinSize(minHeight = 48.dp)
+                                            .testTag("smart_import_confirm_button")
+                                    ) {
+                                        if (isExecutingImport) {
+                                            CircularProgressIndicator(
+                                                modifier = Modifier.size(18.dp),
+                                                strokeWidth = 2.dp,
+                                                color = cs.onPrimary
+                                            )
+                                            Spacer(modifier = Modifier.width(8.dp))
+                                            Text(SSmartImport.btnImporting, fontWeight = FontWeight.Bold, maxLines = 1, softWrap = false)
+                                        } else {
+                                            Text(SSmartImport.btnStartImport, fontSize = 14.sp, fontWeight = FontWeight.Bold, maxLines = 1, softWrap = false)
+                                        }
                                     }
                                 }
                             }
@@ -575,245 +594,287 @@ fun SmartImportWorkspaceScreen(
             val isWideLayout = maxWidth >= 760.dp
 
             if (isWideLayout) {
-                Row(modifier = Modifier.fillMaxSize()) {
-                    // Left Column (41%): Dropzone + Staged Files Tray
-                    Column(
-                        modifier = Modifier
-                            .weight(0.41f)
-                            .fillMaxHeight()
-                            .background(cs.surfaceContainerLow.copy(alpha = 0.35f))
-                            .padding(20.dp),
-                        verticalArrangement = Arrangement.spacedBy(14.dp)
-                    ) {
-                        SmartImportDropzoneBox(
-                            isDesktop = isDesktop,
-                            isDragHovering = isDragHovering,
-                            isScanning = isScanningFiles,
-                            enabled = !isExecutingImport,
-                            onPickFiles = { multiDocsLauncher.launch(arrayOf("*/*")) },
-                            onScanFolder = { folderTreeLauncher.launch(null) }
-                        )
+                val stagedPoolListState = rememberLazyListState()
+                val pairingPreviewListState = rememberLazyListState()
 
-                        StagedCategorySummaryRow(
-                            archiveCount = plan.archiveItems.size,
-                            wordlistCount = plan.wordlistItems.size,
-                            totalParsedWords = plan.wordlistItems.sumOf { it.parsedWords.size },
-                            audioCount = plan.audioItems.size,
-                            imageCount = plan.imageItems.size,
-                            onClearAll = if (stagedItems.isNotEmpty() && !isExecutingImport) {
-                                {
-                                    stagedItems = emptyList()
-                                    manualWordOverrides.clear()
-                                }
-                            } else null
-                        )
+                ResponsiveContentContainer(
+                    maxWidth = 1120.dp,
+                    modifier = Modifier.fillMaxSize()
+                ) {
+                    Row(modifier = Modifier.fillMaxSize()) {
+                        // Left Column (41%): Dropzone + Staged Files Tray
+                        Column(
+                            modifier = Modifier
+                                .weight(0.41f)
+                                .fillMaxHeight()
+                                .background(cs.surfaceContainerLow.copy(alpha = 0.35f))
+                                .padding(20.dp),
+                            verticalArrangement = Arrangement.spacedBy(14.dp)
+                        ) {
+                            SmartImportDropzoneBox(
+                                isDesktop = isDesktop,
+                                isDragHovering = isDragHovering,
+                                isScanning = isScanningFiles,
+                                enabled = !isExecutingImport,
+                                onPickFiles = { multiDocsLauncher.launch(arrayOf("*/*")) },
+                                onScanFolder = { folderTreeLauncher.launch(null) }
+                            )
 
-                        if (stagedItems.isEmpty()) {
-                            Box(
-                                contentAlignment = Alignment.Center,
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .fillMaxWidth()
-                                    .padding(horizontal = 16.dp)
-                            ) {
-                                Column(
-                                    horizontalAlignment = Alignment.CenterHorizontally,
-                                    verticalArrangement = Arrangement.spacedBy(10.dp)
-                                ) {
-                                    Text(
-                                        text = SSmartImport.stagedEmptyHint,
-                                        fontSize = 12.5.sp,
-                                        lineHeight = 19.sp,
-                                        color = cs.onSurfaceVariant.copy(alpha = 0.85f)
-                                    )
-                                    TextButton(
-                                        onClick = { showFormatGuideDialog = true },
-                                        modifier = Modifier.pointerHoverIcon(PointerIcon.Hand)
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.AutoMirrored.Filled.HelpOutline,
-                                            contentDescription = null,
-                                            modifier = Modifier.size(16.dp)
-                                        )
-                                        Spacer(modifier = Modifier.width(6.dp))
-                                        Text(SSmartImport.btnFormatExamples, fontWeight = FontWeight.Bold, fontSize = 12.5.sp)
+                            StagedCategorySummaryRow(
+                                archiveCount = plan.archiveItems.size,
+                                wordlistCount = plan.wordlistItems.size,
+                                totalParsedWords = plan.wordlistItems.sumOf { it.parsedWords.size },
+                                audioCount = plan.audioItems.size,
+                                imageCount = plan.imageItems.size,
+                                onClearAll = if (stagedItems.isNotEmpty() && !isExecutingImport) {
+                                    {
+                                        stagedItems = emptyList()
+                                        manualWordOverrides.clear()
                                     }
-                                }
-                            }
-                        } else {
-                            LazyColumn(
-                                contentPadding = PaddingValues(vertical = 2.dp),
-                                verticalArrangement = Arrangement.spacedBy(6.dp),
+                                } else null
+                            )
+
+                            AnimatedContent(
+                                targetState = stagedItems.isEmpty(),
+                                transitionSpec = { StudioMotion.subtleFadeScale() },
+                                label = "StagedPoolEmptyOrList",
                                 modifier = Modifier
                                     .weight(1f)
                                     .fillMaxWidth()
-                            ) {
-                                items(items = stagedItems, key = { it.id }) { item ->
-                                    StagedImportFileRow(
-                                        item = item,
-                                        enabled = !isExecutingImport,
-                                        onRemove = {
-                                            stagedItems = stagedItems.filterNot { it.id == item.id }
-                                            manualWordOverrides.remove(item.id)
-                                        }
-                                    )
-                                }
-                            }
-                        }
-                    }
-
-                    VerticalDivider(color = cs.outlineVariant.copy(alpha = 0.55f))
-
-                    // Right Column (59%): Target Destination + Pairing Preview
-                    LazyColumn(
-                        contentPadding = PaddingValues(20.dp),
-                        verticalArrangement = Arrangement.spacedBy(14.dp),
-                        modifier = Modifier
-                            .weight(0.59f)
-                            .fillMaxHeight()
-                    ) {
-                        val onlyStandaloneArchives = plan.archiveItems.isNotEmpty() &&
-                            plan.wordlistItems.isEmpty() &&
-                            plan.audioItems.isEmpty() &&
-                            plan.imageItems.isEmpty()
-
-                        if (plan.archiveItems.isNotEmpty()) {
-                            item(key = "archive_queue_card") {
-                                ArchiveQueuePreviewCard(archiveItems = plan.archiveItems)
-                            }
-                        }
-
-                        if (!onlyStandaloneArchives) {
-                            item(key = "target_config_section") {
-                                TargetDestinationSection(
-                                    targetMode = targetMode,
-                                    onTargetModeChanged = { targetMode = it },
-                                    customProjectName = customProjectName,
-                                    suggestedProjectName = plan.suggestedProjectName,
-                                    onCustomProjectNameChanged = {
-                                        customProjectName = it
-                                        hasUserEditedProjectName = true
-                                    },
-                                    projects = projects,
-                                    selectedMergeProjectId = selectedMergeProjectId,
-                                    onSelectMergeProject = { selectedMergeProjectId = it },
-                                    speakers = speakers,
-                                    selectedSpeaker = selectedSpeakerObj,
-                                    onSelectSpeaker = { selectedSpeakerId = it.id },
-                                    mergeAudioPolicy = mergeAudioPolicy,
-                                    onMergeAudioPolicyChanged = { mergeAudioPolicy = it },
-                                    hasAudioItems = plan.audioItems.isNotEmpty(),
-                                    hasBaseWordlist = plan.wordlistItems.isNotEmpty() ||
-                                        (targetMode == ImportTargetMode.MERGE_EXISTING_PROJECT && mergeTargetWords.isNotEmpty()),
-                                    autoCreateWords = autoCreateWordsForUnmatchedAudio,
-                                    onAutoCreateWordsChanged = { autoCreateWordsForUnmatchedAudio = it },
-                                    pairSequential = pairBySequentialOrder,
-                                    onPairSequentialChanged = { pairBySequentialOrder = it },
-                                    autoDetectSpeakers = autoDetectSubfolderSpeakers,
-                                    onAutoDetectSpeakersChanged = { autoDetectSubfolderSpeakers = it },
-                                    enabled = !isExecutingImport
-                                )
-                            }
-                        }
-
-                        if (plan.audioItems.isNotEmpty()) {
-                            item(key = "pairing_header_and_filters") {
-                                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                    Text(
-                                        text = SSmartImport.previewSectionTitle,
-                                        fontSize = 13.5.sp,
-                                        fontWeight = FontWeight.ExtraBold,
-                                        color = cs.onSurface
-                                    )
-                                    Row(
+                            ) { isPoolEmpty ->
+                                if (isPoolEmpty) {
+                                    Box(
+                                        contentAlignment = Alignment.Center,
                                         modifier = Modifier
-                                            .fillMaxWidth()
-                                            .horizontalScroll(rememberScrollState()),
-                                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                            .fillMaxSize()
+                                            .padding(horizontal = 16.dp)
                                     ) {
-                                        StudioFilterChip(
-                                            selected = previewFilter == PairingPreviewFilter.ALL,
-                                            onClick = { previewFilter = PairingPreviewFilter.ALL },
-                                            labelText = SSmartImport.filterAll.withArgs("count" to plan.audioPairings.size)
-                                        )
-                                        StudioFilterChip(
-                                            selected = previewFilter == PairingPreviewFilter.MATCHED,
-                                            onClick = { previewFilter = PairingPreviewFilter.MATCHED },
-                                            labelText = SSmartImport.filterMatched.withArgs("count" to matchedCount)
-                                        )
-                                        if (plan.autoCreatedWordCount > 0 || autoCreateWordsForUnmatchedAudio) {
-                                            val autoRows = plan.audioPairings.count { it.matchKind == PairingMatchKind.AUTO_NEW_WORD }
-                                            StudioFilterChip(
-                                                selected = previewFilter == PairingPreviewFilter.AUTO_NEW,
-                                                onClick = { previewFilter = PairingPreviewFilter.AUTO_NEW },
-                                                labelText = SSmartImport.filterAutoNew.withArgs("count" to autoRows)
+                                        Column(
+                                            horizontalAlignment = Alignment.CenterHorizontally,
+                                            verticalArrangement = Arrangement.spacedBy(10.dp)
+                                        ) {
+                                            Text(
+                                                text = SSmartImport.stagedEmptyHint,
+                                                fontSize = 12.5.sp,
+                                                lineHeight = 19.sp,
+                                                color = cs.onSurfaceVariant.copy(alpha = 0.85f)
                                             )
+                                            TextButton(
+                                                onClick = { showFormatGuideDialog = true },
+                                                modifier = Modifier.pointerHoverIcon(PointerIcon.Hand)
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.AutoMirrored.Filled.HelpOutline,
+                                                    contentDescription = null,
+                                                    modifier = Modifier.size(16.dp)
+                                                )
+                                                Spacer(modifier = Modifier.width(6.dp))
+                                                Text(SSmartImport.btnFormatExamples, fontWeight = FontWeight.Bold, fontSize = 12.5.sp)
+                                            }
                                         }
-                                        if (plan.unassignedAudioCount > 0) {
-                                            StudioFilterChip(
-                                                selected = previewFilter == PairingPreviewFilter.UNASSIGNED,
-                                                onClick = { previewFilter = PairingPreviewFilter.UNASSIGNED },
-                                                isErrorVariant = true,
-                                                labelText = SSmartImport.filterUnassigned.withArgs("count" to plan.unassignedAudioCount)
+                                    }
+                                } else {
+                                    Box(modifier = Modifier.fillMaxSize()) {
+                                        LazyColumn(
+                                            state = stagedPoolListState,
+                                            contentPadding = PaddingValues(vertical = 2.dp),
+                                            verticalArrangement = Arrangement.spacedBy(6.dp),
+                                            modifier = Modifier.fillMaxSize()
+                                        ) {
+                                            items(items = stagedItems, key = { it.id }) { item ->
+                                                StagedImportFileRow(
+                                                    item = item,
+                                                    enabled = !isExecutingImport,
+                                                    onRemove = {
+                                                        stagedItems = stagedItems.filterNot { it.id == item.id }
+                                                        manualWordOverrides.remove(item.id)
+                                                    },
+                                                    modifier = studioAnimateItem()
+                                                )
+                                            }
+                                        }
+                                        PlatformVerticalScrollbar(
+                                            listState = stagedPoolListState,
+                                            modifier = Modifier.align(Alignment.CenterEnd)
+                                        )
+                                    }
+                                }
+                            }
+                        }
+
+                        VerticalDivider(color = cs.outlineVariant.copy(alpha = 0.55f))
+
+                        // Right Column (59%): Target Destination + Pairing Preview
+                        Box(
+                            modifier = Modifier
+                                .weight(0.59f)
+                                .fillMaxHeight()
+                        ) {
+                            LazyColumn(
+                                state = pairingPreviewListState,
+                                contentPadding = PaddingValues(20.dp),
+                                verticalArrangement = Arrangement.spacedBy(14.dp),
+                                modifier = Modifier.fillMaxSize()
+                            ) {
+                                val onlyStandaloneArchives = plan.archiveItems.isNotEmpty() &&
+                                    plan.wordlistItems.isEmpty() &&
+                                    plan.audioItems.isEmpty() &&
+                                    plan.imageItems.isEmpty()
+
+                                if (plan.archiveItems.isNotEmpty()) {
+                                    item(key = "archive_queue_card") {
+                                        ArchiveQueuePreviewCard(
+                                            archiveItems = plan.archiveItems,
+                                            modifier = studioAnimateItem()
+                                        )
+                                    }
+                                }
+
+                                if (!onlyStandaloneArchives) {
+                                    item(key = "target_config_section") {
+                                        TargetDestinationSection(
+                                            targetMode = targetMode,
+                                            onTargetModeChanged = { targetMode = it },
+                                            customProjectName = customProjectName,
+                                            suggestedProjectName = plan.suggestedProjectName,
+                                            onCustomProjectNameChanged = {
+                                                customProjectName = it
+                                                hasUserEditedProjectName = true
+                                            },
+                                            projects = projects,
+                                            selectedMergeProjectId = selectedMergeProjectId,
+                                            onSelectMergeProject = { selectedMergeProjectId = it },
+                                            speakers = speakers,
+                                            selectedSpeaker = selectedSpeakerObj,
+                                            onSelectSpeaker = { selectedSpeakerId = it.id },
+                                            mergeAudioPolicy = mergeAudioPolicy,
+                                            onMergeAudioPolicyChanged = { mergeAudioPolicy = it },
+                                            hasAudioItems = plan.audioItems.isNotEmpty(),
+                                            hasBaseWordlist = plan.wordlistItems.isNotEmpty() ||
+                                                (targetMode == ImportTargetMode.MERGE_EXISTING_PROJECT && mergeTargetWords.isNotEmpty()),
+                                            autoCreateWords = autoCreateWordsForUnmatchedAudio,
+                                            onAutoCreateWordsChanged = { autoCreateWordsForUnmatchedAudio = it },
+                                            pairSequential = pairBySequentialOrder,
+                                            onPairSequentialChanged = { pairBySequentialOrder = it },
+                                            autoDetectSpeakers = autoDetectSubfolderSpeakers,
+                                            onAutoDetectSpeakersChanged = { autoDetectSubfolderSpeakers = it },
+                                            enabled = !isExecutingImport
+                                        )
+                                    }
+                                }
+
+                                if (plan.audioItems.isNotEmpty()) {
+                                    item(key = "pairing_header_and_filters") {
+                                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                            Text(
+                                                text = SSmartImport.previewSectionTitle,
+                                                fontSize = 13.5.sp,
+                                                fontWeight = FontWeight.ExtraBold,
+                                                color = cs.onSurface
+                                            )
+                                            Row(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .horizontalScroll(rememberScrollState()),
+                                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                            ) {
+                                                StudioFilterChip(
+                                                    selected = previewFilter == PairingPreviewFilter.ALL,
+                                                    onClick = { previewFilter = PairingPreviewFilter.ALL },
+                                                    labelText = SSmartImport.filterAll.withArgs("count" to plan.audioPairings.size)
+                                                )
+                                                StudioFilterChip(
+                                                    selected = previewFilter == PairingPreviewFilter.MATCHED,
+                                                    onClick = { previewFilter = PairingPreviewFilter.MATCHED },
+                                                    labelText = SSmartImport.filterMatched.withArgs("count" to matchedCount)
+                                                )
+                                                if (plan.autoCreatedWordCount > 0 || autoCreateWordsForUnmatchedAudio) {
+                                                    val autoRows = plan.audioPairings.count { it.matchKind == PairingMatchKind.AUTO_NEW_WORD }
+                                                    StudioFilterChip(
+                                                        selected = previewFilter == PairingPreviewFilter.AUTO_NEW,
+                                                        onClick = { previewFilter = PairingPreviewFilter.AUTO_NEW },
+                                                        labelText = SSmartImport.filterAutoNew.withArgs("count" to autoRows)
+                                                    )
+                                                }
+                                                if (plan.unassignedAudioCount > 0) {
+                                                    StudioFilterChip(
+                                                        selected = previewFilter == PairingPreviewFilter.UNASSIGNED,
+                                                        onClick = { previewFilter = PairingPreviewFilter.UNASSIGNED },
+                                                        isErrorVariant = true,
+                                                        labelText = SSmartImport.filterUnassigned.withArgs("count" to plan.unassignedAudioCount)
+                                                    )
+                                                }
+                                            }
+                                        }
+                                    }
+
+                                    items(
+                                        items = filteredPairings,
+                                        key = { "pair_${it.audioItem.id}" }
+                                    ) { row ->
+                                        AudioPairingPreviewRow(
+                                            row = row,
+                                            enabled = !isExecutingImport,
+                                            onClickRebind = { rebindTargetRow = row },
+                                            modifier = studioAnimateItem()
+                                        )
+                                    }
+                                } else if (plan.candidateWords.isNotEmpty()) {
+                                    item(key = "wordlist_only_preview") {
+                                        WordlistOnlyPreviewCard(
+                                            candidateWords = plan.candidateWords,
+                                            isMergeMode = targetMode == ImportTargetMode.MERGE_EXISTING_PROJECT,
+                                            modifier = studioAnimateItem()
+                                        )
+                                    }
+                                } else if (!onlyStandaloneArchives) {
+                                    item(key = "empty_preview_hint") {
+                                        Surface(
+                                            shape = RoundedCornerShape(14.dp),
+                                            color = cs.surfaceContainerLow,
+                                            modifier = Modifier.fillMaxWidth()
+                                        ) {
+                                            Text(
+                                                text = SSmartImport.previewEmptyHint,
+                                                fontSize = 12.5.sp,
+                                                lineHeight = 19.sp,
+                                                color = cs.onSurfaceVariant,
+                                                modifier = Modifier.padding(16.dp)
                                             )
                                         }
                                     }
                                 }
                             }
-
-                            items(
-                                items = filteredPairings,
-                                key = { "pair_${it.audioItem.id}" }
-                            ) { row ->
-                                AudioPairingPreviewRow(
-                                    row = row,
-                                    enabled = !isExecutingImport,
-                                    onClickRebind = { rebindTargetRow = row }
-                                )
-                            }
-                        } else if (plan.candidateWords.isNotEmpty()) {
-                            item(key = "wordlist_only_preview") {
-                                WordlistOnlyPreviewCard(
-                                    candidateWords = plan.candidateWords,
-                                    isMergeMode = targetMode == ImportTargetMode.MERGE_EXISTING_PROJECT
-                                )
-                            }
-                        } else if (!onlyStandaloneArchives) {
-                            item(key = "empty_preview_hint") {
-                                Surface(
-                                    shape = RoundedCornerShape(14.dp),
-                                    color = cs.surfaceContainerLow,
-                                    modifier = Modifier.fillMaxWidth()
-                                ) {
-                                    Text(
-                                        text = SSmartImport.previewEmptyHint,
-                                        fontSize = 12.5.sp,
-                                        lineHeight = 19.sp,
-                                        color = cs.onSurfaceVariant,
-                                        modifier = Modifier.padding(16.dp)
-                                    )
-                                }
-                            }
+                            PlatformVerticalScrollbar(
+                                listState = pairingPreviewListState,
+                                modifier = Modifier.align(Alignment.CenterEnd)
+                            )
                         }
                     }
                 }
             } else {
                 // Mobile / Compact Single-Column Scrollable Page
-                Column(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .verticalScroll(rememberScrollState())
-                        .padding(horizontal = 16.dp, vertical = 14.dp),
-                    verticalArrangement = Arrangement.spacedBy(14.dp)
+                val compactScrollState = rememberScrollState()
+                ResponsiveContentContainer(
+                    maxWidth = 680.dp,
+                    modifier = Modifier.fillMaxSize()
                 ) {
-                    SmartImportDropzoneBox(
-                        isDesktop = false,
-                        isDragHovering = false,
-                        isScanning = isScanningFiles,
-                        enabled = !isExecutingImport,
-                        onPickFiles = { multiDocsLauncher.launch(arrayOf("*/*")) },
-                        onScanFolder = { folderTreeLauncher.launch(null) }
-                    )
+                    Box(modifier = Modifier.fillMaxSize()) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .verticalScroll(compactScrollState)
+                                .padding(horizontal = 16.dp, vertical = 14.dp),
+                            verticalArrangement = Arrangement.spacedBy(14.dp)
+                        ) {
+                            SmartImportDropzoneBox(
+                                isDesktop = isDesktop,
+                                isDragHovering = isDragHovering,
+                                isScanning = isScanningFiles,
+                                enabled = !isExecutingImport,
+                                onPickFiles = { multiDocsLauncher.launch(arrayOf("*/*")) },
+                                onScanFolder = { folderTreeLauncher.launch(null) }
+                            )
 
                     if (stagedItems.isNotEmpty()) {
                         StagedCategorySummaryRow(
@@ -930,16 +991,17 @@ fun SmartImportWorkspaceScreen(
                                         )
                                     }
                                     Icon(
-                                        imageVector = if (mobilePairingsExpanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                                        imageVector = Icons.Default.ExpandMore,
                                         contentDescription = null,
-                                        tint = cs.primary
+                                        tint = cs.primary,
+                                        modifier = Modifier.studioRotateOn(mobilePairingsExpanded)
                                     )
                                 }
 
                                 AnimatedVisibility(
                                     visible = mobilePairingsExpanded,
-                                    enter = expandVertically() + fadeIn(),
-                                    exit = shrinkVertically() + fadeOut()
+                                    enter = StudioMotion.verticalPanelEnter,
+                                    exit = StudioMotion.verticalPanelExit
                                 ) {
                                     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                                         plan.audioPairings.take(80).forEach { row ->
@@ -959,6 +1021,12 @@ fun SmartImportWorkspaceScreen(
                             isMergeMode = targetMode == ImportTargetMode.MERGE_EXISTING_PROJECT
                         )
                     }
+                        }
+                        PlatformVerticalScrollbar(
+                            scrollState = compactScrollState,
+                            modifier = Modifier.align(Alignment.CenterEnd)
+                        )
+                    }
                 }
             }
         }
@@ -971,8 +1039,7 @@ fun SmartImportWorkspaceScreen(
         )
     }
 
-    val activeRebind = rebindTargetRow
-    if (activeRebind != null) {
+    AnimatedNullableDialogVisibility(value = rebindTargetRow) { activeRebind ->
         WordRebindPickerDialog(
             row = activeRebind,
             candidateWords = plan.candidateWords,
@@ -1070,40 +1137,105 @@ private fun SmartImportDropzoneBox(
                 )
             }
 
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(10.dp, Alignment.CenterHorizontally)
-            ) {
-                FilledTonalButton(
-                    onClick = onPickFiles,
-                    enabled = enabled && !isScanning,
-                    shape = RoundedCornerShape(12.dp),
-                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
-                    modifier = Modifier
-                        .weight(1f)
-                        .defaultMinSize(minHeight = 48.dp)
-                        .pointerHoverIcon(PointerIcon.Hand)
-                        .testTag("smart_import_pick_files_button")
-                ) {
-                    Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(17.dp))
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text(SSmartImport.btnPickFiles, fontSize = 12.5.sp, fontWeight = FontWeight.Bold, maxLines = 1)
-                }
+            BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+                val stackButtons = maxWidth < 290.dp
+                if (stackButtons) {
+                    Column(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        FilledTonalButton(
+                            onClick = onPickFiles,
+                            enabled = enabled && !isScanning,
+                            shape = RoundedCornerShape(12.dp),
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .defaultMinSize(minHeight = 44.dp)
+                                .pointerHoverIcon(PointerIcon.Hand)
+                                .testTag("smart_import_pick_files_button")
+                        ) {
+                            Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(17.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                SSmartImport.btnPickFiles,
+                                fontSize = 12.5.sp,
+                                fontWeight = FontWeight.Bold,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                        OutlinedButton(
+                            onClick = onScanFolder,
+                            enabled = enabled && !isScanning,
+                            shape = RoundedCornerShape(12.dp),
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .defaultMinSize(minHeight = 44.dp)
+                                .pointerHoverIcon(PointerIcon.Hand)
+                                .testTag("smart_import_scan_folder_button")
+                        ) {
+                            Icon(Icons.Default.CreateNewFolder, contentDescription = null, modifier = Modifier.size(17.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                SSmartImport.btnScanFolder,
+                                fontSize = 12.5.sp,
+                                fontWeight = FontWeight.Bold,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                    }
+                } else {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp, Alignment.CenterHorizontally)
+                    ) {
+                        FilledTonalButton(
+                            onClick = onPickFiles,
+                            enabled = enabled && !isScanning,
+                            shape = RoundedCornerShape(12.dp),
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
+                            modifier = Modifier
+                                .weight(1f)
+                                .defaultMinSize(minHeight = 48.dp)
+                                .pointerHoverIcon(PointerIcon.Hand)
+                                .testTag("smart_import_pick_files_button")
+                        ) {
+                            Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(17.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                SSmartImport.btnPickFiles,
+                                fontSize = 12.5.sp,
+                                fontWeight = FontWeight.Bold,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
 
-                OutlinedButton(
-                    onClick = onScanFolder,
-                    enabled = enabled && !isScanning,
-                    shape = RoundedCornerShape(12.dp),
-                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
-                    modifier = Modifier
-                        .weight(1f)
-                        .defaultMinSize(minHeight = 48.dp)
-                        .pointerHoverIcon(PointerIcon.Hand)
-                        .testTag("smart_import_scan_folder_button")
-                ) {
-                    Icon(Icons.Default.CreateNewFolder, contentDescription = null, modifier = Modifier.size(17.dp))
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text(SSmartImport.btnScanFolder, fontSize = 12.5.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+                        OutlinedButton(
+                            onClick = onScanFolder,
+                            enabled = enabled && !isScanning,
+                            shape = RoundedCornerShape(12.dp),
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
+                            modifier = Modifier
+                                .weight(1f)
+                                .defaultMinSize(minHeight = 48.dp)
+                                .pointerHoverIcon(PointerIcon.Hand)
+                                .testTag("smart_import_scan_folder_button")
+                        ) {
+                            Icon(Icons.Default.CreateNewFolder, contentDescription = null, modifier = Modifier.size(17.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                SSmartImport.btnScanFolder,
+                                fontSize = 12.5.sp,
+                                fontWeight = FontWeight.Bold,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                    }
                 }
             }
         }
@@ -1229,7 +1361,9 @@ private fun TargetDestinationSection(
         shape = RoundedCornerShape(16.dp),
         color = cs.surfaceContainerLow,
         border = BorderStroke(1.dp, cs.outlineVariant.copy(alpha = 0.5f)),
-        modifier = Modifier.fillMaxWidth()
+        modifier = Modifier
+            .fillMaxWidth()
+            .studioAnimateSize()
     ) {
         Column(
             modifier = Modifier.padding(14.dp),
@@ -1249,99 +1383,110 @@ private fun TargetDestinationSection(
                 optionTestTags = listOf("smart_import_mode_new", "smart_import_mode_merge")
             )
 
-            if (targetMode == ImportTargetMode.CREATE_NEW_PROJECT) {
-                OutlinedTextField(
-                    value = customProjectName,
-                    onValueChange = onCustomProjectNameChanged,
-                    enabled = enabled,
-                    label = { Text(SSmartImport.newProjectNameLabel, fontSize = 12.sp) },
-                    placeholder = {
-                        Text(
-                            suggestedProjectName.ifBlank { SSmartImport.newProjectNamePlaceholder },
-                            fontSize = 12.5.sp
-                        )
-                    },
-                    singleLine = true,
-                    shape = RoundedCornerShape(12.dp),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .testTag("smart_import_project_name_input")
-                )
-            } else {
-                val targetProj = projects.firstOrNull { it.id == selectedMergeProjectId }
-                if (projects.isEmpty()) {
-                    Text(
-                        text = SSmartImport.noExistingProjectsHint,
-                        fontSize = 12.sp,
-                        color = cs.error
+            AnimatedContent(
+                targetState = targetMode,
+                transitionSpec = { StudioMotion.subtleFadeScale() },
+                label = "SmartImportTargetModeForm"
+            ) { mode ->
+                if (mode == ImportTargetMode.CREATE_NEW_PROJECT) {
+                    OutlinedTextField(
+                        value = customProjectName,
+                        onValueChange = onCustomProjectNameChanged,
+                        enabled = enabled,
+                        label = { Text(SSmartImport.newProjectNameLabel, fontSize = 12.sp) },
+                        placeholder = {
+                            Text(
+                                suggestedProjectName.ifBlank { SSmartImport.newProjectNamePlaceholder },
+                                fontSize = 12.5.sp
+                            )
+                        },
+                        singleLine = true,
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("smart_import_project_name_input")
                     )
                 } else {
-                    Box(modifier = Modifier.fillMaxWidth()) {
-                        Surface(
-                            shape = RoundedCornerShape(12.dp),
-                            color = cs.surface,
-                            border = BorderStroke(1.dp, cs.outlineVariant),
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .defaultMinSize(minHeight = 48.dp)
-                                .clip(RoundedCornerShape(12.dp))
-                                .pointerHoverIcon(PointerIcon.Hand)
-                                .clickable(enabled = enabled) { showProjectDropdown = true }
-                                .testTag("smart_import_merge_project_selector")
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.SpaceBetween
+                    val targetProj = projects.firstOrNull { it.id == selectedMergeProjectId }
+                    if (projects.isEmpty()) {
+                        Text(
+                            text = SSmartImport.noExistingProjectsHint,
+                            fontSize = 12.sp,
+                            color = cs.error
+                        )
+                    } else {
+                        Box(modifier = Modifier.fillMaxWidth()) {
+                            Surface(
+                                shape = RoundedCornerShape(12.dp),
+                                color = cs.surface,
+                                border = BorderStroke(1.dp, cs.outlineVariant),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .defaultMinSize(minHeight = 48.dp)
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .pointerHoverIcon(PointerIcon.Hand)
+                                    .clickable(enabled = enabled) { showProjectDropdown = true }
+                                    .testTag("smart_import_merge_project_selector")
                             ) {
                                 Row(
+                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
                                     verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                    modifier = Modifier.weight(1f)
+                                    horizontalArrangement = Arrangement.SpaceBetween
                                 ) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                        modifier = Modifier.weight(1f)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.FolderOpen,
+                                            contentDescription = null,
+                                            tint = cs.primary,
+                                            modifier = Modifier.size(18.dp)
+                                        )
+                                        Column {
+                                            Text(
+                                                text = SSmartImport.selectExistingProjectLabel,
+                                                fontSize = 10.5.sp,
+                                                color = cs.onSurfaceVariant
+                                            )
+                                            Text(
+                                                text = targetProj?.name ?: "",
+                                                fontSize = 13.5.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                color = cs.onSurface,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis
+                                            )
+                                        }
+                                    }
                                     Icon(
-                                        imageVector = Icons.Default.FolderOpen,
+                                        Icons.Default.ArrowDropDown,
                                         contentDescription = null,
-                                        tint = cs.primary,
-                                        modifier = Modifier.size(18.dp)
+                                        tint = cs.onSurfaceVariant,
+                                        modifier = Modifier.studioRotateOn(showProjectDropdown)
                                     )
-                                    Column {
-                                        Text(
-                                            text = SSmartImport.selectExistingProjectLabel,
-                                            fontSize = 10.5.sp,
-                                            color = cs.onSurfaceVariant
-                                        )
-                                        Text(
-                                            text = targetProj?.name ?: "",
-                                            fontSize = 13.5.sp,
-                                            fontWeight = FontWeight.Bold,
-                                            color = cs.onSurface,
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis
-                                        )
-                                    }
                                 }
-                                Icon(Icons.Default.ArrowDropDown, contentDescription = null, tint = cs.onSurfaceVariant)
                             }
-                        }
 
-                        DropdownMenu(
-                            expanded = showProjectDropdown,
-                            onDismissRequest = { showProjectDropdown = false }
-                        ) {
-                            projects.forEach { p ->
-                                DropdownMenuItem(
-                                    text = {
-                                        Text(
-                                            text = p.name,
-                                            fontWeight = if (p.id == selectedMergeProjectId) FontWeight.Bold else FontWeight.Normal
-                                        )
-                                    },
-                                    onClick = {
-                                        onSelectMergeProject(p.id)
-                                        showProjectDropdown = false
-                                    }
-                                )
+                            DropdownMenu(
+                                expanded = showProjectDropdown,
+                                onDismissRequest = { showProjectDropdown = false }
+                            ) {
+                                projects.forEach { p ->
+                                    DropdownMenuItem(
+                                        text = {
+                                            Text(
+                                                text = p.name,
+                                                fontWeight = if (p.id == selectedMergeProjectId) FontWeight.Bold else FontWeight.Normal
+                                            )
+                                        },
+                                        onClick = {
+                                            onSelectMergeProject(p.id)
+                                            showProjectDropdown = false
+                                        }
+                                    )
+                                }
                             }
                         }
                     }
@@ -1393,7 +1538,12 @@ private fun TargetDestinationSection(
                                     )
                                 }
                             }
-                            Icon(Icons.Default.ArrowDropDown, contentDescription = null, tint = cs.onSurfaceVariant)
+                            Icon(
+                                Icons.Default.ArrowDropDown,
+                                contentDescription = null,
+                                tint = cs.onSurfaceVariant,
+                                modifier = Modifier.studioRotateOn(showSpeakerDropdown)
+                            )
                         }
                     }
 
@@ -1419,69 +1569,83 @@ private fun TargetDestinationSection(
                 }
             }
 
-            if (hasAudioItems) {
-                if (targetMode == ImportTargetMode.MERGE_EXISTING_PROJECT) {
-                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Text(
-                            text = SSmartImport.mergePolicyTitle,
-                            fontSize = 11.5.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = cs.onSurfaceVariant
-                        )
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .horizontalScroll(rememberScrollState()),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            StudioFilterChip(
-                                selected = mergeAudioPolicy == MergeAudioPolicy.SAVE_AS_NEW_TAKE,
-                                onClick = { onMergeAudioPolicyChanged(MergeAudioPolicy.SAVE_AS_NEW_TAKE) },
-                                enabled = enabled,
-                                labelText = SSmartImport.mergePolicyNewTake
+            AnimatedVisibility(
+                visible = hasAudioItems,
+                enter = StudioMotion.verticalPanelEnter,
+                exit = StudioMotion.verticalPanelExit
+            ) {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    AnimatedVisibility(
+                        visible = targetMode == ImportTargetMode.MERGE_EXISTING_PROJECT,
+                        enter = StudioMotion.verticalPanelEnter,
+                        exit = StudioMotion.verticalPanelExit
+                    ) {
+                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Text(
+                                text = SSmartImport.mergePolicyTitle,
+                                fontSize = 11.5.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = cs.onSurfaceVariant
                             )
-                            StudioFilterChip(
-                                selected = mergeAudioPolicy == MergeAudioPolicy.ONLY_FILL_UNRECORDED,
-                                onClick = { onMergeAudioPolicyChanged(MergeAudioPolicy.ONLY_FILL_UNRECORDED) },
-                                enabled = enabled,
-                                labelText = SSmartImport.mergePolicyOnlyEmpty
-                            )
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .horizontalScroll(rememberScrollState()),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                StudioFilterChip(
+                                    selected = mergeAudioPolicy == MergeAudioPolicy.SAVE_AS_NEW_TAKE,
+                                    onClick = { onMergeAudioPolicyChanged(MergeAudioPolicy.SAVE_AS_NEW_TAKE) },
+                                    enabled = enabled,
+                                    labelText = SSmartImport.mergePolicyNewTake
+                                )
+                                StudioFilterChip(
+                                    selected = mergeAudioPolicy == MergeAudioPolicy.ONLY_FILL_UNRECORDED,
+                                    onClick = { onMergeAudioPolicyChanged(MergeAudioPolicy.ONLY_FILL_UNRECORDED) },
+                                    enabled = enabled,
+                                    labelText = SSmartImport.mergePolicyOnlyEmpty
+                                )
+                            }
                         }
                     }
-                }
 
-                StudioSwitchRow(
-                    title = SSmartImport.autoCreateWordsTitle,
-                    subtitle = SSmartImport.autoCreateWordsSub,
-                    checked = autoCreateWords,
-                    onCheckedChange = onAutoCreateWordsChanged,
-                    enabled = enabled,
-                    elevatedSurface = true,
-                    compact = true,
-                    switchTestTag = "smart_import_auto_create_words_switch"
-                )
-
-                if (hasBaseWordlist) {
                     StudioSwitchRow(
-                        title = SSmartImport.pairSequentialTitle,
-                        subtitle = SSmartImport.pairSequentialSub,
-                        checked = pairSequential,
-                        onCheckedChange = onPairSequentialChanged,
+                        title = SSmartImport.autoCreateWordsTitle,
+                        subtitle = SSmartImport.autoCreateWordsSub,
+                        checked = autoCreateWords,
+                        onCheckedChange = onAutoCreateWordsChanged,
+                        enabled = enabled,
+                        elevatedSurface = true,
+                        compact = true,
+                        switchTestTag = "smart_import_auto_create_words_switch"
+                    )
+
+                    AnimatedVisibility(
+                        visible = hasBaseWordlist,
+                        enter = StudioMotion.verticalPanelEnter,
+                        exit = StudioMotion.verticalPanelExit
+                    ) {
+                        StudioSwitchRow(
+                            title = SSmartImport.pairSequentialTitle,
+                            subtitle = SSmartImport.pairSequentialSub,
+                            checked = pairSequential,
+                            onCheckedChange = onPairSequentialChanged,
+                            enabled = enabled,
+                            elevatedSurface = true,
+                            compact = true
+                        )
+                    }
+
+                    StudioSwitchRow(
+                        title = SSmartImport.autoSpeakerSubfolderSwitchTitle,
+                        subtitle = SSmartImport.autoSpeakerSubfolderSwitchSub,
+                        checked = autoDetectSpeakers,
+                        onCheckedChange = onAutoDetectSpeakersChanged,
                         enabled = enabled,
                         elevatedSurface = true,
                         compact = true
                     )
                 }
-
-                StudioSwitchRow(
-                    title = SSmartImport.autoSpeakerSubfolderSwitchTitle,
-                    subtitle = SSmartImport.autoSpeakerSubfolderSwitchSub,
-                    checked = autoDetectSpeakers,
-                    onCheckedChange = onAutoDetectSpeakersChanged,
-                    enabled = enabled,
-                    elevatedSurface = true,
-                    compact = true
-                )
             }
         }
     }

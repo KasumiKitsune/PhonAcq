@@ -63,6 +63,7 @@ import androidx.compose.ui.unit.sp
 import com.example.i18n.S
 import com.example.i18n.withArgs
 import com.example.ui.components.DesktopAdaptiveState
+import com.example.ui.components.PlatformVerticalScrollbar
 import com.example.ui.components.PredictiveBackGestureHandler
 import com.example.ui.components.predictiveBackLayer
 import com.example.ui.components.rememberPredictiveBackVisualState
@@ -201,61 +202,82 @@ fun ProjectExportScreen(
             ) {
                 Column(modifier = Modifier.fillMaxWidth()) {
                     HorizontalDivider(color = colorScheme.outlineVariant.copy(alpha = 0.45f))
-                    Box(
+                    BoxWithConstraints(
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(horizontal = 16.dp, vertical = 12.dp),
                         contentAlignment = Alignment.Center
                     ) {
+                        val showDesktopFileNamePill = maxWidth >= 560.dp
                         if (isDesktop) {
                             Row(
                                 modifier = Modifier
                                     .widthIn(max = 980.dp)
                                     .fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
+                                horizontalArrangement = if (showDesktopFileNamePill) Arrangement.SpaceBetween else Arrangement.spacedBy(8.dp, Alignment.End),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                    modifier = Modifier.weight(1f).padding(end = 16.dp)
-                                ) {
-                                    Text(
-                                        text = S.export.outputFileNamePrefix,
-                                        fontSize = 12.sp,
-                                        color = colorScheme.onSurfaceVariant
-                                    )
-                                    Surface(
-                                        shape = RoundedCornerShape(8.dp),
-                                        color = colorScheme.surfaceContainerHigh
+                                if (showDesktopFileNamePill) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                        modifier = Modifier.weight(1f).padding(end = 16.dp)
                                     ) {
                                         Text(
-                                            text = previewFileName,
+                                            text = S.export.outputFileNamePrefix,
                                             fontSize = 12.sp,
-                                            fontFamily = FontFamily.Monospace,
-                                            fontWeight = FontWeight.SemiBold,
-                                            color = colorScheme.onSurface,
-                                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                                            color = colorScheme.onSurfaceVariant,
+                                            maxLines = 1,
+                                            softWrap = false
                                         )
+                                        Surface(
+                                            shape = RoundedCornerShape(8.dp),
+                                            color = colorScheme.surfaceContainerHigh,
+                                            modifier = Modifier.weight(1f, fill = false)
+                                        ) {
+                                            Text(
+                                                text = previewFileName,
+                                                fontSize = 12.sp,
+                                                fontFamily = FontFamily.Monospace,
+                                                fontWeight = FontWeight.SemiBold,
+                                                color = colorScheme.onSurface,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis,
+                                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                                            )
+                                        }
                                     }
                                 }
 
                                 Row(
-                                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                                    verticalAlignment = Alignment.CenterVertically
+                                    horizontalArrangement = Arrangement.spacedBy(if (showDesktopFileNamePill) 10.dp else 8.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = if (!showDesktopFileNamePill) Modifier.fillMaxWidth() else Modifier
                                 ) {
                                     OutlinedButton(
                                         onClick = onBack,
                                         shape = RoundedCornerShape(12.dp),
-                                        modifier = Modifier.height(44.dp)
+                                        contentPadding = PaddingValues(horizontal = if (showDesktopFileNamePill) 16.dp else 12.dp, vertical = 8.dp),
+                                        modifier = Modifier
+                                            .then(if (!showDesktopFileNamePill) Modifier.weight(0.85f) else Modifier)
+                                            .height(44.dp)
+                                            .pointerHoverIcon(PointerIcon.Hand)
                                     ) {
-                                        Text(S.export.backToArchiveDesc, fontWeight = FontWeight.SemiBold, maxLines = 1, softWrap = false)
+                                        Text(
+                                            text = S.export.backToArchiveDesc,
+                                            fontWeight = FontWeight.SemiBold,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
                                     }
                                     Button(
                                         onClick = onSaveLocal,
                                         shape = RoundedCornerShape(12.dp),
+                                        contentPadding = PaddingValues(horizontal = if (showDesktopFileNamePill) 18.dp else 12.dp, vertical = 8.dp),
                                         modifier = Modifier
+                                            .then(if (!showDesktopFileNamePill) Modifier.weight(1.35f) else Modifier)
                                             .height(44.dp)
+                                            .pointerHoverIcon(PointerIcon.Hand)
                                             .testTag("confirm_share_export_button")
                                     ) {
                                         Icon(Icons.Default.Download, contentDescription = null, modifier = Modifier.size(18.dp))
@@ -268,7 +290,7 @@ fun ProjectExportScreen(
                                             },
                                             fontWeight = FontWeight.Bold,
                                             maxLines = 1,
-                                            softWrap = false
+                                            overflow = TextOverflow.Ellipsis
                                         )
                                     }
                                 }
@@ -335,12 +357,15 @@ fun ProjectExportScreen(
         ) {
             val isWideLayout = maxWidth >= 700.dp
             val isMediumScopeWidth = maxWidth >= 520.dp
+            val stackFormatCards = !isSimpleMode && maxWidth < 440.dp
             val horizontalPad = if (isWideLayout) 24.dp else 14.dp
+            val exportScrollState = rememberScrollState()
 
+            Box(modifier = Modifier.fillMaxSize()) {
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .verticalScroll(rememberScrollState()),
+                    .verticalScroll(exportScrollState),
                 contentAlignment = Alignment.TopCenter
             ) {
                 Column(
@@ -360,7 +385,7 @@ fun ProjectExportScreen(
                         isWideLayout = isWideLayout
                     )
 
-                    // 2. Single-Row Format Cards (Strictly 1 horizontal Row on both Phone and Desktop)
+                    // 2. Format Cards (Horizontal Row on >=440dp, Vertical Stack on <440dp for 3 cards to prevent cramping)
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text(
                             text = if (isSimpleMode) S.export.sectionMethodSimple else S.export.sectionMethodAdv,
@@ -369,63 +394,22 @@ fun ProjectExportScreen(
                             color = colorScheme.onSurfaceVariant
                         )
 
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(IntrinsicSize.Max),
-                            horizontalArrangement = Arrangement.spacedBy(if (isWideLayout) 14.dp else 8.dp)
-                        ) {
-                            if (isSimpleMode) {
-                                ExportFormatCard(
-                                    selected = !simpleExportPraatCollection,
-                                    onClick = { onSimpleExportPraatCollectionChange(false) },
-                                    icon = Icons.Default.FolderZip,
-                                    title = S.export.simpleZipTitle,
-                                    extensionBadge = ".zip",
-                                    description = if (isWideLayout) {
-                                        S.export.simpleZipDescWide
-                                    } else {
-                                        S.export.simpleZipDescCompact
-                                    },
-                                    isWideLayout = isWideLayout,
-                                    modifier = Modifier
-                                        .weight(1f)
-                                        .fillMaxHeight()
-                                        .testTag("simple_export_format_zip_chip")
-                                )
-                                ExportFormatCard(
-                                    selected = simpleExportPraatCollection,
-                                    onClick = { onSimpleExportPraatCollectionChange(true) },
-                                    icon = Icons.Default.GraphicEq,
-                                    title = S.export.praatTitle,
-                                    extensionBadge = ".Collection",
-                                    description = if (isWideLayout) {
-                                        S.export.simplePraatDescWide
-                                    } else {
-                                        S.export.simplePraatDescCompact
-                                    },
-                                    isWideLayout = isWideLayout,
-                                    modifier = Modifier
-                                        .weight(1f)
-                                        .fillMaxHeight()
-                                        .testTag("simple_export_format_praat_chip")
-                                )
-                            } else {
+                        if (stackFormatCards) {
+                            Column(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
                                 ExportFormatCard(
                                     selected = selectedExportFormat == 0,
                                     onClick = { onSelectExportFormat(0) },
                                     icon = Icons.Default.FolderZip,
                                     title = S.export.advZipTitle,
                                     extensionBadge = ".zip",
-                                    description = if (isWideLayout) {
-                                        S.export.advZipDescWide
-                                    } else {
-                                        S.export.advZipDescCompact
-                                    },
-                                    isWideLayout = isWideLayout,
+                                    description = S.export.advZipDescCompact,
+                                    isWideLayout = false,
+                                    isStacked = true,
                                     modifier = Modifier
-                                        .weight(1f)
-                                        .fillMaxHeight()
+                                        .fillMaxWidth()
                                         .testTag("export_format_zip_chip")
                                 )
                                 ExportFormatCard(
@@ -434,34 +418,122 @@ fun ProjectExportScreen(
                                     icon = Icons.Default.GraphicEq,
                                     title = S.export.praatTitle,
                                     extensionBadge = ".Collection",
-                                    description = if (isWideLayout) {
-                                        S.export.advPraatDescWide
-                                    } else {
-                                        S.export.advPraatDescCompact
-                                    },
-                                    isWideLayout = isWideLayout,
+                                    description = S.export.advPraatDescCompact,
+                                    isWideLayout = false,
+                                    isStacked = true,
                                     modifier = Modifier
-                                        .weight(1f)
-                                        .fillMaxHeight()
+                                        .fillMaxWidth()
                                         .testTag("export_format_praat_collection_chip")
                                 )
                                 ExportFormatCard(
                                     selected = selectedExportFormat == 2,
                                     onClick = { onSelectExportFormat(2) },
                                     icon = Icons.Default.Tune,
-                                    title = if (isWideLayout) S.export.phonTracerTitleWide else S.export.phonTracerTitleCompact,
+                                    title = S.export.phonTracerTitleWide,
                                     extensionBadge = ".teproj",
-                                    description = if (isWideLayout) {
-                                        S.export.phonTracerDescWide
-                                    } else {
-                                        S.export.phonTracerDescCompact
-                                    },
-                                    isWideLayout = isWideLayout,
+                                    description = S.export.phonTracerDescCompact,
+                                    isWideLayout = false,
+                                    isStacked = true,
                                     modifier = Modifier
-                                        .weight(1f)
-                                        .fillMaxHeight()
+                                        .fillMaxWidth()
                                         .testTag("export_format_teproj_chip")
                                 )
+                            }
+                        } else {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(IntrinsicSize.Max),
+                                horizontalArrangement = Arrangement.spacedBy(if (isWideLayout) 14.dp else 8.dp)
+                            ) {
+                                if (isSimpleMode) {
+                                    ExportFormatCard(
+                                        selected = !simpleExportPraatCollection,
+                                        onClick = { onSimpleExportPraatCollectionChange(false) },
+                                        icon = Icons.Default.FolderZip,
+                                        title = S.export.simpleZipTitle,
+                                        extensionBadge = ".zip",
+                                        description = if (isWideLayout) {
+                                            S.export.simpleZipDescWide
+                                        } else {
+                                            S.export.simpleZipDescCompact
+                                        },
+                                        isWideLayout = isWideLayout,
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .fillMaxHeight()
+                                            .testTag("simple_export_format_zip_chip")
+                                    )
+                                    ExportFormatCard(
+                                        selected = simpleExportPraatCollection,
+                                        onClick = { onSimpleExportPraatCollectionChange(true) },
+                                        icon = Icons.Default.GraphicEq,
+                                        title = S.export.praatTitle,
+                                        extensionBadge = ".Collection",
+                                        description = if (isWideLayout) {
+                                            S.export.simplePraatDescWide
+                                        } else {
+                                            S.export.simplePraatDescCompact
+                                        },
+                                        isWideLayout = isWideLayout,
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .fillMaxHeight()
+                                            .testTag("simple_export_format_praat_chip")
+                                    )
+                                } else {
+                                    ExportFormatCard(
+                                        selected = selectedExportFormat == 0,
+                                        onClick = { onSelectExportFormat(0) },
+                                        icon = Icons.Default.FolderZip,
+                                        title = S.export.advZipTitle,
+                                        extensionBadge = ".zip",
+                                        description = if (isWideLayout) {
+                                            S.export.advZipDescWide
+                                        } else {
+                                            S.export.advZipDescCompact
+                                        },
+                                        isWideLayout = isWideLayout,
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .fillMaxHeight()
+                                            .testTag("export_format_zip_chip")
+                                    )
+                                    ExportFormatCard(
+                                        selected = selectedExportFormat == 1,
+                                        onClick = { onSelectExportFormat(1) },
+                                        icon = Icons.Default.GraphicEq,
+                                        title = S.export.praatTitle,
+                                        extensionBadge = ".Collection",
+                                        description = if (isWideLayout) {
+                                            S.export.advPraatDescWide
+                                        } else {
+                                            S.export.advPraatDescCompact
+                                        },
+                                        isWideLayout = isWideLayout,
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .fillMaxHeight()
+                                            .testTag("export_format_praat_collection_chip")
+                                    )
+                                    ExportFormatCard(
+                                        selected = selectedExportFormat == 2,
+                                        onClick = { onSelectExportFormat(2) },
+                                        icon = Icons.Default.Tune,
+                                        title = if (isWideLayout) S.export.phonTracerTitleWide else S.export.phonTracerTitleCompact,
+                                        extensionBadge = ".teproj",
+                                        description = if (isWideLayout) {
+                                            S.export.phonTracerDescWide
+                                        } else {
+                                            S.export.phonTracerDescCompact
+                                        },
+                                        isWideLayout = isWideLayout,
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .fillMaxHeight()
+                                            .testTag("export_format_teproj_chip")
+                                    )
+                                }
                             }
                         }
                     }
@@ -580,6 +652,13 @@ fun ProjectExportScreen(
 
                     Spacer(Modifier.height(8.dp))
                 }
+            }
+            PlatformVerticalScrollbar(
+                scrollState = exportScrollState,
+                modifier = Modifier
+                    .align(Alignment.CenterEnd)
+                    .fillMaxHeight()
+            )
             }
         }
     }
@@ -702,6 +781,7 @@ private fun ExportFormatCard(
     extensionBadge: String,
     description: String,
     isWideLayout: Boolean,
+    isStacked: Boolean = false,
     modifier: Modifier = Modifier
 ) {
     val interactionSource = remember { MutableInteractionSource() }
@@ -755,12 +835,12 @@ private fun ExportFormatCard(
     ) {
         Column(
             modifier = Modifier
-                .fillMaxSize()
+                .then(if (isStacked) Modifier.fillMaxWidth() else Modifier.fillMaxSize())
                 .padding(
-                    horizontal = if (isWideLayout) 15.dp else 10.dp,
+                    horizontal = if (isWideLayout || isStacked) 15.dp else 10.dp,
                     vertical = if (isWideLayout) 14.dp else 11.dp
                 ),
-            verticalArrangement = Arrangement.SpaceBetween
+            verticalArrangement = if (isStacked) Arrangement.spacedBy(6.dp) else Arrangement.SpaceBetween
         ) {
             Column(verticalArrangement = Arrangement.spacedBy(if (isWideLayout) 8.dp else 5.dp)) {
                 Row(
@@ -789,7 +869,7 @@ private fun ExportFormatCard(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
-                        if (isWideLayout) {
+                        if (isWideLayout || isStacked) {
                             ExtensionPill(extensionBadge = extensionBadge, selected = selected)
                         }
                         Box(

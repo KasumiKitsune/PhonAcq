@@ -8,12 +8,21 @@ import androidx.compose.animation.*
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
+import com.example.ui.components.AdaptiveModalSurface
+import com.example.ui.components.AnimatedDialogVisibility
+import com.example.ui.components.LocalAppWindowMetrics
+import com.example.ui.components.PlatformVerticalScrollbar
 import com.example.ui.components.PredictiveBackGestureHandler
+import com.example.ui.components.ResponsiveContentContainer
 import com.example.ui.components.StudioFilterChip
+import com.example.ui.components.StudioModalDialog
+import com.example.ui.components.StudioMotion
 import com.example.ui.components.SuspendDesktopShortcutsWhen
 import com.example.ui.components.predictiveBackLayer
 import com.example.ui.components.rememberPredictiveBackVisualState
 import com.example.ui.components.rememberStudioInteraction
+import com.example.ui.components.studioAnimateItem
+import com.example.ui.components.studioTactile
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
@@ -33,6 +42,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -55,6 +65,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import com.example.data.*
 import com.example.i18n.S
 import com.example.i18n.withArgs
@@ -161,7 +172,10 @@ fun ProjectListScreen(
         }
     }
 
-    Box(modifier = modifier.fillMaxSize()) {
+    val windowMetrics = LocalAppWindowMetrics.current
+    BoxWithConstraints(modifier = modifier.fillMaxSize()) {
+        val useModalSpeakerManager = maxWidth < 480.dp && windowMetrics.isExpandedOrWider
+
         Scaffold(
             topBar = {
                 TopAppBar(
@@ -283,103 +297,24 @@ fun ProjectListScreen(
                         .padding(innerPadding)
                 ) {
                     val showWirelessHomeRescue = !isLinkConnected && (pendingSyncCount > 0 || wirelessCapsules.isNotEmpty())
+                    val isEmptyHome = projects.isEmpty() && speakers.isEmpty()
 
-                    if (projects.isEmpty() && speakers.isEmpty()) {
-                        Column(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .verticalScroll(rememberScrollState())
-                                .padding(24.dp),
-                            verticalArrangement = Arrangement.Center,
-                            horizontalAlignment = Alignment.CenterHorizontally
-                        ) {
-                            if (showWirelessHomeRescue) {
-                                WirelessHomeBackupBanner(
-                                    pendingSyncCount = pendingSyncCount,
-                                    capsules = wirelessCapsules,
-                                    onRescuePending = {
-                                        viewModel.rescueWirelessPendingToCapsule { count ->
-                                            homeCapsuleReloadTick++
-                                            Toast.makeText(
-                                                context,
-                                                if (count > 0) {
-                                                    S.wireless.savedCountToLocalToast.withArgs("count" to count)
-                                                } else {
-                                                    S.wireless.noPendingToSaveToast
-                                                },
-                                                Toast.LENGTH_SHORT
-                                            ).show()
-                                        }
-                                    },
-                                    onImportCapsule = { cap ->
-                                        viewModel.importWirelessCapsuleAsProject(cap.capsuleDir) { ok, msg ->
-                                            homeCapsuleReloadTick++
-                                            Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
-                                            if (ok) {
-                                                onProjectOpened()
-                                            }
-                                        }
-                                    },
-                                    onExportCapsuleZip = { cap ->
-                                        homeCapsulePendingExport = cap
-                                        val safeName = S.wireless.capsuleZipFilename
-                                            .withArgs("project" to cap.projectName, "speaker" to cap.speakerName)
-                                            .replace(Regex("[\\\\/:*?\"<>|]"), "_")
-                                        exportHomeCapsuleZipLauncher.launch(safeName)
-                                    },
-                                    onDeleteCapsule = { cap ->
-                                        homeCapsulePendingDelete = cap
-                                    }
-                                )
-                                Spacer(modifier = Modifier.height(20.dp))
-                            }
-                            Icon(
-                                imageVector = Icons.AutoMirrored.Filled.List,
-                                contentDescription = S.project.emptyIllustrationDesc,
-                                modifier = Modifier.size(80.dp),
-                                tint = MaterialTheme.colorScheme.outlineVariant
-                            )
-                            Spacer(modifier = Modifier.height(16.dp))
-                            Text(
-                                text = S.project.emptyTitle,
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                            Spacer(modifier = Modifier.height(8.dp))
-                            Text(
-                                text = if (isSimpleMode) {
-                                    S.project.emptyHintSimple
-                                } else {
-                                    S.project.emptyHintAdv
-                                },
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.outline
-                            )
-                            Spacer(modifier = Modifier.height(16.dp))
-                            OutlinedButton(
-                                onClick = { launchImportWorkspace() },
-                                shape = RoundedCornerShape(14.dp),
+                    AnimatedContent(
+                        targetState = isEmptyHome,
+                        transitionSpec = { StudioMotion.subtleFadeScale() },
+                        label = "ProjectHomeEmptyOrList",
+                        modifier = Modifier.fillMaxSize()
+                    ) { emptyHome ->
+                        if (emptyHome) {
+                            Column(
                                 modifier = Modifier
-                                    .pointerHoverIcon(PointerIcon.Hand)
-                                    .testTag("empty_state_import_zip_button")
+                                    .fillMaxSize()
+                                    .verticalScroll(rememberScrollState())
+                                    .padding(24.dp),
+                                verticalArrangement = Arrangement.Center,
+                                horizontalAlignment = Alignment.CenterHorizontally
                             ) {
-                                Icon(Icons.Default.UploadFile, contentDescription = null, modifier = Modifier.size(18.dp))
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Text(com.example.i18n.SSmartImport.hubTitle, fontWeight = FontWeight.Bold, maxLines = 1, softWrap = false)
-                            }
-                        }
-                    } else {
-                        val totalAllRecordings = summariesMap.values.sumOf { it.totalRecordingsCount }
-                        val distinctGroupsCount = speakerGroups.size
-
-                        LazyColumn(
-                            modifier = Modifier.fillMaxSize(),
-                            contentPadding = PaddingValues(16.dp, 8.dp, 16.dp, 96.dp),
-                            verticalArrangement = Arrangement.spacedBy(14.dp)
-                        ) {
-                            if (showWirelessHomeRescue) {
-                                item(key = "wireless_home_backup_banner") {
+                                if (showWirelessHomeRescue) {
                                     WirelessHomeBackupBanner(
                                         pendingSyncCount = pendingSyncCount,
                                         capsules = wirelessCapsules,
@@ -417,225 +352,378 @@ fun ProjectListScreen(
                                             homeCapsulePendingDelete = cap
                                         }
                                     )
+                                    Spacer(modifier = Modifier.height(20.dp))
+                                }
+                                Icon(
+                                    imageVector = Icons.AutoMirrored.Filled.List,
+                                    contentDescription = S.project.emptyIllustrationDesc,
+                                    modifier = Modifier.size(80.dp),
+                                    tint = MaterialTheme.colorScheme.outlineVariant
+                                )
+                                Spacer(modifier = Modifier.height(16.dp))
+                                Text(
+                                    text = S.project.emptyTitle,
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Text(
+                                    text = if (isSimpleMode) {
+                                        S.project.emptyHintSimple
+                                    } else {
+                                        S.project.emptyHintAdv
+                                    },
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.outline
+                                )
+                                Spacer(modifier = Modifier.height(16.dp))
+                                OutlinedButton(
+                                    onClick = { launchImportWorkspace() },
+                                    shape = RoundedCornerShape(14.dp),
+                                    modifier = Modifier
+                                        .pointerHoverIcon(PointerIcon.Hand)
+                                        .testTag("empty_state_import_zip_button")
+                                ) {
+                                    Icon(Icons.Default.UploadFile, contentDescription = null, modifier = Modifier.size(18.dp))
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text(com.example.i18n.SSmartImport.hubTitle, fontWeight = FontWeight.Bold, maxLines = 1, softWrap = false)
                                 }
                             }
-                            // Material You Top Action Console (Speaker Roster & Groups + Corpus Storage)
-                            item {
-                                BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
-                                    val isCompactSidebar = maxWidth < 285.dp
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                    ) {
-                                        // Left Card: Speaker Roster & Groups
-                                        Surface(
-                                            shape = RoundedCornerShape(20.dp),
-                                            color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.75f),
-                                            modifier = Modifier
-                                                .weight(1.14f)
-                                                .clip(RoundedCornerShape(20.dp))
-                                                .clickable {
-                                                    initialSpeakerGroupFilter = null
-                                                    showSpeakerManagerScreen = true
+                        } else {
+                            val totalAllRecordings = summariesMap.values.sumOf { it.totalRecordingsCount }
+                            val distinctGroupsCount = speakerGroups.size
+                            val projectListState = rememberLazyListState()
+
+                            Box(modifier = Modifier.fillMaxSize()) {
+                                LazyColumn(
+                                    state = projectListState,
+                                    modifier = Modifier.fillMaxSize(),
+                                    contentPadding = PaddingValues(16.dp, 8.dp, 16.dp, 96.dp),
+                                    verticalArrangement = Arrangement.spacedBy(14.dp)
+                                ) {
+                                    if (showWirelessHomeRescue) {
+                                        item(key = "wireless_home_backup_banner") {
+                                            WirelessHomeBackupBanner(
+                                                pendingSyncCount = pendingSyncCount,
+                                                capsules = wirelessCapsules,
+                                                onRescuePending = {
+                                                    viewModel.rescueWirelessPendingToCapsule { count ->
+                                                        homeCapsuleReloadTick++
+                                                        Toast.makeText(
+                                                            context,
+                                                            if (count > 0) {
+                                                                S.wireless.savedCountToLocalToast.withArgs("count" to count)
+                                                            } else {
+                                                                S.wireless.noPendingToSaveToast
+                                                            },
+                                                            Toast.LENGTH_SHORT
+                                                        ).show()
+                                                    }
+                                                },
+                                                onImportCapsule = { cap ->
+                                                    viewModel.importWirelessCapsuleAsProject(cap.capsuleDir) { ok, msg ->
+                                                        homeCapsuleReloadTick++
+                                                        Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
+                                                        if (ok) {
+                                                            onProjectOpened()
+                                                        }
+                                                    }
+                                                },
+                                                onExportCapsuleZip = { cap ->
+                                                    homeCapsulePendingExport = cap
+                                                    val safeName = S.wireless.capsuleZipFilename
+                                                        .withArgs("project" to cap.projectName, "speaker" to cap.speakerName)
+                                                        .replace(Regex("[\\\\/:*?\"<>|]"), "_")
+                                                    exportHomeCapsuleZipLauncher.launch(safeName)
+                                                },
+                                                onDeleteCapsule = { cap ->
+                                                    homeCapsulePendingDelete = cap
                                                 }
-                                                .testTag("speaker_archives_manager_card")
-                                        ) {
+                                            )
+                                        }
+                                    }
+                                    // Material You Top Action Console (Speaker Roster & Groups + Corpus Storage)
+                                    item(key = "top_action_console") {
+                                        val cs = MaterialTheme.colorScheme
+                                        BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+                                            val isCompactSidebar = maxWidth < 285.dp
+                                            val (speakerCardSrc, speakerCardHoveredState) = rememberStudioInteraction()
+                                            val speakerCardHovered by speakerCardHoveredState
+                                            val speakerCardBg by animateColorAsState(
+                                                targetValue = if (speakerCardHovered) {
+                                                    lerp(cs.secondaryContainer.copy(alpha = 0.78f), cs.primaryContainer, 0.35f)
+                                                } else {
+                                                    cs.secondaryContainer.copy(alpha = 0.75f)
+                                                },
+                                                animationSpec = StudioMotion.microTween(),
+                                                label = "ConsoleSpeakerCardBg"
+                                            )
+                                            val speakerCardBorder by animateColorAsState(
+                                                targetValue = if (speakerCardHovered) {
+                                                    cs.primary.copy(alpha = 0.45f)
+                                                } else {
+                                                    Color.Transparent
+                                                },
+                                                animationSpec = StudioMotion.microTween(),
+                                                label = "ConsoleSpeakerCardBorder"
+                                            )
+
+                                            val (statsCardSrc, statsCardHoveredState) = rememberStudioInteraction()
+                                            val statsCardHovered by statsCardHoveredState
+                                            val statsCardBg by animateColorAsState(
+                                                targetValue = if (statsCardHovered) {
+                                                    lerp(cs.surfaceContainerLow, cs.primaryContainer, 0.32f)
+                                                } else {
+                                                    cs.surfaceContainerLow
+                                                },
+                                                animationSpec = StudioMotion.microTween(),
+                                                label = "ConsoleStatsCardBg"
+                                            )
+                                            val statsCardBorder by animateColorAsState(
+                                                targetValue = if (statsCardHovered) {
+                                                    cs.primary.copy(alpha = 0.45f)
+                                                } else {
+                                                    cs.outlineVariant.copy(alpha = 0.35f)
+                                                },
+                                                animationSpec = StudioMotion.microTween(),
+                                                label = "ConsoleStatsCardBorder"
+                                            )
+
                                             Row(
-                                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 13.dp),
-                                                verticalAlignment = Alignment.CenterVertically,
-                                                horizontalArrangement = Arrangement.SpaceBetween
+                                                modifier = Modifier.fillMaxWidth(),
+                                                horizontalArrangement = Arrangement.spacedBy(8.dp)
                                             ) {
-                                                Row(
-                                                    verticalAlignment = Alignment.CenterVertically,
-                                                    horizontalArrangement = Arrangement.spacedBy(7.dp),
-                                                    modifier = Modifier.weight(1f)
-                                                ) {
-                                                    if (!isCompactSidebar) {
-                                                        Surface(
-                                                            shape = CircleShape,
-                                                            color = MaterialTheme.colorScheme.secondary,
-                                                            modifier = Modifier.size(30.dp)
+                                                // Left Card: Speaker Roster & Groups
+                                                Surface(
+                                                    shape = RoundedCornerShape(20.dp),
+                                                    color = speakerCardBg,
+                                                    border = BorderStroke(1.dp, speakerCardBorder),
+                                                    modifier = Modifier
+                                                        .weight(1.14f)
+                                                        .studioTactile(speakerCardSrc, pressScale = 0.975f)
+                                                        .clip(RoundedCornerShape(20.dp))
+                                                        .hoverable(speakerCardSrc)
+                                                        .pointerHoverIcon(PointerIcon.Hand)
+                                                        .clickable(
+                                                            interactionSource = speakerCardSrc,
+                                                            indication = LocalIndication.current
                                                         ) {
-                                                            Box(contentAlignment = Alignment.Center) {
+                                                            initialSpeakerGroupFilter = null
+                                                            showSpeakerManagerScreen = true
+                                                        }
+                                                        .testTag("speaker_archives_manager_card")
+                                                ) {
+                                                    Row(
+                                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 13.dp),
+                                                        verticalAlignment = Alignment.CenterVertically,
+                                                        horizontalArrangement = Arrangement.SpaceBetween
+                                                    ) {
+                                                        Row(
+                                                            verticalAlignment = Alignment.CenterVertically,
+                                                            horizontalArrangement = Arrangement.spacedBy(7.dp),
+                                                            modifier = Modifier.weight(1f)
+                                                        ) {
+                                                            if (!isCompactSidebar) {
+                                                                Surface(
+                                                                    shape = CircleShape,
+                                                                    color = cs.secondary,
+                                                                    modifier = Modifier.size(30.dp)
+                                                                ) {
+                                                                    Box(contentAlignment = Alignment.Center) {
+                                                                        Icon(
+                                                                            imageVector = Icons.Default.Groups,
+                                                                            contentDescription = null,
+                                                                            tint = cs.onSecondary,
+                                                                            modifier = Modifier.size(16.dp)
+                                                                        )
+                                                                    }
+                                                                }
+                                                            }
+                                                            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                                                Text(
+                                                                    text = S.speaker.managerTitle,
+                                                                    fontWeight = FontWeight.ExtraBold,
+                                                                    fontSize = 13.5.sp,
+                                                                    color = cs.onSecondaryContainer,
+                                                                    maxLines = 1,
+                                                                    softWrap = false,
+                                                                    overflow = TextOverflow.Ellipsis
+                                                                )
+                                                                Text(
+                                                                    text = if (!isSimpleMode && distinctGroupsCount > 0) {
+                                                                        S.speaker.allSpeakersStatsPill.withArgs(
+                                                                            "speakers" to speakers.size,
+                                                                            "groups" to distinctGroupsCount
+                                                                        )
+                                                                    } else {
+                                                                        S.project.speakerCountSimpleSummary.withArgs("count" to speakers.size)
+                                                                    },
+                                                                    fontSize = 11.sp,
+                                                                    fontWeight = FontWeight.Medium,
+                                                                    color = cs.onSecondaryContainer.copy(alpha = 0.8f),
+                                                                    maxLines = 1,
+                                                                    overflow = TextOverflow.Ellipsis
+                                                                )
+                                                            }
+                                                        }
+                                                        Icon(
+                                                            imageVector = Icons.Default.ChevronRight,
+                                                            contentDescription = null,
+                                                            tint = cs.onSecondaryContainer,
+                                                            modifier = Modifier.size(16.dp)
+                                                        )
+                                                    }
+                                                }
+
+                                                if (!isSimpleMode) {
+                                                    // Right Card: Global Recording Overview & Cleanup
+                                                    Surface(
+                                                        shape = RoundedCornerShape(20.dp),
+                                                        color = statsCardBg,
+                                                        border = BorderStroke(1.dp, statsCardBorder),
+                                                        modifier = Modifier
+                                                            .weight(0.86f)
+                                                            .studioTactile(statsCardSrc, pressScale = 0.975f)
+                                                            .clip(RoundedCornerShape(20.dp))
+                                                            .hoverable(statsCardSrc)
+                                                            .pointerHoverIcon(PointerIcon.Hand)
+                                                            .clickable(
+                                                                interactionSource = statsCardSrc,
+                                                                indication = LocalIndication.current
+                                                            ) {
+                                                                viewModel.setShowGlobalManagement(true)
+                                                            }
+                                                            .testTag("current_speaker_card")
+                                                    ) {
+                                                        Row(
+                                                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 13.dp),
+                                                            verticalAlignment = Alignment.CenterVertically,
+                                                            horizontalArrangement = Arrangement.SpaceBetween
+                                                        ) {
+                                                            Column(
+                                                                verticalArrangement = Arrangement.spacedBy(2.dp),
+                                                                modifier = Modifier.weight(1f)
+                                                            ) {
+                                                                Text(
+                                                                    text = S.project.overviewRecordedCount.withArgs("count" to totalAllRecordings),
+                                                                    fontWeight = FontWeight.ExtraBold,
+                                                                    fontSize = 13.5.sp,
+                                                                    color = cs.primary,
+                                                                    maxLines = 1,
+                                                                    softWrap = false,
+                                                                    overflow = TextOverflow.Ellipsis
+                                                                )
+                                                                Text(
+                                                                    text = S.project.overviewStatsAndCleanup,
+                                                                    fontSize = 11.sp,
+                                                                    fontWeight = FontWeight.Medium,
+                                                                    color = cs.onSurfaceVariant,
+                                                                    maxLines = 1,
+                                                                    overflow = TextOverflow.Ellipsis
+                                                                )
+                                                            }
+                                                            if (!isCompactSidebar) {
                                                                 Icon(
-                                                                    imageVector = Icons.Default.Groups,
+                                                                    imageVector = Icons.Default.Analytics,
                                                                     contentDescription = null,
-                                                                    tint = MaterialTheme.colorScheme.onSecondary,
-                                                                    modifier = Modifier.size(16.dp)
+                                                                    tint = cs.primary.copy(alpha = 0.85f),
+                                                                    modifier = Modifier.size(18.dp)
                                                                 )
                                                             }
                                                         }
                                                     }
-                                                    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                                                        Text(
-                                                            text = S.speaker.managerTitle,
-                                                            fontWeight = FontWeight.ExtraBold,
-                                                            fontSize = 13.5.sp,
-                                                            color = MaterialTheme.colorScheme.onSecondaryContainer,
-                                                            maxLines = 1,
-                                                            softWrap = false,
-                                                            overflow = TextOverflow.Ellipsis
-                                                        )
-                                                        Text(
-                                                            text = if (!isSimpleMode && distinctGroupsCount > 0) {
-                                                                S.speaker.allSpeakersStatsPill.withArgs(
-                                                                    "speakers" to speakers.size,
-                                                                    "groups" to distinctGroupsCount
-                                                                )
-                                                            } else {
-                                                                S.project.speakerCountSimpleSummary.withArgs("count" to speakers.size)
-                                                            },
-                                                            fontSize = 11.sp,
-                                                            fontWeight = FontWeight.Medium,
-                                                            color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.8f),
-                                                            maxLines = 1,
-                                                            overflow = TextOverflow.Ellipsis
-                                                        )
-                                                    }
-                                                }
-                                                Icon(
-                                                    imageVector = Icons.Default.ChevronRight,
-                                                    contentDescription = null,
-                                                    tint = MaterialTheme.colorScheme.onSecondaryContainer,
-                                                    modifier = Modifier.size(16.dp)
-                                                )
-                                            }
-                                        }
-
-                                        if (!isSimpleMode) {
-                                            // Right Card: Global Recording Overview & Cleanup
-                                            Surface(
-                                                shape = RoundedCornerShape(20.dp),
-                                                color = MaterialTheme.colorScheme.surfaceContainerLow,
-                                                modifier = Modifier
-                                                    .weight(0.86f)
-                                                    .clip(RoundedCornerShape(20.dp))
-                                                    .clickable {
-                                                        viewModel.setShowGlobalManagement(true)
-                                                    }
-                                                    .testTag("current_speaker_card")
-                                            ) {
-                                                Row(
-                                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 13.dp),
-                                                    verticalAlignment = Alignment.CenterVertically,
-                                                    horizontalArrangement = Arrangement.SpaceBetween
-                                                ) {
-                                                    Column(
-                                                        verticalArrangement = Arrangement.spacedBy(2.dp),
-                                                        modifier = Modifier.weight(1f)
-                                                    ) {
-                                                        Text(
-                                                            text = S.project.overviewRecordedCount.withArgs("count" to totalAllRecordings),
-                                                            fontWeight = FontWeight.ExtraBold,
-                                                            fontSize = 13.5.sp,
-                                                            color = MaterialTheme.colorScheme.primary,
-                                                            maxLines = 1,
-                                                            softWrap = false,
-                                                            overflow = TextOverflow.Ellipsis
-                                                        )
-                                                        Text(
-                                                            text = S.project.overviewStatsAndCleanup,
-                                                            fontSize = 11.sp,
-                                                            fontWeight = FontWeight.Medium,
-                                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                                            maxLines = 1,
-                                                            overflow = TextOverflow.Ellipsis
-                                                        )
-                                                    }
-                                                    if (!isCompactSidebar) {
-                                                        Icon(
-                                                            imageVector = Icons.Default.Analytics,
-                                                            contentDescription = null,
-                                                            tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.85f),
-                                                            modifier = Modifier.size(18.dp)
-                                                        )
-                                                    }
                                                 }
                                             }
                                         }
                                     }
-                                }
-                            }
 
-                            // Section Header
-                            item {
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(horizontal = 4.dp, vertical = 2.dp),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Text(
-                                        text = S.project.wordlistListHeader.withArgs("count" to projects.size),
-                                        fontSize = 16.sp,
-                                        fontWeight = FontWeight.ExtraBold,
-                                        color = MaterialTheme.colorScheme.onSurface,
-                                        maxLines = 1,
-                                        softWrap = false
-                                    )
-                                    Spacer(modifier = Modifier.width(8.dp))
-                                    Text(
-                                        text = S.project.tapSpeakerHint,
-                                        fontSize = 12.sp,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
-                                    )
-                                }
-                            }
-
-                            // Multi-Speaker Projects Listing
-                            items(
-                                items = projects,
-                                key = { it.id },
-                                contentType = { "project_card" }
-                            ) { project ->
-                                val counts = countsMap[project.id] ?: (0 to 0)
-                                val summary = summariesMap[project.id]
-
-                                ProjectItemCard(
-                                    project = project,
-                                    totalWords = summary?.totalWords ?: counts.first,
-                                    summary = summary,
-                                    isSimpleMode = isSimpleMode,
-                                    onClick = remember(project.id) {
-                                        {
-                                            viewModel.selectProject(project)
-                                            onProjectOpened()
-                                        }
-                                    },
-                                    onSpeakerChipClick = remember(project.id) {
-                                        { clickedSpeaker ->
-                                            viewModel.selectProjectAndSpeaker(project, clickedSpeaker)
-                                            onProjectOpened()
-                                        }
-                                    },
-                                    onManageGroupSpeakers = remember(project.id, project.speakerGroupName, isSimpleMode) {
-                                        {
-                                            initialSpeakerGroupFilter = if (isSimpleMode) null else project.speakerGroupName.takeIf { it.isNotBlank() }
-                                            showSpeakerManagerScreen = true
-                                        }
-                                    },
-                                    onLongClick = remember(project.id) {
-                                        {
-                                            selectedProjectForDetails = project
-                                        }
-                                    },
-                                    onEditDetails = remember(project.id) {
-                                        {
-                                            if (onOpenWordListEditor != null) {
-                                                onOpenWordListEditor(project)
-                                            } else {
-                                                selectedProjectForDetails = project
-                                            }
-                                        }
-                                    },
-                                    onDelete = remember(project.id) {
-                                        {
-                                            viewModel.deleteProject(project)
+                                    // Section Header
+                                    item(key = "wordlist_section_header") {
+                                        Row(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(horizontal = 4.dp, vertical = 2.dp),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Text(
+                                                text = S.project.wordlistListHeader.withArgs("count" to projects.size),
+                                                fontSize = 16.sp,
+                                                fontWeight = FontWeight.ExtraBold,
+                                                color = MaterialTheme.colorScheme.onSurface,
+                                                maxLines = 1,
+                                                softWrap = false
+                                            )
+                                            Spacer(modifier = Modifier.width(8.dp))
+                                            Text(
+                                                text = S.project.tapSpeakerHint,
+                                                fontSize = 12.sp,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis
+                                            )
                                         }
                                     }
+
+                                    // Multi-Speaker Projects Listing
+                                    items(
+                                        items = projects,
+                                        key = { it.id },
+                                        contentType = { "project_card" }
+                                    ) { project ->
+                                        val counts = countsMap[project.id] ?: (0 to 0)
+                                        val summary = summariesMap[project.id]
+
+                                        ProjectItemCard(
+                                            project = project,
+                                            totalWords = summary?.totalWords ?: counts.first,
+                                            summary = summary,
+                                            isSimpleMode = isSimpleMode,
+                                            onClick = remember(project.id) {
+                                                {
+                                                    viewModel.selectProject(project)
+                                                    onProjectOpened()
+                                                }
+                                            },
+                                            onSpeakerChipClick = remember(project.id) {
+                                                { clickedSpeaker ->
+                                                    viewModel.selectProjectAndSpeaker(project, clickedSpeaker)
+                                                    onProjectOpened()
+                                                }
+                                            },
+                                            onManageGroupSpeakers = remember(project.id, project.speakerGroupName, isSimpleMode) {
+                                                {
+                                                    initialSpeakerGroupFilter = if (isSimpleMode) null else project.speakerGroupName.takeIf { it.isNotBlank() }
+                                                    showSpeakerManagerScreen = true
+                                                }
+                                            },
+                                            onLongClick = remember(project.id) {
+                                                {
+                                                    selectedProjectForDetails = project
+                                                }
+                                            },
+                                            onEditDetails = remember(project.id) {
+                                                {
+                                                    if (onOpenWordListEditor != null) {
+                                                        onOpenWordListEditor(project)
+                                                    } else {
+                                                        selectedProjectForDetails = project
+                                                    }
+                                                }
+                                            },
+                                            onDelete = remember(project.id) {
+                                                {
+                                                    viewModel.deleteProject(project)
+                                                }
+                                            },
+                                            modifier = studioAnimateItem()
+                                        )
+                                    }
+                                }
+                                PlatformVerticalScrollbar(
+                                    listState = projectListState,
+                                    modifier = Modifier.align(Alignment.CenterEnd)
                                 )
                             }
                         }
@@ -668,10 +756,43 @@ fun ProjectListScreen(
                 }
             }
 
+        // Narrow sidebar inside wide desktop/tablet window: open SpeakerManager in centered modal!
+        AnimatedDialogVisibility(visible = showSpeakerManagerScreen && useModalSpeakerManager) {
+            StudioModalDialog(
+                onDismissRequest = {
+                    showSpeakerManagerScreen = false
+                    initialSpeakerGroupFilter = null
+                },
+                properties = DialogProperties(
+                    dismissOnBackPress = true,
+                    dismissOnClickOutside = true,
+                    usePlatformDefaultWidth = false
+                )
+            ) {
+                AdaptiveModalSurface(
+                    targetMaxWidth = 760.dp,
+                    maxHeightFraction = 0.88f,
+                    shape = RoundedCornerShape(24.dp),
+                    containerColor = MaterialTheme.colorScheme.background
+                ) {
+                    Box(modifier = Modifier.fillMaxSize()) {
+                        SpeakerManagerPage(
+                            viewModel = viewModel,
+                            initialGroupFilter = initialSpeakerGroupFilter,
+                            onBack = {
+                                showSpeakerManagerScreen = false
+                                initialSpeakerGroupFilter = null
+                            }
+                        )
+                    }
+                }
+            }
+        }
+
         AnimatedVisibility(
-            visible = showSpeakerManagerScreen,
-            enter = slideInHorizontally { width -> width / 3 } + fadeIn(),
-            exit = slideOutHorizontally { width -> width / 3 } + fadeOut(),
+            visible = showSpeakerManagerScreen && !useModalSpeakerManager,
+            enter = slideInHorizontally(StudioMotion.pageInTween()) { width -> width / 3 } + fadeIn(StudioMotion.pageInTween()),
+            exit = slideOutHorizontally(StudioMotion.pageOutTween()) { width -> width / 3 } + fadeOut(StudioMotion.pageOutTween()),
             modifier = Modifier.fillMaxSize()
         ) {
             SpeakerManagerPage(
@@ -722,8 +843,8 @@ fun ProjectListScreen(
 
         AnimatedVisibility(
             visible = showSmartImportHub,
-            enter = slideInHorizontally { width -> width / 3 } + fadeIn(),
-            exit = slideOutHorizontally { width -> width / 3 } + fadeOut(),
+            enter = slideInHorizontally(StudioMotion.pageInTween()) { width -> width / 3 } + fadeIn(StudioMotion.pageInTween()),
+            exit = slideOutHorizontally(StudioMotion.pageOutTween()) { width -> width / 3 } + fadeOut(StudioMotion.pageOutTween()),
             modifier = Modifier.fillMaxSize()
         ) {
             SmartImportWorkspaceScreen(
@@ -984,27 +1105,51 @@ fun ProjectItemCard(
                 }
 
                 Row(verticalAlignment = Alignment.CenterVertically) {
+                    val cs = MaterialTheme.colorScheme
+                    val (editSrc, editHoveredState) = rememberStudioInteraction()
+                    val editHovered by editHoveredState
+                    val editTint by animateColorAsState(
+                        targetValue = if (editHovered) cs.primary else cs.primary.copy(alpha = 0.85f),
+                        animationSpec = StudioMotion.microTween(),
+                        label = "ProjEditIconTint"
+                    )
                     IconButton(
                         onClick = onEditDetails,
-                        modifier = Modifier.size(36.dp)
+                        interactionSource = editSrc,
+                        modifier = Modifier
+                            .size(36.dp)
+                            .hoverable(editSrc)
+                            .studioTactile(editSrc, pressScale = 0.90f)
+                            .pointerHoverIcon(PointerIcon.Hand)
                     ) {
                         Icon(
                             imageVector = Icons.Default.EditNote,
                             contentDescription = S.project.cardEditWordsDesc,
-                            tint = MaterialTheme.colorScheme.primary,
+                            tint = editTint,
                             modifier = Modifier.size(22.dp)
                         )
                     }
+                    val (delSrc, delHoveredState) = rememberStudioInteraction()
+                    val delHovered by delHoveredState
+                    val delTint by animateColorAsState(
+                        targetValue = if (delHovered) cs.error else cs.outline,
+                        animationSpec = StudioMotion.microTween(),
+                        label = "ProjDelIconTint"
+                    )
                     IconButton(
                         onClick = { showDeleteConfirm = true },
+                        interactionSource = delSrc,
                         modifier = Modifier
                             .size(36.dp)
+                            .hoverable(delSrc)
+                            .studioTactile(delSrc, pressScale = 0.90f)
+                            .pointerHoverIcon(PointerIcon.Hand)
                             .testTag("delete_project_${project.id}")
                     ) {
                         Icon(
                             imageVector = Icons.Default.DeleteOutline,
                             contentDescription = S.project.cardDeleteProjectDesc,
-                            tint = MaterialTheme.colorScheme.outline,
+                            tint = delTint,
                             modifier = Modifier.size(20.dp)
                         )
                     }
@@ -1022,25 +1167,45 @@ fun ProjectItemCard(
                         key = { it.speaker.id },
                         contentType = { "speaker_progress_chip" }
                     ) { spkInfo ->
+                        val cs = MaterialTheme.colorScheme
                         val isDone = spkInfo.isCompleted
                         val isStarted = spkInfo.hasStarted
-                        val chipBg = when {
-                            isDone -> MaterialTheme.colorScheme.secondaryContainer
-                            isStarted -> MaterialTheme.colorScheme.primaryContainer
-                            else -> MaterialTheme.colorScheme.surfaceContainerHigh
+                        val (chipSrc, chipHoveredState) = rememberStudioInteraction()
+                        val chipHovered by chipHoveredState
+                        val baseBg = when {
+                            isDone -> cs.secondaryContainer
+                            isStarted -> cs.primaryContainer
+                            else -> cs.surfaceContainerHigh
                         }
+                        val chipBg by animateColorAsState(
+                            targetValue = if (chipHovered) lerp(baseBg, cs.primary, 0.16f) else baseBg,
+                            animationSpec = StudioMotion.microTween(),
+                            label = "SpeakerChipBg_${spkInfo.speaker.id}"
+                        )
+                        val chipBorder by animateColorAsState(
+                            targetValue = if (chipHovered) cs.primary.copy(alpha = 0.55f) else Color.Transparent,
+                            animationSpec = StudioMotion.microTween(),
+                            label = "SpeakerChipBorder_${spkInfo.speaker.id}"
+                        )
                         val chipContent = when {
-                            isDone -> MaterialTheme.colorScheme.onSecondaryContainer
-                            isStarted -> MaterialTheme.colorScheme.onPrimaryContainer
-                            else -> MaterialTheme.colorScheme.onSurfaceVariant
+                            isDone -> cs.onSecondaryContainer
+                            isStarted -> cs.onPrimaryContainer
+                            else -> cs.onSurfaceVariant
                         }
 
                         Surface(
                             shape = RoundedCornerShape(12.dp),
                             color = chipBg,
-                            modifier = Modifier
+                            border = BorderStroke(1.dp, chipBorder),
+                            modifier = studioAnimateItem()
+                                .studioTactile(chipSrc, pressScale = 0.96f)
                                 .clip(RoundedCornerShape(12.dp))
-                                .clickable { onSpeakerChipClick(spkInfo.speaker) }
+                                .hoverable(chipSrc)
+                                .pointerHoverIcon(PointerIcon.Hand)
+                                .clickable(
+                                    interactionSource = chipSrc,
+                                    indication = LocalIndication.current
+                                ) { onSpeakerChipClick(spkInfo.speaker) }
                         ) {
                             Row(
                                 modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
@@ -1079,14 +1244,33 @@ fun ProjectItemCard(
                     }
 
                     // Quick "+ 发音人" chip
-                    item {
+                    item(key = "add_speaker_chip") {
+                        val cs = MaterialTheme.colorScheme
+                        val (addSpkSrc, addSpkHoveredState) = rememberStudioInteraction()
+                        val addSpkHovered by addSpkHoveredState
+                        val addBg by animateColorAsState(
+                            targetValue = if (addSpkHovered) lerp(cs.surfaceContainer, cs.primaryContainer, 0.45f) else cs.surfaceContainer,
+                            animationSpec = StudioMotion.microTween(),
+                            label = "AddSpeakerChipBg"
+                        )
+                        val addBorder by animateColorAsState(
+                            targetValue = if (addSpkHovered) cs.primary.copy(alpha = 0.6f) else cs.outlineVariant.copy(alpha = 0.6f),
+                            animationSpec = StudioMotion.microTween(),
+                            label = "AddSpeakerChipBorder"
+                        )
                         Surface(
                             shape = RoundedCornerShape(12.dp),
-                            color = MaterialTheme.colorScheme.surfaceContainer,
-                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)),
-                            modifier = Modifier
+                            color = addBg,
+                            border = BorderStroke(1.dp, addBorder),
+                            modifier = studioAnimateItem()
+                                .studioTactile(addSpkSrc, pressScale = 0.96f)
                                 .clip(RoundedCornerShape(12.dp))
-                                .clickable { onManageGroupSpeakers() }
+                                .hoverable(addSpkSrc)
+                                .pointerHoverIcon(PointerIcon.Hand)
+                                .clickable(
+                                    interactionSource = addSpkSrc,
+                                    indication = LocalIndication.current
+                                ) { onManageGroupSpeakers() }
                         ) {
                             Row(
                                 modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
@@ -1288,7 +1472,11 @@ fun SpeakerManagerPage(
             )
         },
         floatingActionButton = {
-            if (!showCreateSpeakerForm && speakerToEdit == null) {
+            AnimatedVisibility(
+                visible = !showCreateSpeakerForm && speakerToEdit == null,
+                enter = fadeIn(StudioMotion.shortInTween()) + scaleIn(StudioMotion.tactileSpring(), initialScale = 0.88f),
+                exit = fadeOut(StudioMotion.shortOutTween()) + scaleOut(StudioMotion.shortOutTween(), targetScale = 0.88f)
+            ) {
                 ExtendedFloatingActionButton(
                     onClick = {
                         resetForm()
@@ -1313,7 +1501,8 @@ fun SpeakerManagerPage(
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
         containerColor = MaterialTheme.colorScheme.background
     ) { padding ->
-        Box(
+        ResponsiveContentContainer(
+            maxWidth = 760.dp,
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
@@ -1321,9 +1510,7 @@ fun SpeakerManagerPage(
         ) {
             AnimatedContent(
                 targetState = isFormOpen,
-                transitionSpec = {
-                    fadeIn(tween(180)) togetherWith fadeOut(tween(140))
-                },
+                transitionSpec = { StudioMotion.subtleFadeScale() },
                 label = "SpeakerFormTransition"
             ) { showForm ->
                 if (showForm) {
@@ -1552,18 +1739,21 @@ fun SpeakerManagerPage(
                             }
                         }
 
-                        LazyColumn(
-                            modifier = Modifier.fillMaxSize(),
-                            verticalArrangement = Arrangement.spacedBy(10.dp),
-                            contentPadding = PaddingValues(bottom = 88.dp)
-                        ) {
-                            items(filteredSpeakers, key = { it.id }) { speaker ->
-                                Card(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    shape = RoundedCornerShape(20.dp),
-                                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
-                                    elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
-                                ) {
+                        val speakerListState = rememberLazyListState()
+                        Box(modifier = Modifier.fillMaxSize()) {
+                            LazyColumn(
+                                state = speakerListState,
+                                modifier = Modifier.fillMaxSize(),
+                                verticalArrangement = Arrangement.spacedBy(10.dp),
+                                contentPadding = PaddingValues(bottom = 88.dp)
+                            ) {
+                                items(filteredSpeakers, key = { it.id }) { speaker ->
+                                    Card(
+                                        modifier = studioAnimateItem().fillMaxWidth(),
+                                        shape = RoundedCornerShape(20.dp),
+                                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
+                                        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
+                                    ) {
                                     Row(
                                         modifier = Modifier
                                             .fillMaxWidth()
@@ -1780,6 +1970,14 @@ fun SpeakerManagerPage(
                                             verticalAlignment = Alignment.CenterVertically,
                                             horizontalArrangement = Arrangement.spacedBy(2.dp)
                                         ) {
+                                            val cs = MaterialTheme.colorScheme
+                                            val (spkEditSrc, spkEditHovState) = rememberStudioInteraction()
+                                            val spkEditHov by spkEditHovState
+                                            val spkEditTint by animateColorAsState(
+                                                targetValue = if (spkEditHov) cs.primary else cs.primary.copy(alpha = 0.85f),
+                                                animationSpec = StudioMotion.microTween(),
+                                                label = "SpkEditTint_${speaker.id}"
+                                            )
                                             IconButton(
                                                 onClick = {
                                                     nameField = speaker.name
@@ -1789,24 +1987,43 @@ fun SpeakerManagerPage(
                                                     groupField = speaker.groupName
                                                     notesField = speaker.notes
                                                     speakerToEdit = speaker
-                                                }
+                                                },
+                                                interactionSource = spkEditSrc,
+                                                modifier = Modifier
+                                                    .hoverable(spkEditSrc)
+                                                    .studioTactile(spkEditSrc, pressScale = 0.90f)
+                                                    .pointerHoverIcon(PointerIcon.Hand)
                                             ) {
                                                 Icon(
                                                     imageVector = Icons.Default.Edit,
                                                     contentDescription = S.speaker.editInfoDesc,
-                                                    tint = MaterialTheme.colorScheme.primary,
+                                                    tint = spkEditTint,
                                                     modifier = Modifier.size(20.dp)
                                                 )
                                             }
 
                                             if (speakers.size > 1) {
                                                 var showDeleteConfirm by remember { mutableStateOf(false) }
+                                                val (spkDelSrc, spkDelHovState) = rememberStudioInteraction()
+                                                val spkDelHov by spkDelHovState
+                                                val spkDelTint by animateColorAsState(
+                                                    targetValue = if (spkDelHov) cs.error else cs.error.copy(alpha = 0.82f),
+                                                    animationSpec = StudioMotion.microTween(),
+                                                    label = "SpkDelTint_${speaker.id}"
+                                                )
 
-                                                IconButton(onClick = { showDeleteConfirm = true }) {
+                                                IconButton(
+                                                    onClick = { showDeleteConfirm = true },
+                                                    interactionSource = spkDelSrc,
+                                                    modifier = Modifier
+                                                        .hoverable(spkDelSrc)
+                                                        .studioTactile(spkDelSrc, pressScale = 0.90f)
+                                                        .pointerHoverIcon(PointerIcon.Hand)
+                                                ) {
                                                     Icon(
                                                         imageVector = Icons.Default.DeleteOutline,
                                                         contentDescription = S.speaker.deleteSpeakerDesc,
-                                                        tint = MaterialTheme.colorScheme.error,
+                                                        tint = spkDelTint,
                                                         modifier = Modifier.size(20.dp)
                                                     )
                                                 }
@@ -1838,7 +2055,12 @@ fun SpeakerManagerPage(
                                         }
                                     }
                                 }
+                                }
                             }
+                            PlatformVerticalScrollbar(
+                                listState = speakerListState,
+                                modifier = Modifier.align(Alignment.CenterEnd)
+                            )
                         }
                     }
                 }
@@ -1934,7 +2156,7 @@ fun MultiSelectSpeakerGroupField(
 /**
  * Detailed view, metadata editing, and inline single-word CRUD editing of a project.
  */
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun ProjectDetailEditDialog(
     viewModel: RecordingViewModel,
@@ -1966,18 +2188,17 @@ fun ProjectDetailEditDialog(
     val hasProjectInputFields = isEditingMode || showAddWordRow
     com.example.ui.components.StudioModalDialog(
         onDismissRequest = onDismiss,
-        properties = androidx.compose.ui.window.DialogProperties(
-            dismissOnClickOutside = !hasProjectInputFields
+        properties = DialogProperties(
+            dismissOnClickOutside = !hasProjectInputFields,
+            usePlatformDefaultWidth = false
         )
     ) {
         com.example.ui.components.StudioDialogEnterAnimation {
-            Card(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(vertical = 12.dp)
-                    .consumeDialogCardTaps(),
+            AdaptiveModalSurface(
+                targetMaxWidth = 540.dp,
+                maxHeightFraction = 0.88f,
                 shape = RoundedCornerShape(28.dp),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+                containerColor = MaterialTheme.colorScheme.surface
             ) {
             Column(
                 modifier = Modifier
@@ -2238,14 +2459,16 @@ fun ProjectDetailEditDialog(
                                     containerColor = MaterialTheme.colorScheme.surfaceContainerLow
                                 )
                             ) {
+                                val detailWordsListState = rememberLazyListState()
                                 Box(modifier = Modifier.fillMaxSize().padding(6.dp)) {
                                     LazyColumn(
+                                        state = detailWordsListState,
                                         modifier = Modifier.fillMaxSize(),
                                         verticalArrangement = Arrangement.spacedBy(4.dp)
                                     ) {
                                         itemsIndexed(wordsList, key = { _, w -> w.id }) { index, word ->
                                             Row(
-                                                modifier = Modifier
+                                                modifier = studioAnimateItem()
                                                     .fillMaxWidth()
                                                     .clip(RoundedCornerShape(8.dp))
                                                     .clickable {
@@ -2304,56 +2527,100 @@ fun ProjectDetailEditDialog(
                                             }
                                         }
                                     }
+                                    PlatformVerticalScrollbar(
+                                        listState = detailWordsListState,
+                                        modifier = Modifier.align(Alignment.CenterEnd)
+                                    )
                                 }
                             }
 
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
-                                FilledTonalButton(
-                                    onClick = {
-                                        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as? android.content.ClipboardManager
-                                        val clip = android.content.ClipData.newPlainText("word_list", wordsTextToCopy)
-                                        clipboard?.setPrimaryClip(clip)
-                                        Toast.makeText(context, S.project.copiedFullWordListToast, Toast.LENGTH_SHORT).show()
-                                    },
-                                    shape = RoundedCornerShape(14.dp),
-                                    modifier = Modifier
-                                        .weight(1f)
-                                        .testTag("copy_all_words_button")
-                                ) {
-                                    Icon(Icons.Default.ContentCopy, contentDescription = null, modifier = Modifier.size(16.dp))
-                                    Spacer(modifier = Modifier.width(6.dp))
-                                    Text(S.project.copyFullWordList, fontSize = 13.sp, fontWeight = FontWeight.Bold, maxLines = 1, softWrap = false)
-                                }
-                                if (onOpenSmartMergeImport != null) {
-                                    OutlinedButton(
-                                        onClick = onOpenSmartMergeImport,
-                                        shape = RoundedCornerShape(14.dp),
-                                        modifier = Modifier
-                                            .weight(1f)
-                                            .testTag("merge_import_into_project_button")
+                            BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+                                val stackActionButtons = maxWidth < 400.dp
+                                if (stackActionButtons) {
+                                    Column(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        verticalArrangement = Arrangement.spacedBy(8.dp)
                                     ) {
-                                        Icon(Icons.Default.UploadFile, contentDescription = null, modifier = Modifier.size(16.dp))
-                                        Spacer(modifier = Modifier.width(6.dp))
-                                        Text(com.example.i18n.SSmartImport.modeMergeExisting, fontSize = 13.sp, fontWeight = FontWeight.Bold, maxLines = 1, softWrap = false)
+                                        FilledTonalButton(
+                                            onClick = {
+                                                val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as? android.content.ClipboardManager
+                                                val clip = android.content.ClipData.newPlainText("word_list", wordsTextToCopy)
+                                                clipboard?.setPrimaryClip(clip)
+                                                Toast.makeText(context, S.project.copiedFullWordListToast, Toast.LENGTH_SHORT).show()
+                                            },
+                                            shape = RoundedCornerShape(14.dp),
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .testTag("copy_all_words_button")
+                                        ) {
+                                            Icon(Icons.Default.ContentCopy, contentDescription = null, modifier = Modifier.size(16.dp))
+                                            Spacer(modifier = Modifier.width(6.dp))
+                                            Text(S.project.copyFullWordList, fontSize = 13.sp, fontWeight = FontWeight.Bold, maxLines = 1, softWrap = false)
+                                        }
+                                        if (onOpenSmartMergeImport != null) {
+                                            OutlinedButton(
+                                                onClick = onOpenSmartMergeImport,
+                                                shape = RoundedCornerShape(14.dp),
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .testTag("merge_import_into_project_button")
+                                            ) {
+                                                Icon(Icons.Default.UploadFile, contentDescription = null, modifier = Modifier.size(16.dp))
+                                                Spacer(modifier = Modifier.width(6.dp))
+                                                Text(com.example.i18n.SSmartImport.modeMergeExisting, fontSize = 13.sp, fontWeight = FontWeight.Bold, maxLines = 1, softWrap = false)
+                                            }
+                                        }
+                                    }
+                                } else {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        FilledTonalButton(
+                                            onClick = {
+                                                val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as? android.content.ClipboardManager
+                                                val clip = android.content.ClipData.newPlainText("word_list", wordsTextToCopy)
+                                                clipboard?.setPrimaryClip(clip)
+                                                Toast.makeText(context, S.project.copiedFullWordListToast, Toast.LENGTH_SHORT).show()
+                                            },
+                                            shape = RoundedCornerShape(14.dp),
+                                            modifier = Modifier
+                                                .weight(1f)
+                                                .testTag("copy_all_words_button")
+                                        ) {
+                                            Icon(Icons.Default.ContentCopy, contentDescription = null, modifier = Modifier.size(16.dp))
+                                            Spacer(modifier = Modifier.width(6.dp))
+                                            Text(S.project.copyFullWordList, fontSize = 13.sp, fontWeight = FontWeight.Bold, maxLines = 1, softWrap = false)
+                                        }
+                                        if (onOpenSmartMergeImport != null) {
+                                            OutlinedButton(
+                                                onClick = onOpenSmartMergeImport,
+                                                shape = RoundedCornerShape(14.dp),
+                                                modifier = Modifier
+                                                    .weight(1f)
+                                                    .testTag("merge_import_into_project_button")
+                                            ) {
+                                                Icon(Icons.Default.UploadFile, contentDescription = null, modifier = Modifier.size(16.dp))
+                                                Spacer(modifier = Modifier.width(6.dp))
+                                                Text(com.example.i18n.SSmartImport.modeMergeExisting, fontSize = 13.sp, fontWeight = FontWeight.Bold, maxLines = 1, softWrap = false)
+                                            }
+                                        }
                                     }
                                 }
                             }
                         }
                     }
 
-                    Row(
+                    FlowRow(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.End
+                        horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
                         TextButton(onClick = { isEditingMode = true }) {
                             Icon(Icons.Default.Edit, contentDescription = null, modifier = Modifier.size(16.dp))
                             Spacer(modifier = Modifier.width(4.dp))
                             Text(if (isSimpleMode) S.project.modifyProjectInfo else S.project.modifyProjectAndGroup, maxLines = 1, softWrap = false)
                         }
-                        Spacer(modifier = Modifier.width(8.dp))
                         Button(onClick = onDismiss, shape = RoundedCornerShape(14.dp)) {
                             Text(S.common.close, maxLines = 1, softWrap = false)
                         }

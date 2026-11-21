@@ -2272,6 +2272,13 @@ data class SettingsStrings(
     val themeOptSystem: String,
     val themeOptLight: String,
     val themeOptDark: String,
+    val themePaletteTitle: String,
+    val themePaletteSubtitle: String,
+    val paletteStudioBlue: String,
+    val paletteGraphiteMono: String,
+    val paletteAcademicSage: String,
+    val paletteWarmTerracotta: String,
+    val paletteDeepIndigo: String,
     val dynamicColorTitle: String,
     val dynamicColorSub: String,
     val tagSimpleImport: String,
@@ -2307,6 +2314,14 @@ data class SettingsStrings(
     val ipaFinalsIntro: String = "在「随手记 -> 韵母」栏点按光标处插入的元音、韵尾与舌尖元音符号：",
     val addIpaFinalPlaceholder: String = "新增韵母符号 (如 œ、ɶ、̃)"
 ) {
+    fun displayThemePalette(id: String): String = when (id) {
+        "GRAPHITE_MONO" -> paletteGraphiteMono
+        "ACADEMIC_SAGE" -> paletteAcademicSage
+        "WARM_TERRACOTTA" -> paletteWarmTerracotta
+        "DEEP_INDIGO" -> paletteDeepIndigo
+        else -> paletteStudioBlue
+    }
+
     fun displayCreakyOption(canonical: String): String = when (canonical) {
         "低" -> creakyOptLow
         "中" -> creakyOptMed
@@ -4586,6 +4601,13 @@ private fun buildZhCnSettings(): SettingsStrings = SettingsStrings(
         themeOptSystem = "跟随系统",
         themeOptLight = "浅色模式",
         themeOptDark = "深色模式",
+        themePaletteTitle = "主题色板",
+        themePaletteSubtitle = "精选 5 套低干扰专业配色，支持浅色与深色模式即时切换",
+        paletteStudioBlue = "青石蓝",
+        paletteGraphiteMono = "松烟墨",
+        paletteAcademicSage = "竹青",
+        paletteWarmTerracotta = "暖纸陶",
+        paletteDeepIndigo = "黛紫",
         dynamicColorTitle = "跟随壁纸动态取色",
         dynamicColorSub = "根据系统壁纸自动调整配色（Android 12+）",
         tagSimpleImport = "导入/粘贴建表",

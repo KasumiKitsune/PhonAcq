@@ -62,8 +62,8 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.DialogProperties
 import com.example.BuildConfig
 import com.example.i18n.S
+import com.example.ui.components.AdaptiveModalSurface
 import com.example.ui.components.StudioModalDialog
-import com.example.ui.components.consumeDialogCardTaps
 import com.example.i18n.withArgs
 import com.example.ui.components.StudioDialogEnterAnimation
 
@@ -89,20 +89,14 @@ fun AboutPhonAcqDialog(
             usePlatformDefaultWidth = false
         )
     ) {
-        com.example.ui.components.StudioDialogEnterAnimation(
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 24.dp)
-        ) {
-            Surface(
+        StudioDialogEnterAnimation {
+            AdaptiveModalSurface(
+                targetMaxWidth = 580.dp,
+                maxHeightFraction = 0.88f,
                 shape = RoundedCornerShape(24.dp),
-                color = MaterialTheme.colorScheme.surface,
-                tonalElevation = 4.dp,
+                containerColor = MaterialTheme.colorScheme.surface,
                 border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
-                modifier = Modifier
-                    .widthIn(max = 580.dp)
-                    .fillMaxWidth()
-                    .heightIn(max = 680.dp)
-                    .consumeDialogCardTaps()
-                    .testTag("about_phonacq_dialog")
+                modifier = Modifier.testTag("about_phonacq_dialog")
             ) {
                 Column(modifier = Modifier.fillMaxWidth()) {
                     Row(

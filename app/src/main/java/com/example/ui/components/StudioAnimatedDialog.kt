@@ -13,19 +13,29 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AlertDialogDefaults
+import androidx.compose.material3.BottomSheetDefaults
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.ProvideTextStyle
 import androidx.compose.material3.Surface
+import androidx.compose.material3.rememberModalBottomSheetState
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.launch
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
@@ -443,6 +453,7 @@ fun StudioAlertDialog(
     tonalElevation: Dp = AlertDialogDefaults.TonalElevation,
     properties: DialogProperties = DialogProperties()
 ) {
+    val windowMetrics = LocalAppWindowMetrics.current
     if (DesktopModalManager.isOverlayHostActive) {
         StudioModalDialog(
             onDismissRequest = onDismissRequest,
@@ -452,66 +463,90 @@ fun StudioAlertDialog(
                 usePlatformDefaultWidth = false
             )
         ) {
-            Surface(
-                modifier = modifier
-                    .padding(horizontal = 24.dp, vertical = 18.dp)
-                    .widthIn(min = 320.dp, max = 500.dp)
-                    .consumeDialogCardTaps(),
-                shape = shape,
-                color = containerColor,
-                tonalElevation = tonalElevation,
-                shadowElevation = 0.dp,
-                border = BorderStroke(
-                    1.dp,
-                    MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f)
-                )
-            ) {
-                Column(
-                    modifier = Modifier.padding(24.dp),
-                    verticalArrangement = Arrangement.spacedBy(14.dp)
+            BoxWithConstraints(contentAlignment = Alignment.Center) {
+                val availWidth = if (maxWidth.value.isFinite() && maxWidth > 0.dp) maxWidth else windowMetrics.widthDp
+                val availHeight = if (maxHeight.value.isFinite() && maxHeight > 0.dp) maxHeight else windowMetrics.heightDp
+                val computedMaxWidth = (availWidth - 32.dp).coerceAtMost(500.dp).coerceAtLeast(220.dp)
+                val computedMinWidth = (availWidth - 32.dp).coerceAtMost(280.dp).coerceAtLeast(200.dp)
+                val computedMaxHeight = (availHeight * 0.88f).coerceAtLeast(220.dp)
+
+                Surface(
+                    modifier = modifier
+                        .padding(horizontal = 16.dp, vertical = 14.dp)
+                        .widthIn(min = computedMinWidth, max = computedMaxWidth)
+                        .heightIn(max = computedMaxHeight)
+                        .consumeDialogCardTaps(),
+                    shape = shape,
+                    color = containerColor,
+                    tonalElevation = tonalElevation,
+                    shadowElevation = 0.dp,
+                    border = BorderStroke(
+                        1.dp,
+                        MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f)
+                    )
                 ) {
-                    if (icon != null) {
-                        Box(
-                            modifier = Modifier.align(Alignment.CenterHorizontally)
-                        ) {
-                            CompositionLocalProvider(LocalContentColor provides iconContentColor) {
-                                icon()
-                            }
-                        }
-                    }
-                    if (title != null) {
-                        Box(
-                            modifier = Modifier.align(
-                                if (icon != null) Alignment.CenterHorizontally else Alignment.Start
-                            )
-                        ) {
-                            CompositionLocalProvider(LocalContentColor provides titleContentColor) {
-                                ProvideTextStyle(MaterialTheme.typography.headlineSmall) {
-                                    title()
-                                }
-                            }
-                        }
-                    }
-                    if (text != null) {
-                        Box(modifier = Modifier.fillMaxWidth()) {
-                            CompositionLocalProvider(LocalContentColor provides textContentColor) {
-                                ProvideTextStyle(MaterialTheme.typography.bodyMedium) {
-                                    text()
-                                }
-                            }
-                        }
-                    }
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(top = 4.dp),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
-                        verticalAlignment = Alignment.CenterVertically
+                    Column(
+                        modifier = Modifier.padding(24.dp),
+                        verticalArrangement = Arrangement.spacedBy(14.dp)
                     ) {
-                        if (dismissButton != null) {
-                            dismissButton()
+                        if (icon != null) {
+                            Box(
+                                modifier = Modifier.align(Alignment.CenterHorizontally)
+                            ) {
+                                CompositionLocalProvider(LocalContentColor provides iconContentColor) {
+                                    icon()
+                                }
+                            }
                         }
-                        confirmButton()
+                        if (title != null) {
+                            Box(
+                                modifier = Modifier.align(
+                                    if (icon != null) Alignment.CenterHorizontally else Alignment.Start
+                                )
+                            ) {
+                                CompositionLocalProvider(LocalContentColor provides titleContentColor) {
+                                    ProvideTextStyle(MaterialTheme.typography.headlineSmall) {
+                                        title()
+                                    }
+                                }
+                            }
+                        }
+                        if (text != null) {
+                            val textScrollState = rememberScrollState()
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .weight(1f, fill = false)
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .verticalScroll(textScrollState)
+                                ) {
+                                    CompositionLocalProvider(LocalContentColor provides textContentColor) {
+                                        ProvideTextStyle(MaterialTheme.typography.bodyMedium) {
+                                            text()
+                                        }
+                                    }
+                                }
+                                PlatformVerticalScrollbar(
+                                    scrollState = textScrollState,
+                                    modifier = Modifier.align(Alignment.CenterEnd)
+                                )
+                            }
+                        }
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(top = 4.dp),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            if (dismissButton != null) {
+                                dismissButton()
+                            }
+                            confirmButton()
+                        }
                     }
                 }
             }
@@ -545,19 +580,32 @@ fun StudioAlertDialog(
             ),
             label = "AndroidAlertAlpha"
         )
+        val androidMaxHeight = (windowMetrics.heightDp * 0.88f).coerceAtLeast(220.dp)
 
         AlertDialog(
             onDismissRequest = onDismissRequest,
             confirmButton = confirmButton,
-            modifier = modifier.graphicsLayer {
-                scaleX = scale
-                scaleY = scale
-                this.alpha = alpha
-            },
+            modifier = modifier
+                .heightIn(max = androidMaxHeight)
+                .graphicsLayer {
+                    scaleX = scale
+                    scaleY = scale
+                    this.alpha = alpha
+                },
             dismissButton = dismissButton,
             icon = icon,
             title = title,
-            text = text,
+            text = text?.let { body ->
+                {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .verticalScroll(rememberScrollState())
+                    ) {
+                        body()
+                    }
+                }
+            },
             shape = shape,
             containerColor = containerColor,
             iconContentColor = iconContentColor,
@@ -647,5 +695,58 @@ fun StudioDialogEnterAnimation(
         contentAlignment = contentAlignment
     ) {
         content()
+    }
+}
+
+/**
+ * Unified adaptive sheet/dialog container:
+ * - On Desktop (`DesktopModalManager.isOverlayHostActive`) or wide windows (`>= 700.dp`),
+ *   renders as a centered [StudioModalDialog] + [AdaptiveModalSurface] with smooth spring
+ *   enter/exit and `Esc` dismissal.
+ * - On narrow mobile screens, preserves native Material 3 [ModalBottomSheet].
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun StudioAdaptiveSheet(
+    visible: Boolean,
+    onDismissRequest: () -> Unit,
+    maxWidth: Dp = 560.dp,
+    modifier: Modifier = Modifier,
+    content: @Composable (onRequestClose: () -> Unit) -> Unit
+) {
+    val windowMetrics = LocalAppWindowMetrics.current
+    val useDialog = DesktopModalManager.isOverlayHostActive || windowMetrics.widthDp >= 700.dp
+
+    if (useDialog) {
+        AnimatedDialogVisibility(visible = visible) {
+            StudioModalDialog(
+                onDismissRequest = onDismissRequest,
+                properties = DialogProperties(usePlatformDefaultWidth = false)
+            ) {
+                AdaptiveModalSurface(
+                    targetMaxWidth = maxWidth,
+                    containerColor = MaterialTheme.colorScheme.surface,
+                    modifier = modifier
+                ) {
+                    content(onDismissRequest)
+                }
+            }
+        }
+    } else if (visible) {
+        val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+        val scope = rememberCoroutineScope()
+        ModalBottomSheet(
+            onDismissRequest = onDismissRequest,
+            sheetState = sheetState,
+            containerColor = MaterialTheme.colorScheme.surface,
+            dragHandle = { BottomSheetDefaults.DragHandle() },
+            modifier = modifier
+        ) {
+            content {
+                scope.launch { sheetState.hide() }.invokeOnCompletion {
+                    onDismissRequest()
+                }
+            }
+        }
     }
 }

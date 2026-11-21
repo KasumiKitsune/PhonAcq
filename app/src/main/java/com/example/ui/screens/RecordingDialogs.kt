@@ -6,6 +6,7 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
@@ -23,6 +24,7 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
@@ -75,8 +77,11 @@ import com.example.data.groupList
 import com.example.data.parseSpeakerGroups
 import com.example.i18n.S
 import com.example.i18n.withArgs
+import com.example.ui.components.AdaptiveModalSurface
+import com.example.ui.components.PlatformVerticalScrollbar
 import com.example.ui.components.StudioFilterChip
-import com.example.ui.components.consumeDialogCardTaps
+import com.example.ui.components.StudioMotion
+import com.example.ui.components.studioAnimateItem
 import com.example.ui.theme.formatQuickNoteSymbolForDisplay
 import com.example.viewmodel.RecordingViewModel
 import java.io.File
@@ -351,7 +356,11 @@ internal fun QuickRemarkEditorDialog(
                         )
                     }
 
-                    AnimatedVisibility(visible = showDeriveVariantPanel && onDeriveVariant != null) {
+                    AnimatedVisibility(
+                        visible = showDeriveVariantPanel && onDeriveVariant != null,
+                        enter = StudioMotion.verticalPanelEnter,
+                        exit = StudioMotion.verticalPanelExit
+                    ) {
                         Surface(
                             shape = RoundedCornerShape(12.dp),
                             color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.45f),
@@ -635,19 +644,17 @@ fun SpeakerSelectionAndManagementDialog(
     com.example.ui.components.StudioModalDialog(
         onDismissRequest = onDismiss,
         properties = androidx.compose.ui.window.DialogProperties(
-            dismissOnClickOutside = !hasActiveSpeakerFormInput
+            dismissOnClickOutside = !hasActiveSpeakerFormInput,
+            usePlatformDefaultWidth = false
         )
     ) {
         com.example.ui.components.StudioDialogEnterAnimation {
-            Surface(
+            AdaptiveModalSurface(
+                targetMaxWidth = 560.dp,
+                maxHeightFraction = 0.88f,
                 shape = RoundedCornerShape(28.dp),
-                color = MaterialTheme.colorScheme.surface,
-                tonalElevation = 6.dp,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .heightIn(max = 640.dp)
-                    .consumeDialogCardTaps()
-                    .testTag("speaker_manager_dialog")
+                containerColor = MaterialTheme.colorScheme.surface,
+                modifier = Modifier.testTag("speaker_manager_dialog")
             ) {
                 Column(modifier = Modifier.padding(20.dp)) {
                     Row(
@@ -858,29 +865,35 @@ fun SpeakerSelectionAndManagementDialog(
                             }
                         }
 
-                        LazyColumn(
-                            modifier = Modifier.weight(1f, fill = false),
-                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        val speakerDialogListState = rememberLazyListState()
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .weight(1f, fill = false)
                         ) {
-                            itemsIndexed(displayedSpeakers, key = { _, s -> s.id }) { _, speaker ->
-                                val isSelected = speaker.id == activeSpeaker?.id
-                                val progInfo = speakerProgressMap[speaker.id]
-                                val recCount = progInfo?.recordedWords ?: 0
-                                val isDone = totalWords > 0 && recCount >= totalWords
+                            LazyColumn(
+                                state = speakerDialogListState,
+                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                itemsIndexed(displayedSpeakers, key = { _, s -> s.id }) { _, speaker ->
+                                    val isSelected = speaker.id == activeSpeaker?.id
+                                    val progInfo = speakerProgressMap[speaker.id]
+                                    val recCount = progInfo?.recordedWords ?: 0
+                                    val isDone = totalWords > 0 && recCount >= totalWords
 
-                                val cardBg = if (isSelected) {
-                                    MaterialTheme.colorScheme.primaryContainer
-                                } else {
-                                    MaterialTheme.colorScheme.surfaceContainerLow
-                                }
-                                Surface(
-                                    shape = RoundedCornerShape(16.dp),
-                                    color = cardBg,
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .clip(RoundedCornerShape(16.dp))
-                                        .clickable { onSelectSpeaker(speaker) }
-                                ) {
+                                    val cardBg = if (isSelected) {
+                                        MaterialTheme.colorScheme.primaryContainer
+                                    } else {
+                                        MaterialTheme.colorScheme.surfaceContainerLow
+                                    }
+                                    Surface(
+                                        shape = RoundedCornerShape(16.dp),
+                                        color = cardBg,
+                                        modifier = studioAnimateItem()
+                                            .fillMaxWidth()
+                                            .clip(RoundedCornerShape(16.dp))
+                                            .clickable { onSelectSpeaker(speaker) }
+                                    ) {
                                     Row(
                                         modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
                                         verticalAlignment = Alignment.CenterVertically,
@@ -1083,8 +1096,13 @@ fun SpeakerSelectionAndManagementDialog(
                                             }
                                         }
                                     }
+                                    }
                                 }
                             }
+                            PlatformVerticalScrollbar(
+                                listState = speakerDialogListState,
+                                modifier = Modifier.align(Alignment.CenterEnd)
+                            )
                         }
 
                         Spacer(Modifier.height(12.dp))

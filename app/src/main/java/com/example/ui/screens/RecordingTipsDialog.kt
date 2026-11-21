@@ -54,10 +54,10 @@ import androidx.compose.foundation.hoverable
 import androidx.compose.ui.input.pointer.PointerIcon
 import androidx.compose.ui.input.pointer.pointerHoverIcon
 import com.example.i18n.S
+import com.example.ui.components.AdaptiveModalSurface
 import com.example.ui.components.DesktopAdaptiveState
 import com.example.ui.components.KeycapBadge
 import com.example.ui.components.StudioModalDialog
-import com.example.ui.components.consumeDialogCardTaps
 import com.example.ui.components.rememberStudioInteraction
 import kotlinx.coroutines.launch
 import kotlin.math.abs
@@ -195,18 +195,19 @@ fun RecordingTipsDialog(
             val isFirstPage = pagerState.currentPage == 0
             val isLastPage = pagerState.currentPage == tipPages.lastIndex
 
-            Surface(
+            val targetMaxWidth = when {
+                isWideDialog -> 608.dp
+                isCompactLandscapeDialog -> 596.dp
+                else -> 360.dp
+            }
+
+            AdaptiveModalSurface(
+                targetMaxWidth = targetMaxWidth,
+                maxHeightFraction = 0.92f,
+                shape = RoundedCornerShape(if (isCompactLandscapeDialog) 22.dp else 26.dp),
+                containerColor = colorScheme.surface,
+                border = BorderStroke(1.dp, colorScheme.outlineVariant.copy(alpha = 0.55f)),
                 modifier = Modifier
-                    .widthIn(
-                        max = when {
-                            isWideDialog -> 608.dp
-                            isCompactLandscapeDialog -> 596.dp
-                            else -> 360.dp
-                        }
-                    )
-                    .heightIn(max = maxHeight)
-                    .fillMaxWidth()
-                    .consumeDialogCardTaps()
                     .focusRequester(focusRequester)
                     .focusable()
                     .onPreviewKeyEvent { keyEvent ->
@@ -231,11 +232,7 @@ fun RecordingTipsDialog(
                             else -> false
                         }
                     }
-                    .testTag("recording_tips_dialog"),
-                shape = RoundedCornerShape(if (isCompactLandscapeDialog) 22.dp else 26.dp),
-                color = colorScheme.surface,
-                tonalElevation = 6.dp,
-                shadowElevation = 12.dp
+                    .testTag("recording_tips_dialog")
             ) {
                 Column(
                     modifier = Modifier

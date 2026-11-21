@@ -4,6 +4,7 @@ import android.widget.Toast
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
@@ -45,7 +46,10 @@ import androidx.compose.ui.unit.sp
 import com.example.i18n.S
 import com.example.i18n.withArgs
 import com.example.ui.components.DesktopAdaptiveState
+import com.example.ui.components.PlatformVerticalScrollbar
 import com.example.ui.components.PredictiveBackGestureHandler
+import com.example.ui.components.StudioMotion
+import com.example.ui.components.StudioSidebarNavItem
 import com.example.ui.components.SuspendDesktopShortcutsWhen
 import com.example.ui.components.predictiveBackLayer
 import com.example.ui.components.rememberPredictiveBackVisualState
@@ -87,6 +91,7 @@ fun SettingsScreen(
     val textGridConfig by viewModel.textGridFormatConfig.collectAsState()
 
     val themeMode by viewModel.themeMode.collectAsState()
+    val themePaletteId by viewModel.themePaletteId.collectAsState()
     val dynamicColor by viewModel.dynamicColorEnabled.collectAsState()
 
     // Advanced acoustic & hardware states
@@ -272,7 +277,7 @@ fun SettingsScreen(
                     else -> S.settings.themeSystemLabel
                 }
                 if (DesktopAdaptiveState.isDesktopPlatform || !dynamicColor) {
-                    themeLabel
+                    "$themeLabel · ${S.settings.displayThemePalette(themePaletteId)}"
                 } else {
                     "$themeLabel${S.settings.dynamicColorSuffix}"
                 }
@@ -387,6 +392,7 @@ fun SettingsScreen(
                 AppearanceCategoryContent(
                     viewModel = viewModel,
                     themeMode = themeMode,
+                    themePaletteId = themePaletteId,
                     dynamicColor = dynamicColor
                 )
             }
@@ -402,8 +408,12 @@ fun SettingsScreen(
             .fillMaxSize()
             .testTag("settings_screen_root")
     ) {
-        val isTwoPaneLayout = maxWidth >= 680.dp || (DesktopAdaptiveState.isDesktopPlatform && maxWidth >= 560.dp)
-        val sidebarWidth = if (maxWidth >= 920.dp) 288.dp else 248.dp
+        val isTwoPaneLayout = maxWidth >= 760.dp
+        val sidebarWidth by animateDpAsState(
+            targetValue = if (maxWidth >= 920.dp) 288.dp else 248.dp,
+            animationSpec = StudioMotion.mediumInTween(),
+            label = "SettingsSidebarWidth"
+        )
         val activeCategoryForShortcuts = if (isTwoPaneLayout) desktopSelectedCategory else mobileActiveCategory
 
         val shouldSuspendDesktopShortcuts = showResetConfirm ||
@@ -516,39 +526,43 @@ fun SettingsScreen(
                                 .fillMaxHeight()
                                 .testTag("settings_desktop_sidebar")
                         ) {
-                            Column(
-                                modifier = Modifier
-                                    .fillMaxSize()
-                                    .verticalScroll(rememberScrollState())
-                                    .padding(horizontal = 12.dp, vertical = 14.dp),
-                                verticalArrangement = Arrangement.spacedBy(14.dp)
-                            ) {
-                                SettingsMenuGroup.entries.forEach { group ->
-                                    val groupItems = visibleCategories.filter { it.group == group }
-                                    if (groupItems.isNotEmpty()) {
-                                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                            Text(
-                                                text = group.title,
-                                                fontSize = 11.sp,
-                                                fontWeight = FontWeight.Bold,
-                                                color = MaterialTheme.colorScheme.outline,
-                                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 2.dp)
-                                            )
-                                            groupItems.forEach { category ->
-                                                SettingsDesktopSidebarItem(
-                                                    category = category,
-                                                    summary = summaryFor(category),
-                                                    selected = desktopSelectedCategory == category,
-                                                    onClick = {
-                                                        desktopSelectedCategoryId = category.id
-                                                        mobileActiveCategoryId = category.id
-                                                    }
+                            val sidebarScrollState = rememberScrollState()
+                            Box(modifier = Modifier.fillMaxSize()) {
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .verticalScroll(sidebarScrollState)
+                                        .padding(horizontal = 12.dp, vertical = 14.dp),
+                                    verticalArrangement = Arrangement.spacedBy(14.dp)
+                                ) {
+                                    SettingsMenuGroup.entries.forEach { group ->
+                                        val groupItems = visibleCategories.filter { it.group == group }
+                                        if (groupItems.isNotEmpty()) {
+                                            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                                Text(
+                                                    text = group.title,
+                                                    fontSize = 11.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = MaterialTheme.colorScheme.outline,
+                                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 2.dp)
                                                 )
+                                                groupItems.forEach { category ->
+                                                    SettingsDesktopSidebarItem(
+                                                        category = category,
+                                                        summary = summaryFor(category),
+                                                        selected = desktopSelectedCategory == category,
+                                                        onClick = {
+                                                            desktopSelectedCategoryId = category.id
+                                                            mobileActiveCategoryId = category.id
+                                                        }
+                                                    )
+                                                }
                                             }
                                         }
                                     }
+                                    Spacer(modifier = Modifier.height(12.dp))
                                 }
-                                Spacer(modifier = Modifier.height(12.dp))
+                                PlatformVerticalScrollbar(scrollState = sidebarScrollState)
                             }
                         }
 
@@ -570,16 +584,17 @@ fun SettingsScreen(
                                 targetState = desktopSelectedCategory,
                                 transitionSpec = {
                                     val forward = targetState.ordinal >= initialState.ordinal
-                                    (androidx.compose.animation.slideInVertically(tween(210)) { fullH ->
+                                    (androidx.compose.animation.slideInVertically(StudioMotion.mediumInTween()) { fullH ->
                                         if (forward) fullH / 18 else -fullH / 18
-                                    } + fadeIn(tween(190))) togetherWith
-                                        (androidx.compose.animation.slideOutVertically(tween(150)) { fullH ->
+                                    } + fadeIn(StudioMotion.shortInTween())) togetherWith
+                                        (androidx.compose.animation.slideOutVertically(StudioMotion.mediumOutTween()) { fullH ->
                                             if (forward) -fullH / 22 else fullH / 22
-                                        } + fadeOut(tween(130)))
+                                        } + fadeOut(StudioMotion.shortOutTween()))
                                 },
                                 label = "DesktopSettingsDetailSwitch",
                                 modifier = Modifier.fillMaxSize()
                             ) { selectedCat ->
+                                val detailScrollState = rememberScrollState()
                                 Box(
                                     modifier = Modifier.fillMaxSize(),
                                     contentAlignment = Alignment.TopCenter
@@ -588,7 +603,7 @@ fun SettingsScreen(
                                         modifier = Modifier
                                             .widthIn(max = 780.dp)
                                             .fillMaxSize()
-                                            .verticalScroll(rememberScrollState())
+                                            .verticalScroll(detailScrollState)
                                             .padding(horizontal = 24.dp, vertical = 18.dp),
                                         verticalArrangement = Arrangement.spacedBy(16.dp)
                                     ) {
@@ -596,6 +611,7 @@ fun SettingsScreen(
                                         RenderCategoryDetailContent(selectedCat)
                                         Spacer(modifier = Modifier.height(28.dp))
                                     }
+                                    PlatformVerticalScrollbar(scrollState = detailScrollState)
                                 }
                             }
                         }
@@ -909,106 +925,15 @@ private fun SettingsDesktopSidebarItem(
     selected: Boolean,
     onClick: () -> Unit
 ) {
-    val colorScheme = MaterialTheme.colorScheme
     val (iconBg, iconFg) = categoryIconTintPair(category)
-    val (interactionSource, isHoveredState) = rememberStudioInteraction()
-    val isHovered by isHoveredState
-    val isPressed by interactionSource.collectIsPressedAsState()
-
-    val itemBg by animateColorAsState(
-        targetValue = when {
-            selected && isHovered -> lerp(colorScheme.surfaceContainerLow, colorScheme.primaryContainer, 0.72f)
-            selected -> lerp(colorScheme.surfaceContainerLow, colorScheme.primaryContainer, 0.58f)
-            isHovered -> colorScheme.surfaceContainerHigh.copy(alpha = 0.7f)
-            else -> colorScheme.surfaceContainerLowest
-        },
-        animationSpec = tween(140),
-        label = "desktopSidebarBg"
+    StudioSidebarNavItem(
+        title = category.title,
+        subtitle = summary,
+        icon = category.icon,
+        iconContainerColor = iconBg,
+        iconTint = iconFg,
+        selected = selected,
+        onClick = onClick,
+        modifier = Modifier.testTag("settings_nav_${category.id}")
     )
-    val borderCol = if (selected) {
-        colorScheme.primary.copy(alpha = 0.35f)
-    } else {
-        colorScheme.surfaceContainerLowest
-    }
-    val scale by animateFloatAsState(
-        targetValue = if (isPressed) 0.985f else 1f,
-        animationSpec = spring(dampingRatio = 0.75f, stiffness = Spring.StiffnessMedium),
-        label = "desktopSidebarScale"
-    )
-
-    Surface(
-        shape = RoundedCornerShape(14.dp),
-        color = itemBg,
-        border = if (selected) BorderStroke(1.dp, borderCol) else null,
-        shadowElevation = 0.dp,
-        modifier = Modifier
-            .fillMaxWidth()
-            .defaultMinSize(minHeight = 56.dp)
-            .graphicsLayer {
-                scaleX = scale
-                scaleY = scale
-            }
-            .clip(RoundedCornerShape(14.dp))
-            .hoverable(interactionSource)
-            .pointerHoverIcon(PointerIcon.Hand)
-            .clickable(
-                interactionSource = interactionSource,
-                indication = LocalIndication.current,
-                onClick = onClick
-            )
-            .testTag("settings_nav_${category.id}")
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 11.dp, vertical = 10.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(11.dp)
-        ) {
-            if (selected) {
-                Box(
-                    modifier = Modifier
-                        .width(3.5.dp)
-                        .height(28.dp)
-                        .clip(CircleShape)
-                        .background(colorScheme.primary)
-                )
-            }
-            Surface(
-                shape = RoundedCornerShape(10.dp),
-                color = if (selected) colorScheme.primary else iconBg,
-                modifier = Modifier.size(34.dp)
-            ) {
-                Box(contentAlignment = Alignment.Center) {
-                    Icon(
-                        imageVector = category.icon,
-                        contentDescription = null,
-                        tint = if (selected) colorScheme.onPrimary else iconFg,
-                        modifier = Modifier.size(18.dp)
-                    )
-                }
-            }
-            Column(
-                modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(2.dp)
-            ) {
-                Text(
-                    text = category.title,
-                    fontSize = 13.5.sp,
-                    fontWeight = if (selected) FontWeight.ExtraBold else FontWeight.SemiBold,
-                    color = if (selected) colorScheme.onPrimaryContainer else colorScheme.onSurface
-                )
-                Text(
-                    text = summary,
-                    fontSize = 11.sp,
-                    lineHeight = 14.5.sp,
-                    color = if (selected) {
-                        colorScheme.onPrimaryContainer.copy(alpha = 0.8f)
-                    } else {
-                        colorScheme.onSurfaceVariant
-                    }
-                )
-            }
-        }
-    }
 }

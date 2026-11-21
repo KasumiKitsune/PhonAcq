@@ -59,6 +59,8 @@ import com.example.data.Word
 import com.example.i18n.S
 import com.example.ui.components.DesktopAdaptiveState
 import com.example.ui.components.StudioFilterChip
+import com.example.ui.components.StudioMotion
+import com.example.ui.theme.LocalPhonAcqExtendedColors
 import com.example.viewmodel.RecordingViewModel
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -68,19 +70,8 @@ import java.io.File
 import java.util.Locale
 import kotlin.math.*
 
-internal val MULTI_SPEAKER_PALETTE = listOf(
-    Color(0xFF1565C0), // Indigo Blue
-    Color(0xFFD84315), // Deep Coral
-    Color(0xFF2E7D32), // Emerald Green
-    Color(0xFF8E24AA), // Royal Violet
-    Color(0xFFEF6C00), // Amber Orange
-    Color(0xFF00838F), // Cyan Teal
-    Color(0xFFC2185B), // Crimson Rose
-    Color(0xFF4E342E)  // Warm Umber
-)
-
-internal fun cohortColor(index: Int): Color =
-    MULTI_SPEAKER_PALETTE[index.mod(MULTI_SPEAKER_PALETTE.size)]
+internal fun cohortColor(palette: List<Color>, index: Int): Color =
+    palette[index.mod(palette.size)]
 
 internal fun cohortStrokeDash(index: Int): PathEffect? = when (index % 3) {
     0 -> null
@@ -102,6 +93,7 @@ fun MacroActiveSpeakerSwitcherStrip(
     if (speakerPairs.size < 2) return
     val isDesktop = DesktopAdaptiveState.isDesktopPlatform
     val cs = MaterialTheme.colorScheme
+    val chartPalette = LocalPhonAcqExtendedColors.current.chartPalette
     Row(
         modifier = modifier
             .fillMaxWidth()
@@ -118,7 +110,7 @@ fun MacroActiveSpeakerSwitcherStrip(
         speakerPairs.forEachIndexed { idx, (spk, wList) ->
             val recCnt = remember(wList) { wList.count { it.isRecorded && !it.recordingFile.isNullOrEmpty() } }
             val isSelected = spk.id == selectedSpeakerId
-            val accent = cohortColor(idx)
+            val accent = cohortColor(chartPalette, idx)
             val interactionSource = remember { MutableInteractionSource() }
             val isHovered = if (isDesktop) interactionSource.collectIsHoveredAsState().value else false
             val chipBg by animateColorAsState(
@@ -491,6 +483,7 @@ private fun MultiSpeakerCohortControlCard(
             Spacer(Modifier.height(10.dp))
 
             // Multi-select speaker chips
+            val chartPalette = LocalPhonAcqExtendedColors.current.chartPalette
             FlowRow(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalArrangement = Arrangement.spacedBy(6.dp)
@@ -499,7 +492,7 @@ private fun MultiSpeakerCohortControlCard(
                     val isChecked = spkRep.speakerId in selectedSpeakerIds
                     val spkMeta = multiReport.speakersById[spkRep.speakerId]
                     val cohortIdx = aligned.cohorts.indexOfFirst { spkRep.speakerId in it.speakerIds }
-                    val col = cohortColor(if (cohortIdx >= 0) cohortIdx else idx)
+                    val col = cohortColor(chartPalette, if (cohortIdx >= 0) cohortIdx else idx)
                     Surface(
                         shape = RoundedCornerShape(10.dp),
                         color = if (isChecked) col.copy(alpha = 0.14f) else MaterialTheme.colorScheme.surface,
@@ -922,6 +915,8 @@ fun MultiSpeakerToneComparisonCard(
             val plotBg = MaterialTheme.colorScheme.surface
             val gridColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f)
             val axisLabelColor = MaterialTheme.colorScheme.onSurfaceVariant
+            val divergenceAlertColor = MaterialTheme.colorScheme.error
+            val chartPalette = LocalPhonAcqExtendedColors.current.chartPalette
 
             Box(
                 modifier = Modifier
@@ -989,7 +984,7 @@ fun MultiSpeakerToneComparisonCard(
                                 style = TextStyle(
                                     fontSize = 10.sp,
                                     fontWeight = FontWeight.Bold,
-                                    color = if (cat.hasCategoryDivergence) Color(0xFFD84315) else axisLabelColor
+                                    color = if (cat.hasCategoryDivergence) divergenceAlertColor else axisLabelColor
                                 )
                             )
                             val hx = laneX + ((laneW - hdrLayout.size.width) * 0.5f).coerceAtLeast(2f)
@@ -999,7 +994,7 @@ fun MultiSpeakerToneComparisonCard(
                             val maxSpanW = (laneW - innerPad * 2f).coerceAtLeast(10f)
 
                             cat.cohortRealizations.forEach { real ->
-                                val col = cohortColor(real.colorIndex)
+                                val col = cohortColor(chartPalette, real.colorIndex)
                                 val spanW = maxSpanW * real.relativeDurationRatio.coerceIn(0.42f, 1.0f)
                                 val pts = real.meanContour.mapIndexed { i, p ->
                                     val px = laneX + innerPad + (i / 4f) * spanW
@@ -1051,7 +1046,7 @@ fun MultiSpeakerToneComparisonCard(
                         val maxSpanW = (plotW - innerPad * 2f).coerceAtLeast(20f)
 
                         focusedCategory.cohortRealizations.forEach { real ->
-                            val col = cohortColor(real.colorIndex)
+                            val col = cohortColor(chartPalette, real.colorIndex)
                             val spanW = maxSpanW * real.relativeDurationRatio.coerceIn(0.44f, 1.0f)
 
                             if (showSigmaRibbon && real.upperBand1Sigma.size >= 5 && real.lowerBand1Sigma.size >= 5) {
@@ -1107,7 +1102,7 @@ fun MultiSpeakerToneComparisonCard(
                 Spacer(Modifier.height(10.dp))
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     focusedCategory.cohortRealizations.forEach { real ->
-                        val col = cohortColor(real.colorIndex)
+                        val col = cohortColor(chartPalette, real.colorIndex)
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -1151,7 +1146,7 @@ fun MultiSpeakerToneComparisonCard(
             Spacer(Modifier.height(6.dp))
             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 aligned.speakerToneInventories.forEach { inv ->
-                    val col = cohortColor(inv.colorIndex)
+                    val col = cohortColor(chartPalette, inv.colorIndex)
                     Surface(
                         shape = RoundedCornerShape(10.dp),
                         color = MaterialTheme.colorScheme.surface,
@@ -1461,10 +1456,17 @@ fun MultiSpeakerVowelWorkbenchCard(
                     }
                 }
 
-                AnimatedVisibility(visible = focusedCategory != null) {
-                    if (focusedCategory != null) {
-                        val currentGroupOverride = remember(projectId, focusedCategory.groupKey, vowelOverrideRevision) {
-                            VowelGlideOverrideStore.getGroupOverride(context, projectId, focusedCategory.groupKey)
+                var cachedFocusedCat by remember { mutableStateOf(focusedCategory) }
+                if (focusedCategory != null) cachedFocusedCat = focusedCategory
+                AnimatedVisibility(
+                    visible = focusedCategory != null,
+                    enter = StudioMotion.verticalPanelEnter,
+                    exit = StudioMotion.verticalPanelExit
+                ) {
+                    val displayCat = focusedCategory ?: cachedFocusedCat
+                    if (displayCat != null) {
+                        val currentGroupOverride = remember(projectId, displayCat.groupKey, vowelOverrideRevision) {
+                            VowelGlideOverrideStore.getGroupOverride(context, projectId, displayCat.groupKey)
                         }
                         VowelOverrideBarSurface(
                             modifier = Modifier
@@ -1472,13 +1474,13 @@ fun MultiSpeakerVowelWorkbenchCard(
                                 .padding(top = 10.dp)
                         ) {
                             VowelTypeManualOverrideRow(
-                                titleLabel = "「${focusedCategory.groupLabel}」全员韵母判定",
+                                titleLabel = "「${displayCat.groupLabel}」全员韵母判定",
                                 currentOverride = currentGroupOverride,
                                 onSelectOverride = { nextType ->
                                     VowelGlideOverrideStore.setGroupOverride(
                                         context = context,
                                         projectId = projectId,
-                                        groupKeyOrName = focusedCategory.groupKey,
+                                        groupKeyOrName = displayCat.groupKey,
                                         overrideType = nextType
                                     )
                                 }
@@ -1495,6 +1497,9 @@ fun MultiSpeakerVowelWorkbenchCard(
             val textHintColor = MaterialTheme.colorScheme.onSurfaceVariant
             val gridCol = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
             val linkHighlightColor = MaterialTheme.colorScheme.primary
+            val plotSurfaceColor = MaterialTheme.colorScheme.surface
+            val categoryLabelColor = MaterialTheme.colorScheme.onSurface
+            val chartPalette = LocalPhonAcqExtendedColors.current.chartPalette
 
             Box(
                 modifier = Modifier
@@ -1614,7 +1619,7 @@ fun MultiSpeakerVowelWorkbenchCard(
                                 cohort.convexHullBark.map { (b2, b1) -> mapBarkDirect(b1, b2) }
                             }
                             if (hullPts.size >= 3) {
-                                val col = cohortColor(cohort.colorIndex)
+                                val col = cohortColor(chartPalette, cohort.colorIndex)
                                 val hullPath = Path().apply {
                                     moveTo(hullPts[0].x, hullPts[0].y)
                                     for (i in 1 until hullPts.size) lineTo(hullPts[i].x, hullPts[i].y)
@@ -1651,7 +1656,7 @@ fun MultiSpeakerVowelWorkbenchCard(
                                 for (k in 1 until cPts.size) {
                                     val from = cPts[0].second
                                     val to = cPts[k].second
-                                    val col = cohortColor(cPts[k].first.colorIndex)
+                                    val col = cohortColor(chartPalette, cPts[k].first.colorIndex)
                                     if ((to - from).getDistance() >= 8.dp.toPx()) {
                                         drawLine(
                                             color = col.copy(alpha = 0.55f),
@@ -1678,7 +1683,7 @@ fun MultiSpeakerVowelWorkbenchCard(
                                         cache = labelLayoutCache,
                                         text = "[${vCat.groupLabel.substringBefore(' ')}]",
                                         anchor = Offset(avgX, avgY),
-                                        color = Color(0xFF334155),
+                                        color = categoryLabelColor,
                                         placedBoxes = placedBoxes,
                                         forceDraw = false
                                     )
@@ -1689,7 +1694,7 @@ fun MultiSpeakerVowelWorkbenchCard(
                         // LAYER 1B: Focused Rime Category -> Draw 1-sigma ellipses + bold Centroid Shift Vectors!
                         focusedCategory.cohortStats.forEach { st ->
                             val el = st.ellipse
-                            val col = cohortColor(st.colorIndex)
+                            val col = cohortColor(chartPalette, st.colorIndex)
                             val centerPx = if (useLobanovNorm) {
                                 mapLobanov(el.centerLobanovZ1, el.centerLobanovZ2)
                             } else {
@@ -1725,7 +1730,7 @@ fun MultiSpeakerVowelWorkbenchCard(
                                 )
                             }
                             // Diamond centroid marker
-                            drawCircle(color = Color.White, radius = 5.5.dp.toPx(), center = centerPx)
+                            drawCircle(color = plotSurfaceColor, radius = 5.5.dp.toPx(), center = centerPx)
                             drawCircle(color = col, radius = 4.dp.toPx(), center = centerPx)
                         }
 
@@ -1741,7 +1746,7 @@ fun MultiSpeakerVowelWorkbenchCard(
                             } else {
                                 mapBarkHz(vec.toF1Hz, vec.toF2Hz)
                             }
-                            val col = cohortColor(vec.toColorIndex)
+                            val col = cohortColor(chartPalette, vec.toColorIndex)
                             if ((toPt - fromPt).getDistance() >= 6.dp.toPx()) {
                                 drawLine(
                                     color = col,
@@ -1774,7 +1779,7 @@ fun MultiSpeakerVowelWorkbenchCard(
                             }
 
                             val cIdx = speakerColorIndexMap[tok.speakerId] ?: 0
-                            val col = cohortColor(cIdx)
+                            val col = cohortColor(chartPalette, cIdx)
                             val isFocusedWord = focusedWordId != null && tok.word.id == focusedWordId
                             val isDimmed = focusedWordId != null && !isFocusedWord
                             val alpha = when {
@@ -1875,9 +1880,9 @@ fun MultiSpeakerVowelWorkbenchCard(
                         }
                         focusedWordMatchedPoints.forEach { (pt, tok) ->
                             val cIdx = speakerColorIndexMap[tok.speakerId] ?: 0
-                            val col = cohortColor(cIdx)
+                            val col = cohortColor(chartPalette, cIdx)
                             drawCircle(color = col.copy(alpha = 0.24f), radius = 12.dp.toPx(), center = pt)
-                            drawCircle(color = Color.White, radius = 6.5.dp.toPx(), center = pt)
+                            drawCircle(color = plotSurfaceColor, radius = 6.5.dp.toPx(), center = pt)
                             drawCircle(color = col, radius = 5.dp.toPx(), center = pt)
                             drawSmartCanvasLabel(
                                 textMeasurer = textMeasurer,
@@ -1921,9 +1926,16 @@ fun MultiSpeakerVowelWorkbenchCard(
             }
 
             // Same-Word Multi-Speaker Linked Acoustic Inspector (replaces isolated 1-line text!)
-            AnimatedVisibility(visible = focusedWordComparison != null) {
-                if (focusedWordComparison != null) {
-                    val isSeqPlaying = sequentialPlayingWordId == focusedWordComparison.wordId
+            var cachedFocusedWordComp by remember { mutableStateOf(focusedWordComparison) }
+            if (focusedWordComparison != null) cachedFocusedWordComp = focusedWordComparison
+            AnimatedVisibility(
+                visible = focusedWordComparison != null,
+                enter = StudioMotion.verticalPanelEnter,
+                exit = StudioMotion.verticalPanelExit
+            ) {
+                val displayWordComp = focusedWordComparison ?: cachedFocusedWordComp
+                if (displayWordComp != null) {
+                    val isSeqPlaying = sequentialPlayingWordId == displayWordComp.wordId
                     Surface(
                         shape = RoundedCornerShape(12.dp),
                         color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.36f),
@@ -1941,20 +1953,20 @@ fun MultiSpeakerVowelWorkbenchCard(
                             ) {
                                 Column(modifier = Modifier.weight(1f)) {
                                     Text(
-                                        text = "同词跨人联动对比：「${focusedWordComparison.wordText}」(${focusedWordComparison.realizations.size}人已录)",
+                                        text = "同词跨人联动对比：「${displayWordComp.wordText}」(${displayWordComp.realizations.size}人已录)",
                                         fontWeight = FontWeight.Bold,
                                         fontSize = 13.sp,
                                         color = MaterialTheme.colorScheme.onSurface
                                     )
                                     Text(
-                                        text = "${focusedWordComparison.divergenceBadge} · ${focusedWordComparison.divergenceDetail}",
+                                        text = "${displayWordComp.divergenceBadge} · ${displayWordComp.divergenceDetail}",
                                         fontSize = 11.sp,
                                         color = MaterialTheme.colorScheme.primary
                                     )
                                 }
                                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
                                     FilledTonalButton(
-                                        onClick = { onSequentialPlayWord(focusedWordComparison) },
+                                        onClick = { onSequentialPlayWord(displayWordComp) },
                                         contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
                                         modifier = Modifier.height(32.dp)
                                     ) {
@@ -1979,8 +1991,8 @@ fun MultiSpeakerVowelWorkbenchCard(
                                 }
                             }
 
-                            focusedWordComparison.realizations.forEach { real ->
-                                val col = cohortColor(real.colorIndex)
+                            displayWordComp.realizations.forEach { real ->
+                                val col = cohortColor(chartPalette, real.colorIndex)
                                 val tok = real.primaryToken
                                 val tagId = -(real.word.id * 1000 + real.speakerId)
                                 val isPlayingThis = playingWordId == tagId
@@ -2058,7 +2070,7 @@ fun MultiSpeakerVowelWorkbenchCard(
                 verticalArrangement = Arrangement.spacedBy(6.dp)
             ) {
                 aligned.cohorts.forEach { cohort ->
-                    val col = cohortColor(cohort.colorIndex)
+                    val col = cohortColor(chartPalette, cohort.colorIndex)
                     val shapeGlyph = when (cohort.colorIndex % 3) {
                         0 -> "● 实线"
                         1 -> "▲ 长虚线"

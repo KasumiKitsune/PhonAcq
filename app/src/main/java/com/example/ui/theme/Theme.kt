@@ -3,10 +3,8 @@ package com.example.ui.theme
 import android.app.Activity
 import android.os.Build
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.dynamicDarkColorScheme
 import androidx.compose.material3.dynamicLightColorScheme
-import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.SideEffect
@@ -30,72 +28,25 @@ private val AndroidPhonAcqIpaFontFamily = FontFamily(
 
 private val AndroidPhonAcqTypography = buildPhonAcqTypography(AndroidPhonAcqIpaFontFamily)
 
-private val DarkColorScheme =
-  darkColorScheme(
-    primary = PrimaryBlueDark,
-    onPrimary = BGDark,
-    primaryContainer = PrimaryContainerDark,
-    onPrimaryContainer = OnPrimaryContainerDark,
-    secondary = AccentTealDark,
-    onSecondary = BGDark,
-    secondaryContainer = AccentContainerTealDark,
-    onSecondaryContainer = OnAccentContainerTealDark,
-    background = BGDark,
-    onBackground = TextLight,
-    surface = SurfaceDark,
-    onSurface = TextLight,
-    surfaceVariant = SurfaceContainerHighDark,
-    onSurfaceVariant = TextMutedDark,
-    surfaceContainerLowest = BGDark,
-    surfaceContainerLow = SurfaceContainerLowDark,
-    surfaceContainer = SurfaceContainerDark,
-    surfaceContainerHigh = SurfaceContainerHighDark,
-    surfaceContainerHighest = SurfaceContainerHighestDark,
-    outline = BorderDark,
-    outlineVariant = BorderVariantDark
-  )
-
-private val LightColorScheme =
-  lightColorScheme(
-    primary = PrimaryBlue,
-    onPrimary = Color.White,
-    primaryContainer = PrimaryContainerBlue,
-    onPrimaryContainer = OnPrimaryContainerBlue,
-    secondary = AccentTeal,
-    onSecondary = Color.White,
-    secondaryContainer = AccentContainerTeal,
-    onSecondaryContainer = OnAccentContainerTeal,
-    background = BGNeutral,
-    onBackground = TextDark,
-    surface = SurfaceNeutral,
-    onSurface = TextDark,
-    surfaceVariant = SurfaceContainerHighLight,
-    onSurfaceVariant = TextMuted,
-    surfaceContainerLowest = SurfaceNeutral,
-    surfaceContainerLow = SurfaceContainerLowLight,
-    surfaceContainer = SurfaceContainerLight,
-    surfaceContainerHigh = SurfaceContainerHighLight,
-    surfaceContainerHighest = SurfaceContainerHighestLight,
-    outline = BorderMuted,
-    outlineVariant = BorderLight
-  )
-
 @Composable
 fun MyApplicationTheme(
   darkTheme: Boolean = false,
   dynamicColor: Boolean = false,
+  themePaletteId: String = PhonAcqThemePalette.STUDIO_BLUE.id,
   content: @Composable () -> Unit,
 ) {
-  val colorScheme =
-    when {
-      dynamicColor && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S -> {
-        val context = LocalContext.current
-        if (darkTheme) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
-      }
-
-      darkTheme -> DarkColorScheme
-      else -> LightColorScheme
+  val palette = PhonAcqThemePalette.fromId(themePaletteId)
+  val rawColorScheme =
+    if (dynamicColor && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+      val context = LocalContext.current
+      val dyn = if (darkTheme) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
+      dyn.copy(surfaceTint = Color.Transparent)
+    } else {
+      buildPhonAcqColorScheme(palette = palette, darkTheme = darkTheme)
     }
+
+  val animatedColorScheme = rawColorScheme.animated()
+  val extendedColors = buildPhonAcqExtendedColors(darkTheme = darkTheme)
 
   val view = LocalView.current
   if (!view.isInEditMode) {
@@ -108,9 +59,14 @@ fun MyApplicationTheme(
     }
   }
 
-  MaterialTheme(colorScheme = colorScheme, typography = AndroidPhonAcqTypography) {
+  MaterialTheme(
+    colorScheme = animatedColorScheme,
+    typography = AndroidPhonAcqTypography,
+    shapes = PhonAcqShapes
+  ) {
     CompositionLocalProvider(
       LocalPhoneticFontFamily provides AndroidPhonAcqIpaFontFamily,
+      LocalPhonAcqExtendedColors provides extendedColors,
       content = content
     )
   }

@@ -9,8 +9,6 @@ import androidx.compose.foundation.interaction.HoverInteraction
 import androidx.compose.foundation.interaction.InteractionSource
 import androidx.compose.foundation.interaction.PressInteraction
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.darkColorScheme
-import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.remember
@@ -25,63 +23,15 @@ import androidx.compose.ui.node.DelegatableNode
 import androidx.compose.ui.node.DrawModifierNode
 import androidx.compose.ui.platform.LocalFontFamilyResolver
 import androidx.compose.ui.unit.dp
+import com.example.ui.components.StudioMotion
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import kotlin.math.abs
 
-private val DarkColorScheme =
-    darkColorScheme(
-        primary = PrimaryBlueDark,
-        onPrimary = BGDark,
-        primaryContainer = PrimaryContainerDark,
-        onPrimaryContainer = OnPrimaryContainerDark,
-        secondary = AccentTealDark,
-        onSecondary = BGDark,
-        secondaryContainer = AccentContainerTealDark,
-        onSecondaryContainer = OnAccentContainerTealDark,
-        background = BGDark,
-        onBackground = TextLight,
-        surface = SurfaceDark,
-        onSurface = TextLight,
-        surfaceVariant = SurfaceContainerHighDark,
-        onSurfaceVariant = TextMutedDark,
-        surfaceContainerLowest = BGDark,
-        surfaceContainerLow = SurfaceContainerLowDark,
-        surfaceContainer = SurfaceContainerDark,
-        surfaceContainerHigh = SurfaceContainerHighDark,
-        surfaceContainerHighest = SurfaceContainerHighestDark,
-        outline = BorderDark,
-        outlineVariant = BorderVariantDark
-    )
-
-private val LightColorScheme =
-    lightColorScheme(
-        primary = PrimaryBlue,
-        onPrimary = Color.White,
-        primaryContainer = PrimaryContainerBlue,
-        onPrimaryContainer = OnPrimaryContainerBlue,
-        secondary = AccentTeal,
-        onSecondary = Color.White,
-        secondaryContainer = AccentContainerTeal,
-        onSecondaryContainer = OnAccentContainerTeal,
-        background = BGNeutral,
-        onBackground = TextDark,
-        surface = SurfaceNeutral,
-        onSurface = TextDark,
-        surfaceVariant = SurfaceContainerHighLight,
-        onSurfaceVariant = TextMuted,
-        surfaceContainerLowest = SurfaceNeutral,
-        surfaceContainerLow = SurfaceContainerLowLight,
-        surfaceContainer = SurfaceContainerLight,
-        surfaceContainerHigh = SurfaceContainerHighLight,
-        surfaceContainerHighest = SurfaceContainerHighestLight,
-        outline = BorderMuted,
-        outlineVariant = BorderLight
-    )
-
 /**
- * Custom desktop hover/press indication that replaces Compose Desktop's harsh, unrounded
- * dark-gray rectangle overlay with a smooth, rounded, primary-tinted studio highlight.
+ * Custom desktop hover/press/focus indication:
+ * - Clean primary-tinted fill clipped to the component's own shape (no mismatched hardcoded outer border)
+ * - Crisp `2.dp` keyboard focus ring (`primary.copy(alpha = 0.72f)`) for accessible Tab navigation
  */
 private class StudioDesktopIndication(
     private val tintColor: Color
@@ -106,6 +56,7 @@ private class StudioDesktopIndicationNode(
 ) : Modifier.Node(), DrawModifierNode {
 
     private val animatedAlpha = Animatable(0f)
+    private val animatedFocusAlpha = Animatable(0f)
 
     override fun onAttach() {
         coroutineScope.launch {
@@ -124,13 +75,20 @@ private class StudioDesktopIndicationNode(
                     is FocusInteraction.Unfocus -> activeFocuses.remove(interaction.focus)
                 }
 
-                val target = when {
-                    activePresses.isNotEmpty() -> 0.18f
-                    activeHovers.isNotEmpty() -> 0.10f
-                    activeFocuses.isNotEmpty() -> 0.06f
+                val targetFill = when {
+                    activePresses.isNotEmpty() -> 0.16f
+                    activeHovers.isNotEmpty() -> 0.08f
+                    activeFocuses.isNotEmpty() -> 0.05f
                     else -> 0f
                 }
-                animatedAlpha.animateTo(target, tween(durationMillis = 120))
+                val targetFocus = if (activeFocuses.isNotEmpty()) 1f else 0f
+
+                launch {
+                    animatedAlpha.animateTo(targetFill, tween(durationMillis = StudioMotion.MICRO_MS))
+                }
+                launch {
+                    animatedFocusAlpha.animateTo(targetFocus, tween(durationMillis = StudioMotion.MICRO_MS))
+                }
             }
         }
     }
@@ -138,25 +96,50 @@ private class StudioDesktopIndicationNode(
     override fun ContentDrawScope.draw() {
         drawContent()
         val alpha = animatedAlpha.value
-        if (alpha > 0.003f) {
-            val minDim = size.minDimension
-            val isCircularTarget = minDim <= 52.dp.toPx() && abs(size.width - size.height) <= 8.dp.toPx()
-            val radius = if (isCircularTarget) minDim / 2f else 10.dp.toPx().coerceAtMost(minDim / 2f)
-            val cornerRadius = CornerRadius(radius, radius)
+        val focusAlpha = animatedFocusAlpha.value
+        val minDim = size.minDimension
+        val isCircularTarget = minDim <= 52.dp.toPx() && abs(size.width - size.height) <= 8.dp.toPx()
 
-            drawRoundRect(
-                color = tintColor.copy(alpha = alpha),
-                topLeft = Offset.Zero,
-                size = Size(size.width, size.height),
-                cornerRadius = cornerRadius
-            )
-            drawRoundRect(
-                color = tintColor.copy(alpha = (alpha * 2.2f).coerceAtMost(0.28f)),
-                topLeft = Offset(0.5f, 0.5f),
-                size = Size((size.width - 1f).coerceAtLeast(0f), (size.height - 1f).coerceAtLeast(0f)),
-                cornerRadius = cornerRadius,
-                style = Stroke(width = 1.dp.toPx())
-            )
+        if (alpha > 0.003f) {
+            if (isCircularTarget) {
+                drawCircle(
+                    color = tintColor.copy(alpha = alpha),
+                    radius = minDim / 2f,
+                    center = Offset(size.width / 2f, size.height / 2f)
+                )
+            } else {
+                drawRect(
+                    color = tintColor.copy(alpha = alpha),
+                    topLeft = Offset.Zero,
+                    size = Size(size.width, size.height)
+                )
+            }
+        }
+
+        if (focusAlpha > 0.01f) {
+            val strokePx = 2.dp.toPx()
+            val inset = strokePx / 2f
+            val ringColor = tintColor.copy(alpha = 0.72f * focusAlpha)
+            if (isCircularTarget) {
+                drawCircle(
+                    color = ringColor,
+                    radius = (minDim / 2f - inset).coerceAtLeast(1f),
+                    center = Offset(size.width / 2f, size.height / 2f),
+                    style = Stroke(width = strokePx)
+                )
+            } else {
+                val r = 8.dp.toPx().coerceAtMost(minDim / 2f)
+                drawRoundRect(
+                    color = ringColor,
+                    topLeft = Offset(inset, inset),
+                    size = Size(
+                        (size.width - strokePx).coerceAtLeast(0f),
+                        (size.height - strokePx).coerceAtLeast(0f)
+                    ),
+                    cornerRadius = CornerRadius(r, r),
+                    style = Stroke(width = strokePx)
+                )
+            }
         }
     }
 }
@@ -164,7 +147,8 @@ private class StudioDesktopIndicationNode(
 @Composable
 fun MyApplicationTheme(
     darkTheme: Boolean = false,
-    dynamicColor: Boolean = false,
+    @Suppress("UNUSED_PARAMETER") dynamicColor: Boolean = false,
+    themePaletteId: String = PhonAcqThemePalette.STUDIO_BLUE.id,
     content: @Composable () -> Unit,
 ) {
     val fontFamilyResolver = LocalFontFamilyResolver.current
@@ -172,14 +156,24 @@ fun MyApplicationTheme(
         DesktopTypographyChain.installInto(fontFamilyResolver)
         true
     }
-    val colorScheme = if (darkTheme) DarkColorScheme else LightColorScheme
-    val studioIndication = remember(colorScheme.primary) {
-        StudioDesktopIndication(colorScheme.primary)
+    val palette = PhonAcqThemePalette.fromId(themePaletteId)
+    val rawColorScheme = buildPhonAcqColorScheme(palette = palette, darkTheme = darkTheme)
+    val colorScheme = rawColorScheme.animated()
+    val extendedColors = buildPhonAcqExtendedColors(darkTheme = darkTheme)
+
+    val studioIndication = remember(rawColorScheme.primary) {
+        StudioDesktopIndication(rawColorScheme.primary)
     }
-    MaterialTheme(colorScheme = colorScheme, typography = DesktopTypographyChain.typography) {
+
+    MaterialTheme(
+        colorScheme = colorScheme,
+        typography = DesktopTypographyChain.typography,
+        shapes = PhonAcqShapes
+    ) {
         CompositionLocalProvider(
             LocalIndication provides studioIndication,
             LocalPhoneticFontFamily provides DesktopTypographyChain.phoneticIpaFontFamily,
+            LocalPhonAcqExtendedColors provides extendedColors,
             content = content
         )
     }

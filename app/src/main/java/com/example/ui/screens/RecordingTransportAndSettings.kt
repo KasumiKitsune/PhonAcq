@@ -3,6 +3,7 @@ package com.example.ui.screens
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.Spring
@@ -28,6 +29,7 @@ import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.waitForUpOrCancellation
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.hoverable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -44,8 +46,10 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -81,6 +85,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -97,6 +102,7 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
@@ -119,8 +125,15 @@ import com.example.data.Word
 import com.example.i18n.S
 import com.example.i18n.withArgs
 import com.example.ui.components.DesktopAdaptiveState
+import com.example.ui.components.PlatformVerticalScrollbar
 import com.example.ui.components.StudioFilterChip
+import com.example.ui.components.StudioMotion
 import com.example.ui.components.StudioSwitchRow
+import com.example.ui.components.rememberStudioInteraction
+import com.example.ui.components.studioAnimateItem
+import com.example.ui.components.studioAnimateSize
+import com.example.ui.components.studioRotateOn
+import com.example.ui.theme.LocalPhonAcqExtendedColors
 import com.example.viewmodel.RecordingViewModel
 import java.io.File
 import java.util.Locale
@@ -172,17 +185,35 @@ internal fun LiveStudioMonitorSection(
         }
     }
 
+    val extendedColors = LocalPhonAcqExtendedColors.current
+    val statusDotColor by animateColorAsState(
+        targetValue = when {
+            isRecording -> MaterialTheme.colorScheme.error
+            currentWord.isRecorded -> extendedColors.success
+            else -> MaterialTheme.colorScheme.outline
+        },
+        animationSpec = StudioMotion.microTween(),
+        label = "MonitorStatusDotColor"
+    )
+    val timerTextColor by animateColorAsState(
+        targetValue = if (isRecording) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
+        animationSpec = StudioMotion.microTween(),
+        label = "MonitorTimerTextColor"
+    )
+
     Surface(
-        shape = RoundedCornerShape(18.dp),
+        shape = RoundedCornerShape(16.dp),
         color = MaterialTheme.colorScheme.surfaceContainer,
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f)),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
+        shadowElevation = 0.dp,
+        tonalElevation = 0.dp,
         modifier = Modifier.fillMaxWidth()
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 12.dp, vertical = if (isCompact) 7.dp else 10.dp),
-            verticalArrangement = Arrangement.spacedBy(if (isCompact) 5.dp else 8.dp)
+            verticalArrangement = Arrangement.spacedBy(if (isCompact) 5.dp else 7.dp)
         ) {
             // Top Status Row: Human-friendly recording status + multi-take badge + clear volume status
             Row(
@@ -201,13 +232,7 @@ internal fun LiveStudioMonitorSection(
                         modifier = Modifier
                             .size(8.dp)
                             .clip(CircleShape)
-                            .background(
-                                when {
-                                    isRecording -> MaterialTheme.colorScheme.error
-                                    currentWord.isRecorded -> MaterialTheme.colorScheme.primary
-                                    else -> MaterialTheme.colorScheme.outline
-                                }
-                            )
+                            .background(statusDotColor)
                     )
                     Text(
                         text = if (isRecording) {
@@ -237,7 +262,7 @@ internal fun LiveStudioMonitorSection(
                         fontWeight = FontWeight.SemiBold,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
-                        color = if (isRecording) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant
+                        color = timerTextColor
                     )
                 }
 
@@ -246,12 +271,18 @@ internal fun LiveStudioMonitorSection(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        if (!isRecording && takeCount >= 2) {
+                        AnimatedVisibility(
+                            visible = !isRecording && takeCount >= 2,
+                            enter = StudioMotion.horizontalPaneEnter,
+                            exit = StudioMotion.horizontalPaneExit
+                        ) {
                             Surface(
                                 shape = RoundedCornerShape(8.dp),
                                 color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.85f),
                                 modifier = Modifier
+                                    .studioAnimateSize()
                                     .clip(RoundedCornerShape(8.dp))
+                                    .pointerHoverIcon(PointerIcon.Hand)
                                     .clickable(onClick = onOpenTakeSwitcher)
                                     .testTag("multi_take_switcher_badge")
                             ) {
@@ -286,25 +317,39 @@ internal fun LiveStudioMonitorSection(
                             liveDbfs > -42.0f -> S.recording.levelTooQuiet
                             else -> S.recording.levelWaiting
                         }
-                        if (levelHint.isNotEmpty()) {
-                            Text(
-                                text = levelHint,
-                                style = MaterialTheme.typography.labelSmall,
-                                fontWeight = FontWeight.SemiBold,
-                                maxLines = 1,
-                                softWrap = false,
-                                color = when {
-                                    isRecording && liveDbfs > -1.5f -> MaterialTheme.colorScheme.error
-                                    isRecording && liveDbfs > -24.0f -> MaterialTheme.colorScheme.primary
-                                    else -> MaterialTheme.colorScheme.onSurfaceVariant
-                                }
-                            )
+                        val levelHintColor by animateColorAsState(
+                            targetValue = when {
+                                isRecording && liveDbfs > -1.5f -> MaterialTheme.colorScheme.error
+                                isRecording && liveDbfs > -24.0f -> extendedColors.success
+                                isRecording && liveDbfs > -42.0f -> extendedColors.warning
+                                else -> MaterialTheme.colorScheme.onSurfaceVariant
+                            },
+                            animationSpec = StudioMotion.microTween(),
+                            label = "MonitorLevelHintColor"
+                        )
+                        AnimatedContent(
+                            targetState = levelHint,
+                            transitionSpec = { StudioMotion.subtleFadeScale() },
+                            label = "MonitorLevelHint"
+                        ) { hint ->
+                            if (hint.isNotEmpty()) {
+                                Text(
+                                    text = hint,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontWeight = FontWeight.SemiBold,
+                                    maxLines = 1,
+                                    softWrap = false,
+                                    color = levelHintColor
+                                )
+                            } else {
+                                Spacer(Modifier.width(1.dp))
+                            }
                         }
                     }
                 }
             }
 
-            // Real-time Volume Bar
+            // Real-time Volume Bar (asymmetric attack/release damping)
             DbfsVuMeterBar(
                 dbfs = if (isRecording) liveDbfs else -60f,
                 isRecording = isRecording
@@ -319,39 +364,60 @@ internal fun LiveStudioMonitorSection(
                     .fillMaxWidth()
                     .height(
                         when {
-                            isCompact -> 36.dp
-                            participantCleanMode -> 44.dp
-                            else -> 54.dp
+                            isCompact -> 34.dp
+                            participantCleanMode -> 42.dp
+                            else -> 50.dp
                         }
                     )
             )
 
-            // Friendly Guidance Banner or Auto-Flip Progress
-            if (isRecording) {
-                val statusMessage = when {
-                    isClipping -> S.recording.promptClippingHint
-                    isTooQuiet -> S.recording.promptTooQuietHint
-                    else -> S.recording.promptNormalSpeakHint
-                }
-                val statusColor = when {
+            // Permanent fixed-height bottom guidance row -> 0px vertical displacement when pressing Space!
+            val statusColor by animateColorAsState(
+                targetValue = when {
+                    !isRecording -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.72f)
                     isClipping -> MaterialTheme.colorScheme.error
-                    isTooQuiet -> MaterialTheme.colorScheme.secondary
+                    isTooQuiet -> extendedColors.warning
                     else -> MaterialTheme.colorScheme.primary
-                }
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
+                },
+                animationSpec = StudioMotion.microTween(),
+                label = "MonitorGuidanceColor"
+            )
+            val statusMessage = when {
+                !isRecording && isPushToTalk -> S.recording.holdToRecordHint
+                !isRecording && DesktopAdaptiveState.isDesktopPlatform -> "按 Space 启停录音 · ← / → 切换词条 · Enter 试听"
+                !isRecording -> S.recording.mobileReadyHint
+                isClipping -> S.recording.promptClippingHint
+                isTooQuiet -> S.recording.promptTooQuietHint
+                else -> S.recording.promptNormalSpeakHint
+            }
+
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(18.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                AnimatedContent(
+                    targetState = statusMessage,
+                    transitionSpec = { StudioMotion.subtleFadeScale() },
+                    label = "MonitorBottomStatusText",
+                    modifier = Modifier.weight(1f)
+                ) { msg ->
                     Text(
-                        text = statusMessage,
+                        text = msg,
                         style = MaterialTheme.typography.labelSmall,
                         color = statusColor,
                         maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f)
+                        overflow = TextOverflow.Ellipsis
                     )
-                    if (!isPushToTalk && isAutoNext && silenceProgress > 0.02f) {
+                }
+                AnimatedVisibility(
+                    visible = isRecording && !isPushToTalk && isAutoNext && silenceProgress > 0.02f,
+                    enter = StudioMotion.horizontalPaneEnter,
+                    exit = StudioMotion.horizontalPaneExit
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
                         Spacer(Modifier.width(8.dp))
                         LinearProgressIndicator(
                             progress = { silenceProgress.coerceIn(0f, 1f) },
@@ -376,10 +442,24 @@ internal fun DbfsVuMeterBar(
     dbfs: Float,
     isRecording: Boolean
 ) {
-    val normalizedLevel = if (isRecording) ((dbfs + 60f) / 60f).coerceIn(0f, 1f) else 0f
-    val safeGreenColor = Color(0xFF2E7D32)
-    val cautionAmberColor = Color(0xFFF9A825)
-    val clipRedColor = MaterialTheme.colorScheme.error
+    val extendedColors = LocalPhonAcqExtendedColors.current
+    val targetLevel = if (isRecording) ((dbfs + 60f) / 60f).coerceIn(0f, 1f) else 0f
+    val dampedLevel = remember { Animatable(0f) }
+
+    // Hardware-inspired asymmetric VU meter damping: crisp 40ms attack, smooth 160ms release
+    LaunchedEffect(targetLevel) {
+        val durationMs = if (targetLevel > dampedLevel.value) 40 else 160
+        dampedLevel.animateTo(
+            targetValue = targetLevel,
+            animationSpec = tween(durationMillis = durationMs, easing = FastOutSlowInEasing)
+        )
+    }
+
+    val lowColor = extendedColors.vuLow
+    val safeGreenColor = extendedColors.vuSafe
+    val cautionAmberColor = extendedColors.vuWarn
+    val clipRedColor = extendedColors.vuClip
+    val tickColor = extendedColors.vuTick
     val trackColor = MaterialTheme.colorScheme.surfaceContainerHighest
 
     Canvas(
@@ -394,13 +474,15 @@ internal fun DbfsVuMeterBar(
             cornerRadius = CornerRadius(4f, 4f)
         )
 
-        if (normalizedLevel > 0.01f) {
-            val activeWidth = size.width * normalizedLevel
+        val level = dampedLevel.value
+        if (level > 0.008f) {
+            val activeWidth = size.width * level
+            val effectiveDbfs = level * 60f - 60f
             val barColor = when {
-                dbfs >= -1.5f -> clipRedColor
-                dbfs >= -6.0f -> cautionAmberColor
-                dbfs >= -24.0f -> safeGreenColor
-                else -> Color(0xFF1976D2)
+                effectiveDbfs >= -1.5f -> clipRedColor
+                effectiveDbfs >= -6.0f -> cautionAmberColor
+                effectiveDbfs >= -24.0f -> safeGreenColor
+                else -> lowColor
             }
             drawRoundRect(
                 color = barColor,
@@ -412,13 +494,13 @@ internal fun DbfsVuMeterBar(
         val tick24X = size.width * ((60f - 24f) / 60f)
         val tick6X = size.width * ((60f - 6f) / 60f)
         drawLine(
-            color = Color.White.copy(alpha = 0.45f),
+            color = tickColor,
             start = Offset(tick24X, 0f),
             end = Offset(tick24X, size.height),
             strokeWidth = 1.5f
         )
         drawLine(
-            color = Color.White.copy(alpha = 0.65f),
+            color = tickColor,
             start = Offset(tick6X, 0f),
             end = Offset(tick6X, size.height),
             strokeWidth = 1.5f
@@ -526,144 +608,154 @@ internal fun RecordingTransportBar(
     val navBtnSize = if (isCompact) 48.dp else 56.dp
     val micBtnSize = if (isCompact) 62.dp else 76.dp
     val outerBoxSize = if (isCompact) 74.dp else 92.dp
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = if (isCompact) 0.dp else 4.dp),
-        horizontalArrangement = Arrangement.SpaceEvenly,
-        verticalAlignment = Alignment.CenterVertically
+    Box(
+        modifier = Modifier.fillMaxWidth(),
+        contentAlignment = Alignment.Center
     ) {
-        FilledTonalIconButton(
-            onClick = onPrev,
-            enabled = canGoPrev,
+        Row(
             modifier = Modifier
-                .size(navBtnSize)
-                .pointerHoverIcon(if (canGoPrev) PointerIcon.Hand else PointerIcon.Default)
-                .testTag("prev_word_button")
+                .widthIn(max = 520.dp)
+                .fillMaxWidth()
+                .padding(vertical = if (isCompact) 0.dp else 4.dp),
+            horizontalArrangement = Arrangement.SpaceEvenly,
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            Icon(
-                Icons.AutoMirrored.Filled.ArrowBack,
-                contentDescription = S.recording.prevWordDesc,
-                modifier = Modifier.size(if (isCompact) 22.dp else 26.dp)
-            )
-        }
-
-        Box(
-            contentAlignment = Alignment.Center,
-            modifier = Modifier.size(outerBoxSize)
-        ) {
-            if (isRecording) {
-                RecordingPulseRing(buttonSize = micBtnSize)
+            FilledTonalIconButton(
+                onClick = onPrev,
+                enabled = canGoPrev,
+                modifier = Modifier
+                    .size(navBtnSize)
+                    .pointerHoverIcon(if (canGoPrev) PointerIcon.Hand else PointerIcon.Default)
+                    .testTag("prev_word_button")
+            ) {
+                Icon(
+                    Icons.AutoMirrored.Filled.ArrowBack,
+                    contentDescription = S.recording.prevWordDesc,
+                    modifier = Modifier.size(if (isCompact) 22.dp else 26.dp)
+                )
             }
 
-            var isButtonPressed by remember { mutableStateOf(false) }
+            Box(
+                contentAlignment = Alignment.Center,
+                modifier = Modifier.size(outerBoxSize)
+            ) {
+                androidx.compose.animation.AnimatedVisibility(
+                    visible = isRecording,
+                    enter = fadeIn(StudioMotion.shortInTween()),
+                    exit = fadeOut(StudioMotion.mediumOutTween())
+                ) {
+                    RecordingPulseRing(buttonSize = micBtnSize)
+                }
 
-            val buttonColor by animateColorAsState(
-                targetValue = if (isRecording) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
-                animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
-                label = "recBtnColor"
-            )
-            val iconColor by animateColorAsState(
-                targetValue = if (isRecording) MaterialTheme.colorScheme.onError else MaterialTheme.colorScheme.onPrimary,
-                animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
-                label = "recIconColor"
-            )
-            val buttonScale by animateFloatAsState(
-                targetValue = if (isButtonPressed) 0.91f else 1f,
-                animationSpec = spring(dampingRatio = 0.62f, stiffness = 680f),
-                label = "recBtnScale"
-            )
-            val cornerPercent by animateIntAsState(
-                targetValue = if (isRecording) 34 else 50,
-                animationSpec = spring(dampingRatio = 0.72f, stiffness = 420f),
-                label = "recBtnCorner"
-            )
+                var isButtonPressed by remember { mutableStateOf(false) }
 
-            val currentIsRecording by rememberUpdatedState(isRecording)
-            val currentIsPushToTalk by rememberUpdatedState(isPushToTalk)
-            val currentOnToggleRecord by rememberUpdatedState(onToggleRecord)
-            val currentOnStartRecord by rememberUpdatedState(onStartRecord)
-            val currentOnStopRecord by rememberUpdatedState(onStopRecord)
-            val currentOnStopFromHoldRelease by rememberUpdatedState(onStopFromHoldRelease)
+                val buttonColor by animateColorAsState(
+                    targetValue = if (isRecording) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
+                    animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
+                    label = "recBtnColor"
+                )
+                val iconColor by animateColorAsState(
+                    targetValue = if (isRecording) MaterialTheme.colorScheme.onError else MaterialTheme.colorScheme.onPrimary,
+                    animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
+                    label = "recIconColor"
+                )
+                val buttonScale by animateFloatAsState(
+                    targetValue = if (isButtonPressed) 0.91f else 1f,
+                    animationSpec = spring(dampingRatio = 0.62f, stiffness = 680f),
+                    label = "recBtnScale"
+                )
+                val cornerPercent by animateIntAsState(
+                    targetValue = if (isRecording) 34 else 50,
+                    animationSpec = spring(dampingRatio = 0.72f, stiffness = 420f),
+                    label = "recBtnCorner"
+                )
 
-            Surface(
-                shape = RoundedCornerShape(percent = cornerPercent),
-                color = buttonColor,
-                shadowElevation = if (isRecording) 8.dp else 4.dp,
-                modifier = Modifier
-                    .size(micBtnSize)
-                    .graphicsLayer {
-                        scaleX = buttonScale
-                        scaleY = buttonScale
-                    }
-                    .pointerHoverIcon(PointerIcon.Hand)
-                    .testTag("main_record_button")
-                    .pointerInput(Unit) {
-                        awaitEachGesture {
-                            awaitFirstDown(requireUnconsumed = false)
-                            val downAtMs = System.currentTimeMillis()
-                            val wasAlreadyRecording = currentIsRecording
-                            isButtonPressed = true
-                            try {
-                                if (wasAlreadyRecording) {
-                                    if (currentIsPushToTalk) {
-                                        currentOnStopRecord()
-                                    } else {
-                                        currentOnToggleRecord()
-                                    }
-                                    waitForUpOrCancellation()
-                                } else {
-                                    currentOnStartRecord()
-                                    try {
+                val currentIsRecording by rememberUpdatedState(isRecording)
+                val currentIsPushToTalk by rememberUpdatedState(isPushToTalk)
+                val currentOnToggleRecord by rememberUpdatedState(onToggleRecord)
+                val currentOnStartRecord by rememberUpdatedState(onStartRecord)
+                val currentOnStopRecord by rememberUpdatedState(onStopRecord)
+                val currentOnStopFromHoldRelease by rememberUpdatedState(onStopFromHoldRelease)
+
+                Surface(
+                    shape = RoundedCornerShape(percent = cornerPercent),
+                    color = buttonColor,
+                    shadowElevation = if (DesktopAdaptiveState.isDesktopPlatform) 0.dp else if (isRecording) 6.dp else 3.dp,
+                    modifier = Modifier
+                        .size(micBtnSize)
+                        .graphicsLayer {
+                            scaleX = buttonScale
+                            scaleY = buttonScale
+                        }
+                        .pointerHoverIcon(PointerIcon.Hand)
+                        .testTag("main_record_button")
+                        .pointerInput(Unit) {
+                            awaitEachGesture {
+                                awaitFirstDown(requireUnconsumed = false)
+                                val downAtMs = System.currentTimeMillis()
+                                val wasAlreadyRecording = currentIsRecording
+                                isButtonPressed = true
+                                try {
+                                    if (wasAlreadyRecording) {
+                                        if (currentIsPushToTalk) {
+                                            currentOnStopRecord()
+                                        } else {
+                                            currentOnToggleRecord()
+                                        }
                                         waitForUpOrCancellation()
-                                    } finally {
-                                        val heldMs = System.currentTimeMillis() - downAtMs
-                                        if (currentIsPushToTalk || heldMs >= 620L) {
-                                            if (currentIsRecording) {
-                                                currentOnStopFromHoldRelease()
+                                    } else {
+                                        currentOnStartRecord()
+                                        try {
+                                            waitForUpOrCancellation()
+                                        } finally {
+                                            val heldMs = System.currentTimeMillis() - downAtMs
+                                            if (currentIsPushToTalk || heldMs >= 620L) {
+                                                if (currentIsRecording) {
+                                                    currentOnStopFromHoldRelease()
+                                                }
                                             }
                                         }
                                     }
+                                } finally {
+                                    isButtonPressed = false
                                 }
-                            } finally {
-                                isButtonPressed = false
                             }
                         }
-                    }
-            ) {
-                Box(contentAlignment = Alignment.Center) {
-                    AnimatedContent(
-                        targetState = isRecording,
-                        transitionSpec = {
-                            (scaleIn(spring(dampingRatio = 0.68f, stiffness = 550f), initialScale = 0.65f) + fadeIn(tween(120))) togetherWith
-                                (scaleOut(tween(100), targetScale = 0.65f) + fadeOut(tween(90)))
-                        },
-                        label = "RecMicStopIconMorph"
-                    ) { rec ->
-                        Icon(
-                            imageVector = if (rec) Icons.Default.Stop else Icons.Default.Mic,
-                            contentDescription = if (rec) S.recording.stopRecordingDesc else S.recording.startRecordingDesc,
-                            tint = iconColor,
-                            modifier = Modifier.size(if (isCompact) 28.dp else 34.dp)
-                        )
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        AnimatedContent(
+                            targetState = isRecording,
+                            transitionSpec = {
+                                (scaleIn(spring(dampingRatio = 0.68f, stiffness = 550f), initialScale = 0.65f) + fadeIn(tween(120))) togetherWith
+                                    (scaleOut(tween(100), targetScale = 0.65f) + fadeOut(tween(90)))
+                            },
+                            label = "RecMicStopIconMorph"
+                        ) { rec ->
+                            Icon(
+                                imageVector = if (rec) Icons.Default.Stop else Icons.Default.Mic,
+                                contentDescription = if (rec) S.recording.stopRecordingDesc else S.recording.startRecordingDesc,
+                                tint = iconColor,
+                                modifier = Modifier.size(if (isCompact) 28.dp else 34.dp)
+                            )
+                        }
                     }
                 }
             }
-        }
 
-        FilledTonalIconButton(
-            onClick = onNext,
-            enabled = canGoNext,
-            modifier = Modifier
-                .size(navBtnSize)
-                .pointerHoverIcon(if (canGoNext) PointerIcon.Hand else PointerIcon.Default)
-                .testTag("next_word_button")
-        ) {
-            Icon(
-                Icons.AutoMirrored.Filled.ArrowForward,
-                contentDescription = S.recording.nextWordDesc,
-                modifier = Modifier.size(if (isCompact) 22.dp else 26.dp)
-            )
+            FilledTonalIconButton(
+                onClick = onNext,
+                enabled = canGoNext,
+                modifier = Modifier
+                    .size(navBtnSize)
+                    .pointerHoverIcon(if (canGoNext) PointerIcon.Hand else PointerIcon.Default)
+                    .testTag("next_word_button")
+            ) {
+                Icon(
+                    Icons.AutoMirrored.Filled.ArrowForward,
+                    contentDescription = S.recording.nextWordDesc,
+                    modifier = Modifier.size(if (isCompact) 22.dp else 26.dp)
+                )
+            }
         }
     }
 }
@@ -687,6 +779,19 @@ internal fun TabletWordSidebar(
     onJumpNextFlagged: () -> Unit,
     onRequestClearAll: () -> Unit
 ) {
+    val listState = rememberLazyListState()
+    val extendedColors = LocalPhonAcqExtendedColors.current
+
+    // Automatically keep keyboard-selected word smoothly scrolled into view
+    LaunchedEffect(currentIndex, words.size) {
+        if (currentIndex in words.indices) {
+            val visibleIndices = listState.layoutInfo.visibleItemsInfo.map { it.index }
+            if (visibleIndices.isEmpty() || currentIndex !in visibleIndices) {
+                listState.animateScrollToItem((currentIndex - 2).coerceAtLeast(0))
+            }
+        }
+    }
+
     Surface(
         modifier = Modifier
             .width(256.dp)
@@ -701,10 +806,11 @@ internal fun TabletWordSidebar(
         ) {
             Surface(
                 shape = RoundedCornerShape(14.dp),
-                color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.7f),
+                color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.72f),
                 modifier = Modifier
                     .fillMaxWidth()
                     .clip(RoundedCornerShape(14.dp))
+                    .pointerHoverIcon(PointerIcon.Hand)
                     .clickable { onTriggerSpeakerDialog() }
                     .testTag("speaker_card_trigger_tablet")
             ) {
@@ -795,7 +901,12 @@ internal fun TabletWordSidebar(
                     }
                 }
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    IconButton(onClick = onShuffle, modifier = Modifier.size(34.dp)) {
+                    IconButton(
+                        onClick = onShuffle,
+                        modifier = Modifier
+                            .size(34.dp)
+                            .pointerHoverIcon(PointerIcon.Hand)
+                    ) {
                         Icon(
                             Icons.Default.Shuffle,
                             contentDescription = S.recording.shuffleWordListDesc,
@@ -808,95 +919,148 @@ internal fun TabletWordSidebar(
 
             Spacer(Modifier.height(8.dp))
 
-            LazyColumn(
-                modifier = Modifier.fillMaxSize(),
-                verticalArrangement = Arrangement.spacedBy(6.dp)
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth()
             ) {
-                itemsIndexed(words, key = { _, w -> w.id }) { idx, word ->
-                    val isSelected = idx == currentIndex
-                    val isRec = word.isRecorded
-                    val isFlagged = isRec && word.qualityStatus != null && word.qualityStatus != "正常"
-                    val rowBg = when {
-                        isSelected -> MaterialTheme.colorScheme.primaryContainer
-                        isFlagged -> MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.5f)
-                        isRec -> MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.4f)
-                        else -> MaterialTheme.colorScheme.surface
-                    }
+                LazyColumn(
+                    state = listState,
+                    modifier = Modifier.fillMaxSize(),
+                    verticalArrangement = Arrangement.spacedBy(5.dp)
+                ) {
+                    itemsIndexed(words, key = { _, w -> w.id }) { idx, word ->
+                        val isSelected = idx == currentIndex
+                        val isRec = word.isRecorded
+                        val isFlagged = isRec && word.qualityStatus != null && word.qualityStatus != "正常"
+                        val (rowInteraction, isHoveredState) = rememberStudioInteraction()
+                        val isHovered by isHoveredState
+                        val cs = MaterialTheme.colorScheme
 
-                    Surface(
-                        shape = RoundedCornerShape(10.dp),
-                        color = rowBg,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(10.dp))
-                            .clickable { onSelectWord(idx) }
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween
+                        val rowBg by animateColorAsState(
+                            targetValue = when {
+                                isSelected -> cs.primaryContainer
+                                isFlagged -> lerp(cs.surface, cs.errorContainer, if (isHovered) 0.62f else 0.42f)
+                                isHovered -> lerp(cs.surface, cs.primaryContainer, 0.34f)
+                                else -> cs.surface
+                            },
+                            animationSpec = StudioMotion.microTween(),
+                            label = "WordSidebarRowBg"
+                        )
+                        val rowBorder by animateColorAsState(
+                            targetValue = when {
+                                isSelected -> cs.primary.copy(alpha = 0.45f)
+                                isHovered -> cs.outlineVariant.copy(alpha = 0.7f)
+                                else -> cs.outlineVariant.copy(alpha = 0.28f)
+                            },
+                            animationSpec = StudioMotion.microTween(),
+                            label = "WordSidebarRowBorder"
+                        )
+                        val indicatorProgress by animateFloatAsState(
+                            targetValue = if (isSelected) 1f else 0f,
+                            animationSpec = StudioMotion.tactileSpring(),
+                            label = "WordSidebarIndicator"
+                        )
+
+                        Surface(
+                            shape = RoundedCornerShape(10.dp),
+                            color = rowBg,
+                            border = BorderStroke(1.dp, rowBorder),
+                            shadowElevation = 0.dp,
+                            tonalElevation = 0.dp,
+                            modifier = studioAnimateItem()
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(10.dp))
+                                .hoverable(rowInteraction)
+                                .pointerHoverIcon(PointerIcon.Hand)
+                                .clickable(
+                                    interactionSource = rowInteraction,
+                                    indication = null
+                                ) { onSelectWord(idx) }
                         ) {
                             Row(
+                                modifier = Modifier.padding(start = 6.dp, end = 10.dp, top = 9.dp, bottom = 9.dp),
                                 verticalAlignment = Alignment.CenterVertically,
-                                modifier = Modifier.weight(1f)
+                                horizontalArrangement = Arrangement.SpaceBetween
                             ) {
-                                Text(
-                                    text = String.format(Locale.US, "%02d.", idx + 1),
-                                    style = MaterialTheme.typography.labelSmall,
-                                    fontFamily = FontFamily.Monospace,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                                Spacer(Modifier.width(8.dp))
-                                Column(
-                                    modifier = Modifier
-                                        .weight(1f)
-                                        .padding(end = 6.dp)
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier.weight(1f)
                                 ) {
-                                    Row(
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(5.dp)
+                                    // Permanent 3dp left accent indicator (0px horizontal shift)
+                                    Box(
+                                        modifier = Modifier
+                                            .width(3.dp)
+                                            .height(20.dp)
+                                            .graphicsLayer {
+                                                val p = indicatorProgress.coerceIn(0f, 1f)
+                                                scaleY = p
+                                                alpha = p
+                                            }
+                                            .clip(CircleShape)
+                                            .background(cs.primary)
+                                    )
+                                    Spacer(Modifier.width(7.dp))
+                                    Text(
+                                        text = String.format(Locale.US, "%02d.", idx + 1),
+                                        style = MaterialTheme.typography.labelSmall,
+                                        fontFamily = FontFamily.Monospace,
+                                        color = if (isSelected) cs.primary else cs.onSurfaceVariant
+                                    )
+                                    Spacer(Modifier.width(7.dp))
+                                    Column(
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .padding(end = 6.dp)
                                     ) {
-                                        if (enablePicturePrompts && word.imagePath.isNotBlank()) {
-                                            Icon(
-                                                imageVector = Icons.Default.Image,
-                                                contentDescription = S.recording.hasImageBadgeDesc,
-                                                tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.85f),
-                                                modifier = Modifier.size(14.dp)
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(5.dp)
+                                        ) {
+                                            if (enablePicturePrompts && word.imagePath.isNotBlank()) {
+                                                Icon(
+                                                    imageVector = Icons.Default.Image,
+                                                    contentDescription = S.recording.hasImageBadgeDesc,
+                                                    tint = cs.primary.copy(alpha = 0.85f),
+                                                    modifier = Modifier.size(14.dp)
+                                                )
+                                            }
+                                            Text(
+                                                text = word.text,
+                                                style = MaterialTheme.typography.bodyMedium,
+                                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                                color = if (isSelected) cs.onPrimaryContainer else cs.onSurface,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis
                                             )
                                         }
-                                        Text(
-                                            text = word.text,
-                                            style = MaterialTheme.typography.bodyMedium,
-                                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis
-                                        )
-                                    }
-                                    val sideSub = listOf(word.speakerNote, word.remark)
-                                        .filter { it.isNotBlank() }
-                                        .joinToString(" · ")
-                                    if (sideSub.isNotBlank()) {
-                                        Text(
-                                            text = sideSub,
-                                            style = MaterialTheme.typography.labelSmall,
-                                            color = if (word.speakerNote.isNotBlank()) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis
-                                        )
+                                        val sideSub = listOf(word.speakerNote, word.remark)
+                                            .filter { it.isNotBlank() }
+                                            .joinToString(" · ")
+                                        if (sideSub.isNotBlank()) {
+                                            Text(
+                                                text = sideSub,
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = if (word.speakerNote.isNotBlank()) cs.primary else cs.onSurfaceVariant,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis
+                                            )
+                                        }
                                     }
                                 }
-                            }
-                            if (isRec) {
-                                Icon(
-                                    imageVector = if (isFlagged) Icons.Default.Warning else Icons.Default.CheckCircle,
-                                    contentDescription = null,
-                                    tint = if (isFlagged) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.size(16.dp)
-                                )
+                                if (isRec) {
+                                    Icon(
+                                        imageVector = if (isFlagged) Icons.Default.Warning else Icons.Default.CheckCircle,
+                                        contentDescription = null,
+                                        tint = if (isFlagged) cs.error else extendedColors.success,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                }
                             }
                         }
                     }
                 }
+                PlatformVerticalScrollbar(listState = listState)
             }
         }
     }
@@ -1393,6 +1557,7 @@ internal fun RecordingSettingsSheetContent(
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
+                                .pointerHoverIcon(PointerIcon.Hand)
                                 .clickable { showAdvancedQualitySection = !showAdvancedQualitySection }
                                 .padding(horizontal = 14.dp, vertical = 12.dp)
                                 .testTag("quick_settings_advanced_toggle"),
@@ -1414,9 +1579,10 @@ internal fun RecordingSettingsSheetContent(
                                 )
                             }
                             Icon(
-                                imageVector = if (showAdvancedQualitySection) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                                imageVector = Icons.Default.ExpandMore,
                                 contentDescription = null,
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.studioRotateOn(showAdvancedQualitySection)
                             )
                         }
 

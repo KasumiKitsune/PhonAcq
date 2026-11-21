@@ -1,5 +1,6 @@
 package com.example.ui.screens
 
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
@@ -57,7 +58,11 @@ import com.example.i18n.S
 import com.example.i18n.withArgs
 import com.example.ui.components.DesktopAdaptiveState
 import com.example.ui.components.KeycapBadge
+import com.example.ui.components.LocalAppWindowMetrics
+import com.example.ui.components.PlatformVerticalScrollbar
+import com.example.ui.components.ResponsiveContentContainer
 import com.example.ui.components.StudioModalDialog
+import com.example.ui.components.StudioMotion
 import com.example.ui.components.consumeDialogCardTaps
 import com.example.utils.MacroReportExporter
 import com.example.viewmodel.RecordingViewModel
@@ -67,16 +72,14 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
 
-internal val PHONOLOGY_PALETTE = listOf(
-    Color(0xFF1565C0), // Indigo Blue
-    Color(0xFFD84315), // Deep Coral
-    Color(0xFF2E7D32), // Emerald Green
-    Color(0xFF8E24AA), // Royal Violet
-    Color(0xFFEF6C00), // Amber Orange
-    Color(0xFF00838F), // Cyan Teal
-    Color(0xFFC2185B), // Crimson Rose
-    Color(0xFF4E342E)  // Warm Umber
-)
+private enum class MacroWorkbenchBodyState {
+    LOADING_SINGLE,
+    EMPTY_SINGLE,
+    LOADING_MULTI,
+    MULTI_SPEAKER,
+    SINGLE_WIDE,
+    SINGLE_NARROW
+}
 
 /**
  * Upgraded Project-Level Macro Acoustic & Phonological Summary Sheet (Advanced Mode):
@@ -273,7 +276,10 @@ fun ProjectAcousticSummarySheet(
         }
     }
 
-    if (isDesktop) {
+    val windowMetrics = LocalAppWindowMetrics.current
+    val useFullscreenStudio = isDesktop || windowMetrics.widthDp >= 760.dp
+
+    if (useFullscreenStudio) {
         StudioModalDialog(
             onDismissRequest = onDismiss,
             properties = DialogProperties(
@@ -290,12 +296,14 @@ fun ProjectAcousticSummarySheet(
                     .testTag("desktop_macro_acoustic_fullscreen")
             ) {
                 BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+                    val isWideHeader = maxWidth >= 760.dp
+                    val isVeryNarrowHeader = maxWidth < 460.dp
                     val isWideStudio = maxWidth >= 1020.dp
                     val isInlineModeBar = maxWidth >= 1100.dp
                     val isWideMultiSpeaker = maxWidth >= 1120.dp
 
                     Column(modifier = Modifier.fillMaxSize()) {
-                        // Top Material You Studio Header Bar
+                        // Top Material You Studio Header Bar (width-driven: full header >=760dp, compact 2-row <760dp)
                         Surface(
                             color = MaterialTheme.colorScheme.surfaceContainerLow,
                             shadowElevation = 0.dp,
@@ -303,163 +311,61 @@ fun ProjectAcousticSummarySheet(
                             modifier = Modifier.fillMaxWidth()
                         ) {
                             Column(modifier = Modifier.fillMaxWidth()) {
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(horizontal = 24.dp, vertical = 14.dp),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    // Left: Brand Icon Tile + Title + Structured Metadata Badges
+                                if (isWideHeader) {
                                     Row(
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(14.dp),
-                                        modifier = Modifier.weight(1f, fill = false)
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(horizontal = 24.dp, vertical = 14.dp),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
                                     ) {
-                                        Surface(
-                                            shape = RoundedCornerShape(12.dp),
-                                            color = MaterialTheme.colorScheme.primaryContainer,
-                                            modifier = Modifier.size(42.dp)
+                                        // Left: Brand Icon Tile + Title + Structured Metadata Badges
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(14.dp),
+                                            modifier = Modifier.weight(1f, fill = false)
                                         ) {
-                                            Box(contentAlignment = Alignment.Center) {
-                                                Icon(
-                                                    imageVector = Icons.Default.Insights,
-                                                    contentDescription = null,
-                                                    tint = MaterialTheme.colorScheme.onPrimaryContainer,
-                                                    modifier = Modifier.size(22.dp)
-                                                )
-                                            }
-                                        }
-
-                                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                            Text(
-                                                text = S.acoustics.macroReportTitle,
-                                                style = MaterialTheme.typography.titleLarge,
-                                                fontWeight = FontWeight.ExtraBold,
-                                                color = MaterialTheme.colorScheme.onSurface,
-                                                maxLines = 1,
-                                                overflow = TextOverflow.Ellipsis
-                                            )
-                                            Row(
-                                                verticalAlignment = Alignment.CenterVertically,
-                                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                            Surface(
+                                                shape = RoundedCornerShape(12.dp),
+                                                color = MaterialTheme.colorScheme.primaryContainer,
+                                                modifier = Modifier.size(42.dp)
                                             ) {
-                                                MacroMetaBadge(text = "项目 · ${projectName.ifBlank { S.common.defaultLabel }}")
-                                                MacroMetaBadge(
-                                                    text = "当前发音人 · ${activeSheetSpeaker?.name ?: S.common.defaultLabel}",
-                                                    highlight = !isMultiSpeakerCompareMode
-                                                )
-                                                MacroMetaBadge(text = "已录样本 ${recordedWords.size} 词")
-                                            }
-                                        }
-                                    }
-
-                                    // Center: Segmented Mode Switcher when wide enough & >=2 speakers
-                                    if (recordedSpeakerCount >= 2 && isInlineModeBar) {
-                                        Spacer(Modifier.width(16.dp))
-                                        MacroSegmentedTrack {
-                                            MacroSegmentedItem(
-                                                selected = !isMultiSpeakerCompareMode,
-                                                onClick = { isMultiSpeakerCompareMode = false },
-                                                label = S.acoustics.tabCurrentSpeakerPhonology,
-                                                leadingIcon = {
-                                                    Icon(Icons.Default.Person, contentDescription = null, modifier = Modifier.size(15.dp))
-                                                },
-                                                modifier = Modifier.testTag("macro_tab_single_speaker")
-                                            )
-                                            MacroSegmentedItem(
-                                                selected = isMultiSpeakerCompareMode,
-                                                onClick = { isMultiSpeakerCompareMode = true },
-                                                label = S.acoustics.tabMultiSpeakerNormalized.withArgs("count" to recordedSpeakerCount),
-                                                leadingIcon = {
-                                                    Icon(Icons.Default.Groups, contentDescription = null, modifier = Modifier.size(16.dp))
-                                                },
-                                                modifier = Modifier.testTag("macro_tab_multi_speaker_lobanov")
-                                            )
-                                        }
-                                    }
-
-                                    Spacer(Modifier.width(16.dp))
-
-                                    // Right: Crafted Export Button + Close Fullscreen Button with Esc Keycap
-                                    Row(
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(10.dp)
-                                    ) {
-                                        if (canExportReport) {
-                                            MacroStudioActionButton(
-                                                onClick = triggerExportReport,
-                                                enabled = !isExportingReport,
-                                                isPrimary = true,
-                                                modifier = Modifier.testTag("export_macro_report_button")
-                                            ) {
-                                                if (isExportingReport) {
-                                                    CircularProgressIndicator(
-                                                        modifier = Modifier.size(14.dp),
-                                                        strokeWidth = 2.dp,
-                                                        color = MaterialTheme.colorScheme.onPrimary
-                                                    )
-                                                    Spacer(Modifier.width(6.dp))
-                                                    Text(
-                                                        text = S.acoustics.exportingMacroReportToast,
-                                                        fontSize = 12.sp,
-                                                        fontWeight = FontWeight.Bold
-                                                    )
-                                                } else {
+                                                Box(contentAlignment = Alignment.Center) {
                                                     Icon(
-                                                        imageVector = Icons.Default.Download,
+                                                        imageVector = Icons.Default.Insights,
                                                         contentDescription = null,
-                                                        modifier = Modifier.size(16.dp)
+                                                        tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                                                        modifier = Modifier.size(22.dp)
                                                     )
-                                                    Spacer(Modifier.width(6.dp))
-                                                    Text(
-                                                        text = S.acoustics.exportMacroReportBtn,
-                                                        fontSize = 12.5.sp,
-                                                        fontWeight = FontWeight.Bold,
-                                                        maxLines = 1,
-                                                        softWrap = false
+                                                }
+                                            }
+
+                                            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                                Text(
+                                                    text = S.acoustics.macroReportTitle,
+                                                    style = MaterialTheme.typography.titleLarge,
+                                                    fontWeight = FontWeight.ExtraBold,
+                                                    color = MaterialTheme.colorScheme.onSurface,
+                                                    maxLines = 1,
+                                                    overflow = TextOverflow.Ellipsis
+                                                )
+                                                Row(
+                                                    verticalAlignment = Alignment.CenterVertically,
+                                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                                ) {
+                                                    MacroMetaBadge(text = "项目 · ${projectName.ifBlank { S.common.defaultLabel }}")
+                                                    MacroMetaBadge(
+                                                        text = "当前发音人 · ${activeSheetSpeaker?.name ?: S.common.defaultLabel}",
+                                                        highlight = !isMultiSpeakerCompareMode
                                                     )
+                                                    MacroMetaBadge(text = "已录样本 ${recordedWords.size} 词")
                                                 }
                                             }
                                         }
 
-                                        MacroStudioActionButton(
-                                            onClick = onDismiss,
-                                            isPrimary = false,
-                                            modifier = Modifier.testTag("close_macro_report_button")
-                                        ) {
-                                            Icon(
-                                                imageVector = Icons.Default.Close,
-                                                contentDescription = S.acoustics.closeMacroReportDesc,
-                                                modifier = Modifier.size(16.dp)
-                                            )
-                                            Spacer(Modifier.width(5.dp))
-                                            Text(
-                                                text = "返回工作台",
-                                                fontSize = 12.5.sp,
-                                                fontWeight = FontWeight.SemiBold,
-                                                maxLines = 1,
-                                                softWrap = false
-                                            )
-                                            Spacer(Modifier.width(6.dp))
-                                            KeycapBadge(keyText = "Esc")
-                                        }
-                                    }
-                                }
-
-                                // Secondary Sub-Toolbar for narrower desktop windows or multi-speaker active switcher
-                                val showModeRowBelow = recordedSpeakerCount >= 2 && !isInlineModeBar
-                                val showSpeakerStrip = !isMultiSpeakerCompareMode && multiSpeakerPairsState.size >= 2
-                                if (showModeRowBelow || showSpeakerStrip) {
-                                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f))
-                                    Row(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .padding(horizontal = 24.dp, vertical = 9.dp),
-                                        horizontalArrangement = Arrangement.spacedBy(16.dp),
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        if (showModeRowBelow) {
+                                        // Center: Segmented Mode Switcher when wide enough & >=2 speakers
+                                        if (recordedSpeakerCount >= 2 && isInlineModeBar) {
+                                            Spacer(Modifier.width(16.dp))
                                             MacroSegmentedTrack {
                                                 MacroSegmentedItem(
                                                     selected = !isMultiSpeakerCompareMode,
@@ -481,17 +387,283 @@ fun ProjectAcousticSummarySheet(
                                                 )
                                             }
                                         }
-                                        if (showSpeakerStrip) {
-                                            MacroActiveSpeakerSwitcherStrip(
-                                                speakerPairs = multiSpeakerPairsState,
-                                                selectedSpeakerId = activeSheetSpeaker?.id,
-                                                onSelectSpeaker = { newSpk, newWords ->
-                                                    activeSheetSpeaker = newSpk
-                                                    activeSheetWords = newWords
-                                                    viewModel?.selectSpeaker(newSpk)
-                                                },
-                                                modifier = Modifier.weight(1f)
+
+                                        Spacer(Modifier.width(16.dp))
+
+                                        // Right: Crafted Export Button + Close Fullscreen Button with Esc Keycap
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                        ) {
+                                            if (canExportReport) {
+                                                MacroStudioActionButton(
+                                                    onClick = triggerExportReport,
+                                                    enabled = !isExportingReport,
+                                                    isPrimary = true,
+                                                    modifier = Modifier.testTag("export_macro_report_button")
+                                                ) {
+                                                    if (isExportingReport) {
+                                                        CircularProgressIndicator(
+                                                            modifier = Modifier.size(14.dp),
+                                                            strokeWidth = 2.dp,
+                                                            color = MaterialTheme.colorScheme.onPrimary
+                                                        )
+                                                        Spacer(Modifier.width(6.dp))
+                                                        Text(
+                                                            text = S.acoustics.exportingMacroReportToast,
+                                                            fontSize = 12.sp,
+                                                            fontWeight = FontWeight.Bold
+                                                        )
+                                                    } else {
+                                                        Icon(
+                                                            imageVector = Icons.Default.Download,
+                                                            contentDescription = null,
+                                                            modifier = Modifier.size(16.dp)
+                                                        )
+                                                        Spacer(Modifier.width(6.dp))
+                                                        Text(
+                                                            text = S.acoustics.exportMacroReportBtn,
+                                                            fontSize = 12.5.sp,
+                                                            fontWeight = FontWeight.Bold,
+                                                            maxLines = 1,
+                                                            softWrap = false
+                                                        )
+                                                    }
+                                                }
+                                            }
+
+                                            MacroStudioActionButton(
+                                                onClick = onDismiss,
+                                                isPrimary = false,
+                                                modifier = Modifier.testTag("close_macro_report_button")
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Default.Close,
+                                                    contentDescription = S.acoustics.closeMacroReportDesc,
+                                                    modifier = Modifier.size(16.dp)
+                                                )
+                                                Spacer(Modifier.width(5.dp))
+                                                Text(
+                                                    text = "返回工作台",
+                                                    fontSize = 12.5.sp,
+                                                    fontWeight = FontWeight.SemiBold,
+                                                    maxLines = 1,
+                                                    softWrap = false
+                                                )
+                                                if (isDesktop) {
+                                                    Spacer(Modifier.width(6.dp))
+                                                    KeycapBadge(keyText = "Esc")
+                                                }
+                                            }
+                                        }
+                                    }
+
+                                    // Secondary Sub-Toolbar for narrower wide windows or multi-speaker active switcher
+                                    val showModeRowBelow = recordedSpeakerCount >= 2 && !isInlineModeBar
+                                    val showSpeakerStrip = !isMultiSpeakerCompareMode && multiSpeakerPairsState.size >= 2
+                                    if (showModeRowBelow || showSpeakerStrip) {
+                                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f))
+                                        Row(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(horizontal = 24.dp, vertical = 9.dp),
+                                            horizontalArrangement = Arrangement.spacedBy(16.dp),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            if (showModeRowBelow) {
+                                                MacroSegmentedTrack {
+                                                    MacroSegmentedItem(
+                                                        selected = !isMultiSpeakerCompareMode,
+                                                        onClick = { isMultiSpeakerCompareMode = false },
+                                                        label = S.acoustics.tabCurrentSpeakerPhonology,
+                                                        leadingIcon = {
+                                                            Icon(Icons.Default.Person, contentDescription = null, modifier = Modifier.size(15.dp))
+                                                        },
+                                                        modifier = Modifier.testTag("macro_tab_single_speaker")
+                                                    )
+                                                    MacroSegmentedItem(
+                                                        selected = isMultiSpeakerCompareMode,
+                                                        onClick = { isMultiSpeakerCompareMode = true },
+                                                        label = S.acoustics.tabMultiSpeakerNormalized.withArgs("count" to recordedSpeakerCount),
+                                                        leadingIcon = {
+                                                            Icon(Icons.Default.Groups, contentDescription = null, modifier = Modifier.size(16.dp))
+                                                        },
+                                                        modifier = Modifier.testTag("macro_tab_multi_speaker_lobanov")
+                                                    )
+                                                }
+                                            }
+                                            if (showSpeakerStrip) {
+                                                MacroActiveSpeakerSwitcherStrip(
+                                                    speakerPairs = multiSpeakerPairsState,
+                                                    selectedSpeakerId = activeSheetSpeaker?.id,
+                                                    onSelectSpeaker = { newSpk, newWords ->
+                                                        activeSheetSpeaker = newSpk
+                                                        activeSheetWords = newWords
+                                                        viewModel?.selectSpeaker(newSpk)
+                                                    },
+                                                    modifier = Modifier.weight(1f)
+                                                )
+                                            }
+                                        }
+                                    }
+                                } else {
+                                    // Compact two-row header for narrow desktop windows (<760dp) preventing header collision
+                                    val isVeryNarrow = isVeryNarrowHeader
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(horizontal = 16.dp, vertical = 11.dp),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Column(modifier = Modifier.weight(1f).padding(end = 10.dp)) {
+                                            Text(
+                                                text = S.acoustics.macroReportTitle,
+                                                style = MaterialTheme.typography.titleMedium,
+                                                fontWeight = FontWeight.ExtraBold,
+                                                color = MaterialTheme.colorScheme.onSurface,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis
                                             )
+                                            Text(
+                                                text = S.acoustics.macroReportSubtitle.withArgs(
+                                                    "project" to projectName,
+                                                    "speaker" to (activeSheetSpeaker?.name ?: S.common.defaultLabel),
+                                                    "count" to recordedWords.size
+                                                ),
+                                                fontSize = 11.5.sp,
+                                                lineHeight = 15.sp,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis
+                                            )
+                                        }
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                        ) {
+                                            if (canExportReport) {
+                                                if (isVeryNarrow) {
+                                                    FilledTonalIconButton(
+                                                        onClick = triggerExportReport,
+                                                        enabled = !isExportingReport,
+                                                        modifier = Modifier
+                                                            .size(34.dp)
+                                                            .pointerHoverIcon(PointerIcon.Hand)
+                                                            .testTag("export_macro_report_button")
+                                                    ) {
+                                                        if (isExportingReport) {
+                                                            CircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 2.dp)
+                                                        } else {
+                                                            Icon(
+                                                                imageVector = Icons.Default.Download,
+                                                                contentDescription = S.acoustics.exportMacroReportBtn,
+                                                                modifier = Modifier.size(17.dp)
+                                                            )
+                                                        }
+                                                    }
+                                                } else {
+                                                    FilledTonalButton(
+                                                        onClick = triggerExportReport,
+                                                        enabled = !isExportingReport,
+                                                        shape = RoundedCornerShape(10.dp),
+                                                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
+                                                        modifier = Modifier
+                                                            .height(34.dp)
+                                                            .pointerHoverIcon(PointerIcon.Hand)
+                                                            .testTag("export_macro_report_button")
+                                                    ) {
+                                                        if (isExportingReport) {
+                                                            CircularProgressIndicator(modifier = Modifier.size(13.dp), strokeWidth = 2.dp)
+                                                            Spacer(Modifier.width(5.dp))
+                                                            Text(S.acoustics.exportingMacroReportToast, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                                        } else {
+                                                            Icon(Icons.Default.Download, contentDescription = null, modifier = Modifier.size(15.dp))
+                                                            Spacer(Modifier.width(4.dp))
+                                                            Text(S.acoustics.exportMacroReportBtn, fontSize = 11.5.sp, fontWeight = FontWeight.Bold, maxLines = 1, softWrap = false)
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                            if (isDesktop && !isVeryNarrow) {
+                                                MacroStudioActionButton(
+                                                    onClick = onDismiss,
+                                                    isPrimary = false,
+                                                    modifier = Modifier.testTag("close_macro_report_button")
+                                                ) {
+                                                    Icon(
+                                                        imageVector = Icons.Default.Close,
+                                                        contentDescription = S.acoustics.closeMacroReportDesc,
+                                                        modifier = Modifier.size(15.dp)
+                                                    )
+                                                    Spacer(Modifier.width(5.dp))
+                                                    KeycapBadge(keyText = "Esc")
+                                                }
+                                            } else {
+                                                FilledTonalIconButton(
+                                                    onClick = onDismiss,
+                                                    modifier = Modifier
+                                                        .size(34.dp)
+                                                        .pointerHoverIcon(PointerIcon.Hand)
+                                                        .testTag("close_macro_report_button")
+                                                ) {
+                                                    Icon(
+                                                        imageVector = Icons.Default.Close,
+                                                        contentDescription = S.acoustics.closeMacroReportDesc,
+                                                        modifier = Modifier.size(17.dp)
+                                                    )
+                                                }
+                                            }
+                                        }
+                                    }
+
+                                    if (recordedSpeakerCount >= 2) {
+                                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.32f))
+                                        Column(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(horizontal = 16.dp, vertical = 8.dp),
+                                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                                        ) {
+                                            Box(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .horizontalScroll(rememberScrollState())
+                                            ) {
+                                                MacroSegmentedTrack {
+                                                    MacroSegmentedItem(
+                                                        selected = !isMultiSpeakerCompareMode,
+                                                        onClick = { isMultiSpeakerCompareMode = false },
+                                                        label = S.acoustics.tabCurrentSpeakerPhonology,
+                                                        leadingIcon = {
+                                                            Icon(Icons.Default.Person, contentDescription = null, modifier = Modifier.size(15.dp))
+                                                        },
+                                                        compact = true,
+                                                        modifier = Modifier.testTag("macro_tab_single_speaker")
+                                                    )
+                                                    MacroSegmentedItem(
+                                                        selected = isMultiSpeakerCompareMode,
+                                                        onClick = { isMultiSpeakerCompareMode = true },
+                                                        label = S.acoustics.tabMultiSpeakerNormalized.withArgs("count" to recordedSpeakerCount),
+                                                        leadingIcon = {
+                                                            Icon(Icons.Default.Groups, contentDescription = null, modifier = Modifier.size(16.dp))
+                                                        },
+                                                        compact = true,
+                                                        modifier = Modifier.testTag("macro_tab_multi_speaker_lobanov")
+                                                    )
+                                                }
+                                            }
+                                            if (!isMultiSpeakerCompareMode && multiSpeakerPairsState.size >= 2) {
+                                                MacroActiveSpeakerSwitcherStrip(
+                                                    speakerPairs = multiSpeakerPairsState,
+                                                    selectedSpeakerId = activeSheetSpeaker?.id,
+                                                    onSelectSpeaker = { newSpk, newWords ->
+                                                        activeSheetSpeaker = newSpk
+                                                        activeSheetWords = newWords
+                                                        viewModel?.selectSpeaker(newSpk)
+                                                    }
+                                                )
+                                            }
                                         }
                                     }
                                 }
@@ -500,154 +672,239 @@ fun ProjectAcousticSummarySheet(
                             }
                         }
 
-                        // Full-Screen Studio Workspace Body
+                        // Full-Screen Studio Workspace Body with smooth mode/state transitions
                         val report = speakerReportState
-                        if (report == null) {
-                            Box(
-                                modifier = Modifier.fillMaxSize(),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                MacroAnalysisProgressIndicator(
-                                    title = S.acoustics.computingMacroAnalysis,
-                                    progress = singleSpeakerProgress
-                                )
-                            }
-                        } else if (report.analyzedCount == 0 && !isMultiSpeakerCompareMode) {
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxSize()
-                                    .padding(32.dp),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Surface(
-                                    shape = RoundedCornerShape(18.dp),
-                                    color = MaterialTheme.colorScheme.surfaceContainerLow,
-                                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f)),
-                                    modifier = Modifier.widthIn(max = 520.dp)
-                                ) {
-                                    Column(
-                                        modifier = Modifier.padding(28.dp),
-                                        horizontalAlignment = Alignment.CenterHorizontally,
-                                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                        val bodyState = when {
+                            report == null -> MacroWorkbenchBodyState.LOADING_SINGLE
+                            report.analyzedCount == 0 && !isMultiSpeakerCompareMode -> MacroWorkbenchBodyState.EMPTY_SINGLE
+                            isMultiSpeakerCompareMode && multiReport == null -> MacroWorkbenchBodyState.LOADING_MULTI
+                            isMultiSpeakerCompareMode -> MacroWorkbenchBodyState.MULTI_SPEAKER
+                            isWideStudio -> MacroWorkbenchBodyState.SINGLE_WIDE
+                            else -> MacroWorkbenchBodyState.SINGLE_NARROW
+                        }
+
+                        AnimatedContent(
+                            targetState = bodyState,
+                            transitionSpec = { StudioMotion.subtleFadeScale() },
+                            label = "MacroStudioBodyTransition",
+                            modifier = Modifier
+                                .weight(1f)
+                                .fillMaxWidth()
+                        ) { targetBody ->
+                            when (targetBody) {
+                                MacroWorkbenchBodyState.LOADING_SINGLE -> {
+                                    Box(
+                                        modifier = Modifier.fillMaxSize(),
+                                        contentAlignment = Alignment.Center
                                     ) {
-                                        Icon(
-                                            imageVector = Icons.Default.GraphicEq,
-                                            contentDescription = null,
-                                            tint = MaterialTheme.colorScheme.primary,
-                                            modifier = Modifier.size(34.dp)
-                                        )
-                                        Text(
-                                            text = S.acoustics.macroEmptyDataExplanation,
-                                            fontSize = 13.5.sp,
-                                            lineHeight = 20.sp,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                            textAlign = TextAlign.Center
+                                        MacroAnalysisProgressIndicator(
+                                            title = S.acoustics.computingMacroAnalysis,
+                                            progress = singleSpeakerProgress
                                         )
                                     }
                                 }
-                            }
-                        } else if (isMultiSpeakerCompareMode) {
-                            if (multiReport == null) {
-                                Box(
-                                    modifier = Modifier.fillMaxSize(),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    MacroAnalysisProgressIndicator(
-                                        title = S.acoustics.computingLobanovAnalysis,
-                                        progress = multiSpeakerProgress
-                                    )
-                                }
-                            } else {
-                                Box(
-                                    modifier = Modifier
-                                        .fillMaxSize()
-                                        .verticalScroll(rememberScrollState()),
-                                    contentAlignment = Alignment.TopCenter
-                                ) {
+                                MacroWorkbenchBodyState.EMPTY_SINGLE -> {
                                     Box(
                                         modifier = Modifier
-                                            .widthIn(max = 1680.dp)
-                                            .fillMaxWidth()
-                                            .padding(horizontal = 24.dp, vertical = 18.dp)
+                                            .fillMaxSize()
+                                            .padding(32.dp),
+                                        contentAlignment = Alignment.Center
                                     ) {
-                                        MultiSpeakerComparisonWorkbench(
-                                            multiReport = multiReport,
-                                            projectId = effectiveProjectId,
-                                            viewModel = viewModel,
-                                            playingWordId = playingWordId,
-                                            isDesktopWide = isWideMultiSpeaker
+                                        Surface(
+                                            shape = RoundedCornerShape(18.dp),
+                                            color = MaterialTheme.colorScheme.surfaceContainerLow,
+                                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f)),
+                                            modifier = Modifier.widthIn(max = 520.dp)
+                                        ) {
+                                            Column(
+                                                modifier = Modifier.padding(28.dp),
+                                                horizontalAlignment = Alignment.CenterHorizontally,
+                                                verticalArrangement = Arrangement.spacedBy(10.dp)
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Default.GraphicEq,
+                                                    contentDescription = null,
+                                                    tint = MaterialTheme.colorScheme.primary,
+                                                    modifier = Modifier.size(34.dp)
+                                                )
+                                                Text(
+                                                    text = S.acoustics.macroEmptyDataExplanation,
+                                                    fontSize = 13.5.sp,
+                                                    lineHeight = 20.sp,
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                    textAlign = TextAlign.Center
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                                MacroWorkbenchBodyState.LOADING_MULTI -> {
+                                    Box(
+                                        modifier = Modifier.fillMaxSize(),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        MacroAnalysisProgressIndicator(
+                                            title = S.acoustics.computingLobanovAnalysis,
+                                            progress = multiSpeakerProgress
                                         )
                                     }
                                 }
-                            }
-                        } else if (isWideStudio) {
-                            // Two-Pane Studio Workbench: Left = Tone System & Sandhi, Right = Dynamic F1/F2 Vowel Space
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxSize()
-                                    .padding(horizontal = 24.dp, vertical = 18.dp),
-                                horizontalArrangement = Arrangement.spacedBy(20.dp)
-                            ) {
-                                Column(
-                                    modifier = Modifier
-                                        .weight(0.45f)
-                                        .fillMaxHeight()
-                                        .verticalScroll(rememberScrollState()),
-                                    verticalArrangement = Arrangement.spacedBy(16.dp)
-                                ) {
-                                    EnhancedMacroToneSystemCard(
-                                        report = report,
-                                        clusterSourceMode = clusterSourceMode,
-                                        onClusterSourceModeChange = { clusterSourceMode = it },
-                                        playingWordId = playingWordId,
-                                        onPlayWord = playForActiveSheetSpeaker,
-                                        isDesktopExpanded = true
-                                    )
-                                    Spacer(Modifier.height(16.dp))
+                                MacroWorkbenchBodyState.MULTI_SPEAKER -> {
+                                    val curMulti = multiSpeakerReportState
+                                    if (curMulti != null) {
+                                        val multiScrollState = rememberScrollState()
+                                        Box(modifier = Modifier.fillMaxSize()) {
+                                            Box(
+                                                modifier = Modifier
+                                                    .fillMaxSize()
+                                                    .verticalScroll(multiScrollState),
+                                                contentAlignment = Alignment.TopCenter
+                                            ) {
+                                                Box(
+                                                    modifier = Modifier
+                                                        .widthIn(max = 1600.dp)
+                                                        .fillMaxWidth()
+                                                        .padding(horizontal = if (isWideHeader) 24.dp else 16.dp, vertical = 18.dp)
+                                                ) {
+                                                    MultiSpeakerComparisonWorkbench(
+                                                        multiReport = curMulti,
+                                                        projectId = effectiveProjectId,
+                                                        viewModel = viewModel,
+                                                        playingWordId = playingWordId,
+                                                        isDesktopWide = isWideMultiSpeaker
+                                                    )
+                                                }
+                                            }
+                                            PlatformVerticalScrollbar(
+                                                scrollState = multiScrollState,
+                                                modifier = Modifier
+                                                    .align(Alignment.CenterEnd)
+                                                    .fillMaxHeight()
+                                            )
+                                        }
+                                    }
                                 }
+                                MacroWorkbenchBodyState.SINGLE_WIDE -> {
+                                    val curReport = speakerReportState
+                                    if (curReport != null) {
+                                        val leftPaneScroll = rememberScrollState()
+                                        val rightPaneScroll = rememberScrollState()
+                                        // Two-Pane Studio Workbench clamped to 1600dp to align with Multi-Speaker Tab
+                                        Box(
+                                            modifier = Modifier.fillMaxSize(),
+                                            contentAlignment = Alignment.TopCenter
+                                        ) {
+                                            Row(
+                                                modifier = Modifier
+                                                    .widthIn(max = 1600.dp)
+                                                    .fillMaxSize()
+                                                    .padding(horizontal = 24.dp, vertical = 18.dp),
+                                                horizontalArrangement = Arrangement.spacedBy(20.dp)
+                                            ) {
+                                                Box(
+                                                    modifier = Modifier
+                                                        .weight(0.45f)
+                                                        .fillMaxHeight()
+                                                ) {
+                                                    Column(
+                                                        modifier = Modifier
+                                                            .fillMaxSize()
+                                                            .verticalScroll(leftPaneScroll)
+                                                            .padding(end = 6.dp),
+                                                        verticalArrangement = Arrangement.spacedBy(16.dp)
+                                                    ) {
+                                                        EnhancedMacroToneSystemCard(
+                                                            report = curReport,
+                                                            clusterSourceMode = clusterSourceMode,
+                                                            onClusterSourceModeChange = { clusterSourceMode = it },
+                                                            playingWordId = playingWordId,
+                                                            onPlayWord = playForActiveSheetSpeaker,
+                                                            isDesktopExpanded = true
+                                                        )
+                                                        Spacer(Modifier.height(16.dp))
+                                                    }
+                                                    PlatformVerticalScrollbar(
+                                                        scrollState = leftPaneScroll,
+                                                        modifier = Modifier
+                                                            .align(Alignment.CenterEnd)
+                                                            .fillMaxHeight()
+                                                    )
+                                                }
 
-                                Column(
-                                    modifier = Modifier
-                                        .weight(0.55f)
-                                        .fillMaxHeight()
-                                        .verticalScroll(rememberScrollState()),
-                                    verticalArrangement = Arrangement.spacedBy(16.dp)
-                                ) {
-                                    EnhancedMacroVowelSpaceCard(
-                                        projectId = effectiveProjectId,
-                                        report = report,
-                                        playingWordId = playingWordId,
-                                        onPlayWord = playForActiveSheetSpeaker,
-                                        isDesktopExpanded = true
-                                    )
-                                    Spacer(Modifier.height(16.dp))
+                                                Box(
+                                                    modifier = Modifier
+                                                        .weight(0.55f)
+                                                        .fillMaxHeight()
+                                                ) {
+                                                    Column(
+                                                        modifier = Modifier
+                                                            .fillMaxSize()
+                                                            .verticalScroll(rightPaneScroll)
+                                                            .padding(end = 6.dp),
+                                                        verticalArrangement = Arrangement.spacedBy(16.dp)
+                                                    ) {
+                                                        EnhancedMacroVowelSpaceCard(
+                                                            projectId = effectiveProjectId,
+                                                            report = curReport,
+                                                            playingWordId = playingWordId,
+                                                            onPlayWord = playForActiveSheetSpeaker,
+                                                            isDesktopExpanded = true
+                                                        )
+                                                        Spacer(Modifier.height(16.dp))
+                                                    }
+                                                    PlatformVerticalScrollbar(
+                                                        scrollState = rightPaneScroll,
+                                                        modifier = Modifier
+                                                            .align(Alignment.CenterEnd)
+                                                            .fillMaxHeight()
+                                                    )
+                                                }
+                                            }
+                                        }
+                                    }
                                 }
-                            }
-                        } else {
-                            // Narrower Desktop Window Fallback: Single-Column Full-Screen Scroll
-                            Column(
-                                modifier = Modifier
-                                    .fillMaxSize()
-                                    .verticalScroll(rememberScrollState())
-                                    .padding(horizontal = 20.dp, vertical = 16.dp),
-                                verticalArrangement = Arrangement.spacedBy(18.dp)
-                            ) {
-                                EnhancedMacroToneSystemCard(
-                                    report = report,
-                                    clusterSourceMode = clusterSourceMode,
-                                    onClusterSourceModeChange = { clusterSourceMode = it },
-                                    playingWordId = playingWordId,
-                                    onPlayWord = playForActiveSheetSpeaker,
-                                    isDesktopExpanded = true
-                                )
-                                EnhancedMacroVowelSpaceCard(
-                                    projectId = effectiveProjectId,
-                                    report = report,
-                                    playingWordId = playingWordId,
-                                    onPlayWord = playForActiveSheetSpeaker,
-                                    isDesktopExpanded = true
-                                )
-                                Spacer(Modifier.height(18.dp))
+                                MacroWorkbenchBodyState.SINGLE_NARROW -> {
+                                    val curReport = speakerReportState
+                                    if (curReport != null) {
+                                        val narrowScrollState = rememberScrollState()
+                                        // Narrower Window Fallback: Single-Column Scroll clamped to 820dp
+                                        Box(modifier = Modifier.fillMaxSize()) {
+                                            Column(
+                                                modifier = Modifier
+                                                    .fillMaxSize()
+                                                    .verticalScroll(narrowScrollState)
+                                                    .padding(horizontal = if (isWideHeader) 20.dp else 14.dp, vertical = 16.dp)
+                                            ) {
+                                                ResponsiveContentContainer(maxWidth = 820.dp) {
+                                                    Column(verticalArrangement = Arrangement.spacedBy(18.dp)) {
+                                                        EnhancedMacroToneSystemCard(
+                                                            report = curReport,
+                                                            clusterSourceMode = clusterSourceMode,
+                                                            onClusterSourceModeChange = { clusterSourceMode = it },
+                                                            playingWordId = playingWordId,
+                                                            onPlayWord = playForActiveSheetSpeaker,
+                                                            isDesktopExpanded = isWideHeader
+                                                        )
+                                                        EnhancedMacroVowelSpaceCard(
+                                                            projectId = effectiveProjectId,
+                                                            report = curReport,
+                                                            playingWordId = playingWordId,
+                                                            onPlayWord = playForActiveSheetSpeaker,
+                                                            isDesktopExpanded = isWideHeader
+                                                        )
+                                                        Spacer(Modifier.height(18.dp))
+                                                    }
+                                                }
+                                            }
+                                            PlatformVerticalScrollbar(
+                                                scrollState = narrowScrollState,
+                                                modifier = Modifier
+                                                    .align(Alignment.CenterEnd)
+                                                    .fillMaxHeight()
+                                            )
+                                        }
+                                    }
+                                }
                             }
                         }
                     }
@@ -782,83 +1039,106 @@ fun ProjectAcousticSummarySheet(
             )
 
             val report = speakerReportState
-            if (report == null) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(320.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    MacroAnalysisProgressIndicator(
-                        title = S.acoustics.computingMacroAnalysis,
-                        progress = singleSpeakerProgress
-                    )
-                }
-            } else if (report.analyzedCount == 0 && !isMultiSpeakerCompareMode) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(260.dp)
-                        .padding(24.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(
-                        text = S.acoustics.macroEmptyDataExplanation,
-                        fontSize = 13.sp,
-                        color = MaterialTheme.colorScheme.outline,
-                        textAlign = TextAlign.Center
-                    )
-                }
-            } else {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .nestedScroll(contentScrollLock)
-                        .verticalScroll(rememberScrollState())
-                        .padding(horizontal = 20.dp, vertical = 14.dp),
-                    verticalArrangement = Arrangement.spacedBy(18.dp)
-                ) {
-                    if (isMultiSpeakerCompareMode) {
-                        if (multiReport == null) {
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .height(260.dp),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                MacroAnalysisProgressIndicator(
-                                    title = S.acoustics.computingLobanovAnalysis,
-                                    progress = multiSpeakerProgress
-                                )
-                            }
-                        } else {
-                            MultiSpeakerComparisonWorkbench(
-                                multiReport = multiReport,
-                                projectId = effectiveProjectId,
-                                viewModel = viewModel,
-                                playingWordId = playingWordId
+            val mobileBodyState = when {
+                report == null -> MacroWorkbenchBodyState.LOADING_SINGLE
+                report.analyzedCount == 0 && !isMultiSpeakerCompareMode -> MacroWorkbenchBodyState.EMPTY_SINGLE
+                isMultiSpeakerCompareMode && multiReport == null -> MacroWorkbenchBodyState.LOADING_MULTI
+                isMultiSpeakerCompareMode -> MacroWorkbenchBodyState.MULTI_SPEAKER
+                else -> MacroWorkbenchBodyState.SINGLE_NARROW
+            }
+            AnimatedContent(
+                targetState = mobileBodyState,
+                transitionSpec = { StudioMotion.subtleFadeScale() },
+                label = "MacroMobileBodyTransition",
+                modifier = Modifier.fillMaxWidth()
+            ) { targetState ->
+                when (targetState) {
+                    MacroWorkbenchBodyState.LOADING_SINGLE -> {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(320.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            MacroAnalysisProgressIndicator(
+                                title = S.acoustics.computingMacroAnalysis,
+                                progress = singleSpeakerProgress
                             )
                         }
-                    } else {
-                        // 1. Corpus-Level Tone System & Ribbon Card
-                        EnhancedMacroToneSystemCard(
-                            report = report,
-                            clusterSourceMode = clusterSourceMode,
-                            onClusterSourceModeChange = { clusterSourceMode = it },
-                            playingWordId = playingWordId,
-                            onPlayWord = playForActiveSheetSpeaker
-                        )
-
-                        // 2. High-Density Dynamic Vowel Space & Diphthong Trajectory Card
-                        EnhancedMacroVowelSpaceCard(
-                            projectId = effectiveProjectId,
-                            report = report,
-                            playingWordId = playingWordId,
-                            onPlayWord = playForActiveSheetSpeaker
-                        )
                     }
+                    MacroWorkbenchBodyState.EMPTY_SINGLE -> {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(260.dp)
+                                .padding(24.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = S.acoustics.macroEmptyDataExplanation,
+                                fontSize = 13.sp,
+                                color = MaterialTheme.colorScheme.outline,
+                                textAlign = TextAlign.Center
+                            )
+                        }
+                    }
+                    MacroWorkbenchBodyState.LOADING_MULTI -> {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(260.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            MacroAnalysisProgressIndicator(
+                                title = S.acoustics.computingLobanovAnalysis,
+                                progress = multiSpeakerProgress
+                            )
+                        }
+                    }
+                    else -> {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .nestedScroll(contentScrollLock)
+                                .verticalScroll(rememberScrollState())
+                                .padding(horizontal = 20.dp, vertical = 14.dp),
+                            verticalArrangement = Arrangement.spacedBy(18.dp)
+                        ) {
+                            if (targetState == MacroWorkbenchBodyState.MULTI_SPEAKER) {
+                                val curMulti = multiSpeakerReportState
+                                if (curMulti != null) {
+                                    MultiSpeakerComparisonWorkbench(
+                                        multiReport = curMulti,
+                                        projectId = effectiveProjectId,
+                                        viewModel = viewModel,
+                                        playingWordId = playingWordId
+                                    )
+                                }
+                            } else {
+                                val curReport = speakerReportState
+                                if (curReport != null) {
+                                    // 1. Corpus-Level Tone System & Ribbon Card
+                                    EnhancedMacroToneSystemCard(
+                                        report = curReport,
+                                        clusterSourceMode = clusterSourceMode,
+                                        onClusterSourceModeChange = { clusterSourceMode = it },
+                                        playingWordId = playingWordId,
+                                        onPlayWord = playForActiveSheetSpeaker
+                                    )
 
-                    Spacer(Modifier.height(24.dp))
+                                    // 2. High-Density Dynamic Vowel Space & Diphthong Trajectory Card
+                                    EnhancedMacroVowelSpaceCard(
+                                        projectId = effectiveProjectId,
+                                        report = curReport,
+                                        playingWordId = playingWordId,
+                                        onPlayWord = playForActiveSheetSpeaker
+                                    )
+                                }
+                            }
+
+                            Spacer(Modifier.height(24.dp))
+                        }
+                    }
                 }
             }
         }

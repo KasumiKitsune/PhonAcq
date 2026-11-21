@@ -22,8 +22,10 @@ import androidx.compose.foundation.hoverable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsHoveredAsState
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
@@ -172,18 +174,34 @@ fun PromptDisplayLinkScreen(
             .background(colors.screenBg)
             .testTag("prompt_display_screen_root")
     ) {
-        Box(
+        BoxWithConstraints(
             modifier = Modifier
                 .fillMaxSize()
                 .statusBarsPadding()
                 .navigationBarsPadding()
-                .padding(horizontal = 24.dp, vertical = 18.dp)
         ) {
+            val viewportHeight = maxHeight
+            val isShortWindow = maxHeight < 480.dp
+            val isNarrowWidth = maxWidth < 400.dp
+            val outerHorizPad = if (isNarrowWidth) 12.dp else 24.dp
+            val outerVertPad = if (isShortWindow) 10.dp else 18.dp
+            val stageVertPad = if (isShortWindow) 10.dp else 24.dp
+            val cardMinHeight = if (isShortWindow) 140.dp else 290.dp
+            val cardInnerVertPad = if (isShortWindow) 18.dp else 40.dp
+            val cardInnerHorizPad = if (isNarrowWidth) 16.dp else 28.dp
+
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .verticalScroll(rememberScrollState())
+                    .heightIn(min = viewportHeight)
+                    .padding(horizontal = outerHorizPad, vertical = outerVertPad),
+                verticalArrangement = Arrangement.SpaceBetween,
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
         // 1. Minimal Top Bar (Mic endpoint badge + optional progress counter + subtle 3s press-and-hold exit control)
         Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .align(Alignment.TopCenter),
+            modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
@@ -296,29 +314,6 @@ fun PromptDisplayLinkScreen(
             )
         }
 
-        // Gentle toast hint when speaker or investigator taps the locked exit icon
-        AnimatedVisibility(
-            visible = lockHintVisible,
-            enter = fadeIn(tween(150)),
-            exit = fadeOut(tween(150)),
-            modifier = Modifier
-                .align(Alignment.TopCenter)
-                .padding(top = 56.dp)
-        ) {
-            Surface(
-                shape = RoundedCornerShape(12.dp),
-                color = colors.cardBg,
-                border = BorderStroke(1.dp, colors.accent.copy(alpha = 0.45f))
-            ) {
-                Text(
-                    text = S.wireless.holdLockToExitHint,
-                    fontSize = 13.sp,
-                    color = colors.primaryText,
-                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp)
-                )
-            }
-        }
-
         // 2. Center Main Stage: Waiting PIN Card OR Intermission Break ("中场休息") OR Empty Project OR Prompt Word Card
         val stageModeKey = when {
             isHostingWaiting && !isConnected -> "WAITING_PIN"
@@ -334,8 +329,7 @@ fun PromptDisplayLinkScreen(
             modifier = Modifier
                 .fillMaxWidth()
                 .widthIn(max = 900.dp)
-                .align(Alignment.Center)
-                .padding(vertical = 64.dp),
+                .padding(vertical = stageVertPad),
             contentAlignment = Alignment.Center
         ) {
             AnimatedContent(
@@ -539,7 +533,7 @@ fun PromptDisplayLinkScreen(
                         border = BorderStroke(borderWidth, borderColor),
                         modifier = Modifier
                             .fillMaxWidth()
-                            .defaultMinSize(minHeight = 290.dp)
+                            .defaultMinSize(minHeight = cardMinHeight)
                             .then(
                                 if (policy.visualPreset == PromptVisualPreset.WARM_PAPER) {
                                     Modifier.padding(2.dp)
@@ -561,7 +555,7 @@ fun PromptDisplayLinkScreen(
                                             )
                                     } else Modifier
                                 )
-                                .padding(horizontal = 28.dp, vertical = 40.dp),
+                                .padding(horizontal = cardInnerHorizPad, vertical = cardInnerVertPad),
                             contentAlignment = Alignment.Center
                         ) {
                             AnimatedContent(
@@ -604,8 +598,8 @@ fun PromptDisplayLinkScreen(
                                             modifier = Modifier
                                                 .fillMaxWidth()
                                                 .heightIn(
-                                                    min = 180.dp,
-                                                    max = if (hideTextForImage) 370.dp else 265.dp
+                                                    min = if (isShortWindow) 100.dp else 180.dp,
+                                                    max = if (isShortWindow) 180.dp else if (hideTextForImage) 370.dp else 265.dp
                                                 )
                                                 .testTag("prompt_word_image_box")
                                         ) {
@@ -739,80 +733,112 @@ fun PromptDisplayLinkScreen(
         }
 
         // 3. Permission-Gated Bottom Controls (Zero buttons shown when locked by Controller!)
-        if (!policy.isIntermissionBreak && currentWord != null) {
+        val showBottomControls = !policy.isIntermissionBreak && currentWord != null && (
+            policy.pageTurnPolicy == PromptPageTurnPolicy.FREE_PREV_NEXT ||
+                policy.pageTurnPolicy == PromptPageTurnPolicy.NEXT_ONLY ||
+                policy.allowPromptStartStopRecord ||
+                (policy.allowPromptReplayAndRetake && currentWord.isRecorded)
+            )
+        if (showBottomControls && currentWord != null) {
             val showPrev = policy.pageTurnPolicy == PromptPageTurnPolicy.FREE_PREV_NEXT
             val showNext = policy.pageTurnPolicy == PromptPageTurnPolicy.NEXT_ONLY ||
                 policy.pageTurnPolicy == PromptPageTurnPolicy.FREE_PREV_NEXT
             val showRecord = policy.allowPromptStartStopRecord
             val showReplay = policy.allowPromptReplayAndRetake && currentWord.isRecorded
 
-            if (showPrev || showNext || showRecord || showReplay) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .widthIn(max = 720.dp)
-                        .align(Alignment.BottomCenter)
-                        .padding(bottom = 6.dp),
-                    horizontalArrangement = Arrangement.spacedBy(14.dp, Alignment.CenterHorizontally),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    if (showPrev) {
-                        PromptSoftActionButton(
-                            label = S.wireless.btnPrevWord,
-                            icon = Icons.AutoMirrored.Filled.ArrowBack,
-                            colors = colors,
-                            enabled = snapshot.currentSeqPos > 0,
-                            onClick = { wireless.requestPrevWord() },
-                            tag = "prompt_btn_prev"
-                        )
-                    }
-                    if (showReplay) {
-                        PromptSoftActionButton(
-                            label = if (isAuditionPlaying) S.wireless.btnStopAudition else S.wireless.btnAudition,
-                            icon = if (isAuditionPlaying) Icons.Default.Stop else Icons.Default.PlayArrow,
-                            colors = colors,
-                            onClick = { wireless.requestAuditionCurrentWordOnThisDevice() },
-                            tag = "prompt_btn_replay"
-                        )
-                    }
-                    if (showRecord) {
-                        com.example.ui.components.PromptRecordTriggerButton(
-                            isRecording = snapshot.isRecording,
-                            accentColor = colors.accent,
-                            screenBgColor = colors.screenBg,
-                            haloColor = colors.halo,
-                            onStartRecord = { wireless.requestStartRecording() },
-                            onStopRecord = {
-                                wireless.requestStopRecording(
-                                    fromHoldRelease = false,
-                                    initiatedByRole = LinkRole.PROMPT_DISPLAY
-                                )
-                            },
-                            onStopFromHoldRelease = {
-                                wireless.requestStopRecording(
-                                    fromHoldRelease = true,
-                                    initiatedByRole = LinkRole.PROMPT_DISPLAY
-                                )
-                            },
-                            onToggleRecord = {
-                                wireless.requestToggleRecording(initiatedByRole = LinkRole.PROMPT_DISPLAY)
-                            },
-                            tag = "prompt_btn_record"
-                        )
-                    }
-                    if (showNext) {
-                        PromptSoftActionButton(
-                            label = S.wireless.btnNextWord,
-                            icon = Icons.AutoMirrored.Filled.ArrowForward,
-                            colors = colors,
-                            enabled = snapshot.currentSeqPos < snapshot.totalWords - 1,
-                            onClick = { wireless.requestNextWord() },
-                            tag = "prompt_btn_next"
-                        )
-                    }
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .widthIn(max = 720.dp)
+                    .padding(bottom = if (isShortWindow) 2.dp else 6.dp),
+                horizontalArrangement = Arrangement.spacedBy(if (isNarrowWidth) 8.dp else 14.dp, Alignment.CenterHorizontally),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                if (showPrev) {
+                    PromptSoftActionButton(
+                        label = S.wireless.btnPrevWord,
+                        icon = Icons.AutoMirrored.Filled.ArrowBack,
+                        colors = colors,
+                        enabled = snapshot.currentSeqPos > 0,
+                        compactIconOnly = isNarrowWidth,
+                        onClick = { wireless.requestPrevWord() },
+                        tag = "prompt_btn_prev"
+                    )
+                }
+                if (showReplay) {
+                    PromptSoftActionButton(
+                        label = if (isAuditionPlaying) S.wireless.btnStopAudition else S.wireless.btnAudition,
+                        icon = if (isAuditionPlaying) Icons.Default.Stop else Icons.Default.PlayArrow,
+                        colors = colors,
+                        compactIconOnly = isNarrowWidth,
+                        onClick = { wireless.requestAuditionCurrentWordOnThisDevice() },
+                        tag = "prompt_btn_replay"
+                    )
+                }
+                if (showRecord) {
+                    com.example.ui.components.PromptRecordTriggerButton(
+                        isRecording = snapshot.isRecording,
+                        accentColor = colors.accent,
+                        screenBgColor = colors.screenBg,
+                        haloColor = colors.halo,
+                        onStartRecord = { wireless.requestStartRecording() },
+                        onStopRecord = {
+                            wireless.requestStopRecording(
+                                fromHoldRelease = false,
+                                initiatedByRole = LinkRole.PROMPT_DISPLAY
+                            )
+                        },
+                        onStopFromHoldRelease = {
+                            wireless.requestStopRecording(
+                                fromHoldRelease = true,
+                                initiatedByRole = LinkRole.PROMPT_DISPLAY
+                            )
+                        },
+                        onToggleRecord = {
+                            wireless.requestToggleRecording(initiatedByRole = LinkRole.PROMPT_DISPLAY)
+                        },
+                        tag = "prompt_btn_record"
+                    )
+                }
+                if (showNext) {
+                    PromptSoftActionButton(
+                        label = S.wireless.btnNextWord,
+                        icon = Icons.AutoMirrored.Filled.ArrowForward,
+                        colors = colors,
+                        enabled = snapshot.currentSeqPos < snapshot.totalWords - 1,
+                        compactIconOnly = isNarrowWidth,
+                        onClick = { wireless.requestNextWord() },
+                        tag = "prompt_btn_next"
+                    )
                 }
             }
+        } else {
+            Spacer(modifier = Modifier.height(4.dp))
         }
+            }
+
+            // Gentle floating toast hint when speaker or investigator taps the locked exit icon
+            AnimatedVisibility(
+                visible = lockHintVisible,
+                enter = fadeIn(tween(150)),
+                exit = fadeOut(tween(150)),
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .padding(top = if (isShortWindow) 48.dp else 64.dp)
+            ) {
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = colors.cardBg,
+                    border = BorderStroke(1.dp, colors.accent.copy(alpha = 0.45f))
+                ) {
+                    Text(
+                        text = S.wireless.holdLockToExitHint,
+                        fontSize = 13.sp,
+                        color = colors.primaryText,
+                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp)
+                    )
+                }
+            }
         }
 
         // 4. Full-Screen Perimeter Edge-Glow + Toast when this 看读端 is the Active Microphone Endpoint
@@ -835,6 +861,7 @@ private fun PromptSoftActionButton(
     colors: PromptPresetColors,
     enabled: Boolean = true,
     emphasized: Boolean = false,
+    compactIconOnly: Boolean = false,
     onClick: () -> Unit,
     tag: String
 ) {
@@ -845,7 +872,7 @@ private fun PromptSoftActionButton(
         onClick = onClick,
         enabled = enabled,
         interactionSource = interactionSource,
-        shape = RoundedCornerShape(18.dp),
+        shape = RoundedCornerShape(if (compactIconOnly) 14.dp else 18.dp),
         colors = ButtonDefaults.buttonColors(
             containerColor = bg,
             contentColor = fg,
@@ -853,15 +880,28 @@ private fun PromptSoftActionButton(
             disabledContentColor = colors.secondaryText.copy(alpha = 0.4f)
         ),
         border = if (!emphasized) BorderStroke(1.dp, colors.secondaryText.copy(alpha = 0.28f)) else null,
-        contentPadding = PaddingValues(horizontal = 22.dp, vertical = 14.dp),
+        contentPadding = if (compactIconOnly) {
+            PaddingValues(horizontal = 12.dp, vertical = 10.dp)
+        } else {
+            PaddingValues(horizontal = 22.dp, vertical = 14.dp)
+        },
         modifier = Modifier
-            .defaultMinSize(minHeight = 54.dp)
+            .defaultMinSize(
+                minWidth = if (compactIconOnly) 46.dp else 64.dp,
+                minHeight = if (compactIconOnly) 46.dp else 54.dp
+            )
             .studioTactile(interactionSource, enabled = enabled, pressScale = 0.96f)
             .testTag(tag)
     ) {
-        Icon(icon, contentDescription = null, modifier = Modifier.size(20.dp))
-        Spacer(modifier = Modifier.width(8.dp))
-        Text(text = label, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+        Icon(
+            imageVector = icon,
+            contentDescription = if (compactIconOnly) label else null,
+            modifier = Modifier.size(20.dp)
+        )
+        if (!compactIconOnly) {
+            Spacer(modifier = Modifier.width(8.dp))
+            Text(text = label, fontSize = 16.sp, fontWeight = FontWeight.Bold, maxLines = 1, softWrap = false)
+        }
     }
 }
 

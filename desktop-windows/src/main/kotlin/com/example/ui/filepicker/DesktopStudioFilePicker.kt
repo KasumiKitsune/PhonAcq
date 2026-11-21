@@ -1,11 +1,14 @@
 package com.example.ui.filepicker
 
 import android.content.Context
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -130,12 +133,17 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.DialogProperties
+import com.example.ui.components.PlatformVerticalScrollbar
 import com.example.ui.components.StudioAlertDialog
 import com.example.ui.components.StudioFilterChip
 import com.example.ui.components.StudioModalDialog
+import com.example.ui.components.StudioMotion
 import com.example.ui.components.consumeDialogCardTaps
 import com.example.ui.components.rememberStudioInteraction
+import com.example.ui.components.studioAnimateItem
+import com.example.ui.components.studioRotateOn
 import com.example.ui.components.studioTactile
+import com.example.ui.theme.LocalPhonAcqExtendedColors
 import java.awt.datatransfer.DataFlavor
 import java.awt.dnd.DnDConstants
 import java.awt.dnd.DropTarget
@@ -171,6 +179,12 @@ enum class BrowserSortField {
     MODIFIED,
     TYPE,
     SIZE
+}
+
+private enum class PickerBrowserViewMode {
+    EMPTY,
+    GRID,
+    LIST
 }
 
 private data class QuickPlaceItem(
@@ -878,15 +892,18 @@ private fun DesktopStudioFilePickerSurface(request: DesktopFilePickerRequest) {
     }
 
     val listState = rememberLazyListState()
+    val gridState = rememberLazyGridState()
 
     BoxWithConstraints(
         modifier = Modifier
             .fillMaxSize()
-            .padding(horizontal = 24.dp, vertical = 20.dp),
+            .padding(horizontal = 12.dp, vertical = 12.dp),
         contentAlignment = Alignment.Center
     ) {
-        val dialogWidth = (maxWidth * 0.94f).coerceIn(680.dp, 960.dp)
-        val dialogHeight = (maxHeight * 0.90f).coerceIn(480.dp, 640.dp)
+        val dialogWidth = (maxWidth * 0.94f).coerceAtMost(960.dp)
+        val dialogHeight = (maxHeight * 0.90f).coerceAtMost(640.dp)
+        val isCompactSidebar = dialogWidth < 680.dp
+        val isCompactBottomBar = dialogWidth < 580.dp
         val showRightInspector = showInspectorPane && dialogWidth >= 820.dp
 
         Surface(
@@ -1160,151 +1177,158 @@ private fun DesktopStudioFilePickerSurface(request: DesktopFilePickerRequest) {
                                 }
                             ),
                             modifier = Modifier
-                                .weight(1f)
+                                .weight(if (isCompactSidebar) 1.25f else 1f)
                                 .height(36.dp)
                         ) {
-                            if (isEditingPathBar) {
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxSize()
-                                        .padding(horizontal = 10.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.Folder,
-                                        contentDescription = null,
-                                        tint = cs.primary,
-                                        modifier = Modifier.size(15.dp)
-                                    )
-                                    BasicTextField(
-                                        value = editablePathText,
-                                        onValueChange = {
-                                            editablePathText = it
-                                            pathErrorHint = null
-                                        },
-                                        singleLine = true,
-                                        textStyle = TextStyle(
-                                            color = cs.onSurface,
-                                            fontSize = 12.5.sp,
-                                            fontFamily = FontFamily.Monospace
-                                        ),
-                                        cursorBrush = SolidColor(cs.primary),
-                                        modifier = Modifier
-                                            .weight(1f)
-                                            .focusRequester(pathFieldFocusRequester)
-                                            .onPreviewKeyEvent { keyEv ->
-                                                if (keyEv.type == KeyEventType.KeyDown) {
-                                                    if (keyEv.key == Key.Enter || keyEv.key == Key.NumPadEnter) {
-                                                        val expanded = expandUserPath(editablePathText)
-                                                        if (expanded.exists() && expanded.isFile) {
-                                                            expanded.parentFile?.let { navigateToDirectory(it) }
-                                                            handleItemClick(expanded)
-                                                        } else {
-                                                            navigateToDirectory(expanded)
-                                                        }
-                                                        return@onPreviewKeyEvent true
-                                                    } else if (keyEv.key == Key.Escape) {
-                                                        isEditingPathBar = false
-                                                        pathErrorHint = null
-                                                        editablePathText = currentDir.absolutePath
-                                                        return@onPreviewKeyEvent true
-                                                    }
-                                                }
-                                                false
-                                            }
-                                    )
-                                    if (pathErrorHint != null) {
-                                        Text(
-                                            text = pathErrorHint!!,
-                                            fontSize = 11.sp,
-                                            color = cs.error,
-                                            fontWeight = FontWeight.SemiBold,
-                                            maxLines = 1
-                                        )
-                                    }
-                                    Text(
-                                        text = "跳转",
-                                        fontSize = 11.5.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        color = cs.primary,
-                                        modifier = Modifier
-                                            .clip(RoundedCornerShape(6.dp))
-                                            .pointerHoverIcon(PointerIcon.Hand)
-                                            .clickable {
-                                                navigateToDirectory(expandUserPath(editablePathText))
-                                            }
-                                            .padding(horizontal = 6.dp, vertical = 2.dp)
-                                    )
-                                }
-                            } else {
-                                val segments = remember(currentDir.absolutePath) { buildPathSegments(currentDir) }
-                                val crumbScroll = rememberScrollState()
-                                LaunchedEffect(currentDir.absolutePath) {
-                                    crumbScroll.scrollTo(crumbScroll.maxValue)
-                                }
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxSize()
-                                        .padding(horizontal = 8.dp),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
+                            AnimatedContent(
+                                targetState = isEditingPathBar,
+                                transitionSpec = { StudioMotion.subtleFadeScale() },
+                                label = "PickerPathBarMode",
+                                modifier = Modifier.fillMaxSize()
+                            ) { editingPath ->
+                                if (editingPath) {
                                     Row(
                                         modifier = Modifier
-                                            .weight(1f)
-                                            .horizontalScroll(crumbScroll),
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        segments.forEachIndexed { idx, (label, segFile) ->
-                                            val isLast = idx == segments.lastIndex
-                                            Surface(
-                                                shape = RoundedCornerShape(7.dp),
-                                                color = if (isLast) cs.primaryContainer.copy(alpha = 0.65f) else Color.Transparent,
-                                                modifier = Modifier
-                                                    .clip(RoundedCornerShape(7.dp))
-                                                    .pointerHoverIcon(PointerIcon.Hand)
-                                                    .clickable { navigateToDirectory(segFile) }
-                                            ) {
-                                                Text(
-                                                    text = label,
-                                                    fontSize = 12.sp,
-                                                    fontWeight = if (isLast) FontWeight.Bold else FontWeight.Medium,
-                                                    color = if (isLast) cs.onPrimaryContainer else cs.onSurfaceVariant,
-                                                    maxLines = 1,
-                                                    modifier = Modifier.padding(horizontal = 7.dp, vertical = 4.dp)
-                                                )
-                                            }
-                                            if (!isLast) {
-                                                Icon(
-                                                    imageVector = Icons.Default.ChevronRight,
-                                                    contentDescription = null,
-                                                    tint = cs.outline,
-                                                    modifier = Modifier.size(14.dp)
-                                                )
-                                            }
-                                        }
-                                    }
-                                    IconButton(
-                                        onClick = {
-                                            editablePathText = currentDir.absolutePath
-                                            pathErrorHint = null
-                                            isEditingPathBar = true
-                                            scope.launch {
-                                                delay(20)
-                                                try {
-                                                    pathFieldFocusRequester.requestFocus()
-                                                } catch (_: Exception) {
-                                                }
-                                            }
-                                        },
-                                        modifier = Modifier.size(28.dp)
+                                            .fillMaxSize()
+                                            .padding(horizontal = 10.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp)
                                     ) {
                                         Icon(
-                                            imageVector = Icons.Default.Edit,
-                                            contentDescription = "编辑路径 (Ctrl+L)",
-                                            tint = cs.onSurfaceVariant,
-                                            modifier = Modifier.size(14.dp)
+                                            imageVector = Icons.Default.Folder,
+                                            contentDescription = null,
+                                            tint = cs.primary,
+                                            modifier = Modifier.size(15.dp)
                                         )
+                                        BasicTextField(
+                                            value = editablePathText,
+                                            onValueChange = {
+                                                editablePathText = it
+                                                pathErrorHint = null
+                                            },
+                                            singleLine = true,
+                                            textStyle = TextStyle(
+                                                color = cs.onSurface,
+                                                fontSize = 12.5.sp,
+                                                fontFamily = FontFamily.Monospace
+                                            ),
+                                            cursorBrush = SolidColor(cs.primary),
+                                            modifier = Modifier
+                                                .weight(1f)
+                                                .focusRequester(pathFieldFocusRequester)
+                                                .onPreviewKeyEvent { keyEv ->
+                                                    if (keyEv.type == KeyEventType.KeyDown) {
+                                                        if (keyEv.key == Key.Enter || keyEv.key == Key.NumPadEnter) {
+                                                            val expanded = expandUserPath(editablePathText)
+                                                            if (expanded.exists() && expanded.isFile) {
+                                                                expanded.parentFile?.let { navigateToDirectory(it) }
+                                                                handleItemClick(expanded)
+                                                            } else {
+                                                                navigateToDirectory(expanded)
+                                                            }
+                                                            return@onPreviewKeyEvent true
+                                                        } else if (keyEv.key == Key.Escape) {
+                                                            isEditingPathBar = false
+                                                            pathErrorHint = null
+                                                            editablePathText = currentDir.absolutePath
+                                                            return@onPreviewKeyEvent true
+                                                        }
+                                                    }
+                                                    false
+                                                }
+                                        )
+                                        if (pathErrorHint != null) {
+                                            Text(
+                                                text = pathErrorHint!!,
+                                                fontSize = 11.sp,
+                                                color = cs.error,
+                                                fontWeight = FontWeight.SemiBold,
+                                                maxLines = 1
+                                            )
+                                        }
+                                        Text(
+                                            text = "跳转",
+                                            fontSize = 11.5.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = cs.primary,
+                                            modifier = Modifier
+                                                .clip(RoundedCornerShape(6.dp))
+                                                .pointerHoverIcon(PointerIcon.Hand)
+                                                .clickable {
+                                                    navigateToDirectory(expandUserPath(editablePathText))
+                                                }
+                                                .padding(horizontal = 6.dp, vertical = 2.dp)
+                                        )
+                                    }
+                                } else {
+                                    val segments = remember(currentDir.absolutePath) { buildPathSegments(currentDir) }
+                                    val crumbScroll = rememberScrollState()
+                                    LaunchedEffect(currentDir.absolutePath) {
+                                        crumbScroll.animateScrollTo(crumbScroll.maxValue)
+                                    }
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxSize()
+                                            .padding(horizontal = 8.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Row(
+                                            modifier = Modifier
+                                                .weight(1f)
+                                                .horizontalScroll(crumbScroll),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            segments.forEachIndexed { idx, (label, segFile) ->
+                                                val isLast = idx == segments.lastIndex
+                                                Surface(
+                                                    shape = RoundedCornerShape(7.dp),
+                                                    color = if (isLast) cs.primaryContainer.copy(alpha = 0.65f) else Color.Transparent,
+                                                    modifier = Modifier
+                                                        .clip(RoundedCornerShape(7.dp))
+                                                        .pointerHoverIcon(PointerIcon.Hand)
+                                                        .clickable { navigateToDirectory(segFile) }
+                                                ) {
+                                                    Text(
+                                                        text = label,
+                                                        fontSize = 12.sp,
+                                                        fontWeight = if (isLast) FontWeight.Bold else FontWeight.Medium,
+                                                        color = if (isLast) cs.onPrimaryContainer else cs.onSurfaceVariant,
+                                                        maxLines = 1,
+                                                        modifier = Modifier.padding(horizontal = 7.dp, vertical = 4.dp)
+                                                    )
+                                                }
+                                                if (!isLast) {
+                                                    Icon(
+                                                        imageVector = Icons.Default.ChevronRight,
+                                                        contentDescription = null,
+                                                        tint = cs.outline,
+                                                        modifier = Modifier.size(14.dp)
+                                                    )
+                                                }
+                                            }
+                                        }
+                                        IconButton(
+                                            onClick = {
+                                                editablePathText = currentDir.absolutePath
+                                                pathErrorHint = null
+                                                isEditingPathBar = true
+                                                scope.launch {
+                                                    delay(20)
+                                                    try {
+                                                        pathFieldFocusRequester.requestFocus()
+                                                    } catch (_: Exception) {
+                                                    }
+                                                }
+                                            },
+                                            modifier = Modifier.size(28.dp)
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.Edit,
+                                                contentDescription = "编辑路径 (Ctrl+L)",
+                                                tint = cs.onSurfaceVariant,
+                                                modifier = Modifier.size(14.dp)
+                                            )
+                                        }
                                     }
                                 }
                             }
@@ -1315,8 +1339,7 @@ private fun DesktopStudioFilePickerSurface(request: DesktopFilePickerRequest) {
                             shape = RoundedCornerShape(11.dp),
                             color = cs.surfaceContainerLow,
                             border = BorderStroke(1.dp, cs.outlineVariant.copy(alpha = 0.65f)),
-                            modifier = Modifier
-                                .width(205.dp)
+                            modifier = (if (isCompactSidebar) Modifier.weight(1f) else Modifier.width(205.dp))
                                 .height(36.dp)
                         ) {
                             Row(
@@ -1375,7 +1398,11 @@ private fun DesktopStudioFilePickerSurface(request: DesktopFilePickerRequest) {
                     }
 
                     // Optional Inline New Folder Bar
-                    AnimatedVisibility(visible = showNewFolderInput) {
+                    AnimatedVisibility(
+                        visible = showNewFolderInput,
+                        enter = StudioMotion.verticalPanelEnter,
+                        exit = StudioMotion.verticalPanelExit
+                    ) {
                         Surface(
                             color = cs.primaryContainer.copy(alpha = 0.32f),
                             modifier = Modifier
@@ -1470,6 +1497,49 @@ private fun DesktopStudioFilePickerSurface(request: DesktopFilePickerRequest) {
                         )
                     }
 
+                    // Compact Quick-Places Chips Row when sidebar is hidden (<680dp)
+                    AnimatedVisibility(
+                        visible = isCompactSidebar,
+                        enter = StudioMotion.verticalPanelEnter,
+                        exit = StudioMotion.verticalPanelExit
+                    ) {
+                        val corpusDir = Context.appDataRootDir
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .horizontalScroll(rememberScrollState())
+                                .padding(horizontal = 16.dp, vertical = 4.dp),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            quickPlaces.forEach { place ->
+                                StudioFilterChip(
+                                    selected = currentDir.absolutePath.equals(place.dir.absolutePath, ignoreCase = true),
+                                    onClick = { navigateToDirectory(place.dir) },
+                                    labelText = place.label,
+                                    showCheckmark = false,
+                                    horizontalPadding = 9.dp
+                                )
+                            }
+                            StudioFilterChip(
+                                selected = currentDir.absolutePath.equals(corpusDir.absolutePath, ignoreCase = true),
+                                onClick = { navigateToDirectory(corpusDir) },
+                                labelText = "本地语料目录",
+                                showCheckmark = false,
+                                horizontalPadding = 9.dp
+                            )
+                            mountedVolumes.forEach { vol ->
+                                StudioFilterChip(
+                                    selected = currentDir.absolutePath.equals(vol.root.absolutePath, ignoreCase = true),
+                                    onClick = { navigateToDirectory(vol.root) },
+                                    labelText = vol.displayName,
+                                    showCheckmark = false,
+                                    horizontalPadding = 9.dp
+                                )
+                            }
+                        }
+                    }
+
                     HorizontalDivider(color = cs.outlineVariant.copy(alpha = 0.55f))
 
                     // 4. Main 3-Column Studio Body
@@ -1479,63 +1549,65 @@ private fun DesktopStudioFilePickerSurface(request: DesktopFilePickerRequest) {
                             .fillMaxWidth()
                     ) {
                         // 4a. Left Sidebar: Quick Places + Corpus + Recent + Mounted Volumes
-                        Column(
-                            modifier = Modifier
-                                .width(192.dp)
-                                .fillMaxHeight()
-                                .background(cs.surfaceContainerLow.copy(alpha = 0.55f))
-                                .verticalScroll(rememberScrollState())
-                                .padding(horizontal = 10.dp, vertical = 10.dp),
-                            verticalArrangement = Arrangement.spacedBy(3.dp)
-                        ) {
-                            SidebarSectionTitle("常用位置")
-                            quickPlaces.forEach { place ->
-                                SidebarNavRow(
-                                    label = place.label,
-                                    icon = place.icon,
-                                    selected = currentDir.absolutePath.equals(place.dir.absolutePath, ignoreCase = true),
-                                    onClick = { navigateToDirectory(place.dir) }
-                                )
-                            }
-
-                            Spacer(modifier = Modifier.height(6.dp))
-                            SidebarSectionTitle("语料与最近")
-                            val corpusDir = Context.appDataRootDir
-                            SidebarNavRow(
-                                label = "本地语料目录",
-                                icon = Icons.Default.FolderSpecial,
-                                selected = currentDir.absolutePath.equals(corpusDir.absolutePath, ignoreCase = true),
-                                accentTint = cs.primary,
-                                onClick = { navigateToDirectory(corpusDir) }
-                            )
-                            DesktopFilePickerController.recentDirectories.take(4).forEach { recentDir ->
-                                if (!recentDir.absolutePath.equals(corpusDir.absolutePath, ignoreCase = true) &&
-                                    quickPlaces.none { it.dir.absolutePath.equals(recentDir.absolutePath, ignoreCase = true) }
-                                ) {
+                        if (!isCompactSidebar) {
+                            Column(
+                                modifier = Modifier
+                                    .width(192.dp)
+                                    .fillMaxHeight()
+                                    .background(cs.surfaceContainerLow.copy(alpha = 0.55f))
+                                    .verticalScroll(rememberScrollState())
+                                    .padding(horizontal = 10.dp, vertical = 10.dp),
+                                verticalArrangement = Arrangement.spacedBy(3.dp)
+                            ) {
+                                SidebarSectionTitle("常用位置")
+                                quickPlaces.forEach { place ->
                                     SidebarNavRow(
-                                        label = recentDir.name.ifBlank { recentDir.absolutePath },
-                                        icon = Icons.Default.History,
-                                        selected = currentDir.absolutePath.equals(recentDir.absolutePath, ignoreCase = true),
-                                        onClick = { navigateToDirectory(recentDir) }
+                                        label = place.label,
+                                        icon = place.icon,
+                                        selected = currentDir.absolutePath.equals(place.dir.absolutePath, ignoreCase = true),
+                                        onClick = { navigateToDirectory(place.dir) }
                                     )
                                 }
-                            }
 
-                            if (mountedVolumes.isNotEmpty()) {
                                 Spacer(modifier = Modifier.height(6.dp))
-                                SidebarSectionTitle("本机磁盘")
-                                mountedVolumes.forEach { vol ->
-                                    val isCurrentRoot = currentDir.absolutePath.startsWith(vol.root.absolutePath, ignoreCase = true)
-                                    VolumeSidebarCard(
-                                        volume = vol,
-                                        selected = isCurrentRoot,
-                                        onClick = { navigateToDirectory(vol.root) }
-                                    )
+                                SidebarSectionTitle("语料与最近")
+                                val corpusDir = Context.appDataRootDir
+                                SidebarNavRow(
+                                    label = "本地语料目录",
+                                    icon = Icons.Default.FolderSpecial,
+                                    selected = currentDir.absolutePath.equals(corpusDir.absolutePath, ignoreCase = true),
+                                    accentTint = cs.primary,
+                                    onClick = { navigateToDirectory(corpusDir) }
+                                )
+                                DesktopFilePickerController.recentDirectories.take(4).forEach { recentDir ->
+                                    if (!recentDir.absolutePath.equals(corpusDir.absolutePath, ignoreCase = true) &&
+                                        quickPlaces.none { it.dir.absolutePath.equals(recentDir.absolutePath, ignoreCase = true) }
+                                    ) {
+                                        SidebarNavRow(
+                                            label = recentDir.name.ifBlank { recentDir.absolutePath },
+                                            icon = Icons.Default.History,
+                                            selected = currentDir.absolutePath.equals(recentDir.absolutePath, ignoreCase = true),
+                                            onClick = { navigateToDirectory(recentDir) }
+                                        )
+                                    }
+                                }
+
+                                if (mountedVolumes.isNotEmpty()) {
+                                    Spacer(modifier = Modifier.height(6.dp))
+                                    SidebarSectionTitle("本机磁盘")
+                                    mountedVolumes.forEach { vol ->
+                                        val isCurrentRoot = currentDir.absolutePath.startsWith(vol.root.absolutePath, ignoreCase = true)
+                                        VolumeSidebarCard(
+                                            volume = vol,
+                                            selected = isCurrentRoot,
+                                            onClick = { navigateToDirectory(vol.root) }
+                                        )
+                                    }
                                 }
                             }
-                        }
 
-                        VerticalDivider(color = cs.outlineVariant.copy(alpha = 0.55f))
+                            VerticalDivider(color = cs.outlineVariant.copy(alpha = 0.55f))
+                        }
 
                         // 4b. Center File Browser (Sortable Table List OR Thumbnail Grid)
                         Column(
@@ -1571,20 +1643,22 @@ private fun DesktopStudioFilePickerSurface(request: DesktopFilePickerRequest) {
                                             },
                                             modifier = Modifier.weight(1f)
                                         )
-                                        SortableHeaderCell(
-                                            title = "修改时间",
-                                            field = BrowserSortField.MODIFIED,
-                                            currentField = sortField,
-                                            ascending = sortAscending,
-                                            onSort = {
-                                                if (sortField == BrowserSortField.MODIFIED) sortAscending = !sortAscending
-                                                else {
-                                                    sortField = BrowserSortField.MODIFIED
-                                                    sortAscending = false
-                                                }
-                                            },
-                                            modifier = Modifier.width(128.dp)
-                                        )
+                                        if (!isCompactSidebar) {
+                                            SortableHeaderCell(
+                                                title = "修改时间",
+                                                field = BrowserSortField.MODIFIED,
+                                                currentField = sortField,
+                                                ascending = sortAscending,
+                                                onSort = {
+                                                    if (sortField == BrowserSortField.MODIFIED) sortAscending = !sortAscending
+                                                    else {
+                                                        sortField = BrowserSortField.MODIFIED
+                                                        sortAscending = false
+                                                    }
+                                                },
+                                                modifier = Modifier.width(128.dp)
+                                            )
+                                        }
                                         SortableHeaderCell(
                                             title = "类型",
                                             field = BrowserSortField.TYPE,
@@ -1599,148 +1673,177 @@ private fun DesktopStudioFilePickerSurface(request: DesktopFilePickerRequest) {
                                             },
                                             modifier = Modifier.width(92.dp)
                                         )
-                                        SortableHeaderCell(
-                                            title = "大小",
-                                            field = BrowserSortField.SIZE,
-                                            currentField = sortField,
-                                            ascending = sortAscending,
-                                            onSort = {
-                                                if (sortField == BrowserSortField.SIZE) sortAscending = !sortAscending
-                                                else {
-                                                    sortField = BrowserSortField.SIZE
-                                                    sortAscending = false
-                                                }
-                                            },
-                                            modifier = Modifier.width(76.dp)
-                                        )
+                                        if (!isCompactSidebar) {
+                                            SortableHeaderCell(
+                                                title = "大小",
+                                                field = BrowserSortField.SIZE,
+                                                currentField = sortField,
+                                                ascending = sortAscending,
+                                                onSort = {
+                                                    if (sortField == BrowserSortField.SIZE) sortAscending = !sortAscending
+                                                    else {
+                                                        sortField = BrowserSortField.SIZE
+                                                        sortAscending = false
+                                                    }
+                                                },
+                                                modifier = Modifier.width(76.dp)
+                                            )
+                                        }
                                     }
                                 }
                                 HorizontalDivider(color = cs.outlineVariant.copy(alpha = 0.4f))
                             }
 
-                            if (displayedItems.isEmpty()) {
-                                EmptyDirectoryPlaceholder(
-                                    hasSearch = searchQuery.isNotBlank(),
-                                    hiddenByFilterCount = hiddenByFilterCount,
-                                    activeFilterLabel = activeFilter.label,
-                                    onClearSearch = { searchQuery = "" },
-                                    onShowAllFiles = {
-                                        val allIdx = request.filters.indexOfFirst { it.extensions.isEmpty() }
-                                        if (allIdx >= 0) activeFilterIndex = allIdx
-                                    }
-                                )
-                            } else if (isGridView) {
-                                val gridState = rememberLazyGridState()
-                                LazyVerticalGrid(
-                                    columns = GridCells.Adaptive(minSize = 122.dp),
-                                    state = gridState,
-                                    contentPadding = PaddingValues(12.dp),
-                                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                                    verticalArrangement = Arrangement.spacedBy(10.dp),
-                                    modifier = Modifier.fillMaxSize()
-                                ) {
-                                    items(
-                                        items = displayedItems,
-                                        key = { it.absolutePath }
-                                    ) { item ->
-                                        val multiIdx = selectedFiles.indexOfFirst { it.absolutePath == item.absolutePath }
-                                        val isSelected = multiIdx >= 0 ||
-                                            (!isMultiMode && focusedSingleItem?.absolutePath == item.absolutePath)
-                                        FileGridCardItem(
-                                            file = item,
-                                            isSelected = isSelected,
-                                            multiBadgeNumber = if (isMultiMode && multiIdx >= 0) multiIdx + 1 else null,
-                                            onClick = { handleItemClick(item) }
+                            val browserViewMode = when {
+                                displayedItems.isEmpty() -> PickerBrowserViewMode.EMPTY
+                                isGridView -> PickerBrowserViewMode.GRID
+                                else -> PickerBrowserViewMode.LIST
+                            }
+                            AnimatedContent(
+                                targetState = browserViewMode,
+                                transitionSpec = { StudioMotion.subtleFadeScale() },
+                                label = "PickerBrowserContentMode",
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .fillMaxWidth()
+                            ) { mode ->
+                                when (mode) {
+                                    PickerBrowserViewMode.EMPTY -> {
+                                        EmptyDirectoryPlaceholder(
+                                            hasSearch = searchQuery.isNotBlank(),
+                                            hiddenByFilterCount = hiddenByFilterCount,
+                                            activeFilterLabel = activeFilter.label,
+                                            onClearSearch = { searchQuery = "" },
+                                            onShowAllFiles = {
+                                                val allIdx = request.filters.indexOfFirst { it.extensions.isEmpty() }
+                                                if (allIdx >= 0) activeFilterIndex = allIdx
+                                            }
                                         )
                                     }
-                                }
-                            } else {
-                                LazyColumn(
-                                    state = listState,
-                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp),
-                                    verticalArrangement = Arrangement.spacedBy(2.dp),
-                                    modifier = Modifier.fillMaxSize()
-                                ) {
-                                    itemsIndexed(
-                                        items = displayedItems,
-                                        key = { _, f -> f.absolutePath }
-                                    ) { _, item ->
-                                        val multiIdx = selectedFiles.indexOfFirst { it.absolutePath == item.absolutePath }
-                                        val isSelected = multiIdx >= 0 ||
-                                            (!isMultiMode && focusedSingleItem?.absolutePath == item.absolutePath)
-                                        FileTableRowItem(
-                                            file = item,
-                                            isSelected = isSelected,
-                                            isMultiSelectMode = isMultiMode,
-                                            multiBadgeNumber = if (isMultiMode && multiIdx >= 0) multiIdx + 1 else null,
-                                            onClick = { handleItemClick(item) }
-                                        )
+                                    PickerBrowserViewMode.GRID -> {
+                                        Box(modifier = Modifier.fillMaxSize()) {
+                                            LazyVerticalGrid(
+                                                columns = GridCells.Adaptive(minSize = 122.dp),
+                                                state = gridState,
+                                                contentPadding = PaddingValues(12.dp),
+                                                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                                verticalArrangement = Arrangement.spacedBy(10.dp),
+                                                modifier = Modifier.fillMaxSize()
+                                            ) {
+                                                items(
+                                                    items = displayedItems,
+                                                    key = { it.absolutePath }
+                                                ) { item ->
+                                                    val multiIdx = selectedFiles.indexOfFirst { it.absolutePath == item.absolutePath }
+                                                    val isSelected = multiIdx >= 0 ||
+                                                        (!isMultiMode && focusedSingleItem?.absolutePath == item.absolutePath)
+                                                    FileGridCardItem(
+                                                        file = item,
+                                                        isSelected = isSelected,
+                                                        multiBadgeNumber = if (isMultiMode && multiIdx >= 0) multiIdx + 1 else null,
+                                                        onClick = { handleItemClick(item) },
+                                                        modifier = studioAnimateItem()
+                                                    )
+                                                }
+                                            }
+                                            PlatformVerticalScrollbar(
+                                                gridState = gridState,
+                                                modifier = Modifier.align(Alignment.CenterEnd)
+                                            )
+                                        }
+                                    }
+                                    PickerBrowserViewMode.LIST -> {
+                                        Box(modifier = Modifier.fillMaxSize()) {
+                                            LazyColumn(
+                                                state = listState,
+                                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp),
+                                                verticalArrangement = Arrangement.spacedBy(2.dp),
+                                                modifier = Modifier.fillMaxSize()
+                                            ) {
+                                                itemsIndexed(
+                                                    items = displayedItems,
+                                                    key = { _, f -> f.absolutePath }
+                                                ) { _, item ->
+                                                    val multiIdx = selectedFiles.indexOfFirst { it.absolutePath == item.absolutePath }
+                                                    val isSelected = multiIdx >= 0 ||
+                                                        (!isMultiMode && focusedSingleItem?.absolutePath == item.absolutePath)
+                                                    FileTableRowItem(
+                                                        file = item,
+                                                        isSelected = isSelected,
+                                                        isMultiSelectMode = isMultiMode,
+                                                        multiBadgeNumber = if (isMultiMode && multiIdx >= 0) multiIdx + 1 else null,
+                                                        compactColumns = isCompactSidebar,
+                                                        onClick = { handleItemClick(item) },
+                                                        modifier = studioAnimateItem()
+                                                    )
+                                                }
+                                            }
+                                            PlatformVerticalScrollbar(
+                                                listState = listState,
+                                                modifier = Modifier.align(Alignment.CenterEnd)
+                                            )
+                                        }
                                     }
                                 }
                             }
                         }
 
                         // 4c. Right Live File Inspector Pane
-                        if (showRightInspector) {
-                            VerticalDivider(color = cs.outlineVariant.copy(alpha = 0.55f))
-                            FileInspectorRightPane(
-                                preview = inspectorPreview,
-                                currentDir = currentDir,
-                                totalVisibleCount = displayedItems.size,
-                                modifier = Modifier
-                                    .width(220.dp)
-                                    .fillMaxHeight()
-                            )
+                        AnimatedVisibility(
+                            visible = showRightInspector,
+                            enter = StudioMotion.horizontalPaneEnterFromEnd(),
+                            exit = StudioMotion.horizontalPaneExitToEnd()
+                        ) {
+                            Row(modifier = Modifier.fillMaxHeight()) {
+                                VerticalDivider(color = cs.outlineVariant.copy(alpha = 0.55f))
+                                FileInspectorRightPane(
+                                    preview = inspectorPreview,
+                                    currentDir = currentDir,
+                                    totalVisibleCount = displayedItems.size,
+                                    modifier = Modifier
+                                        .width(220.dp)
+                                        .fillMaxHeight()
+                                )
+                            }
                         }
                     }
 
                     HorizontalDivider(color = cs.outlineVariant.copy(alpha = 0.65f))
 
                     // 5. Bottom Action Bar: Left「切换系统窗口」+ Right Save Filename / Selection Summary + Buttons
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .background(cs.surfaceContainerLow.copy(alpha = 0.5f))
-                            .padding(horizontal = 16.dp, vertical = 10.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        val switchNativeInteraction = remember { MutableInteractionSource() }
-                        OutlinedButton(
-                            onClick = {
-                                DesktopFilePickerController.switchToSystemNativeWindow(
-                                    currentDirectory = currentDir,
-                                    currentSaveFileName = saveFileNameInput,
-                                    activeFilterIndex = activeFilterIndex
-                                )
-                            },
-                            interactionSource = switchNativeInteraction,
-                            shape = RoundedCornerShape(11.dp),
-                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp),
-                            modifier = Modifier
-                                .height(38.dp)
-                                .studioTactile(switchNativeInteraction, pressScale = 0.96f)
-                                .testTag("switch_to_native_os_file_dialog_button")
-                        ) {
-                            Icon(
-                                imageVector = Icons.AutoMirrored.Filled.OpenInNew,
-                                contentDescription = null,
-                                modifier = Modifier.size(15.dp)
-                            )
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text(
-                                text = "切换系统窗口",
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Bold,
-                                maxLines = 1,
-                                softWrap = false
-                            )
+                    val canConfirm = when {
+                        isSaveMode -> saveFileNameInput.isNotBlank()
+                        isDirMode -> true
+                        isMultiMode -> selectedFiles.isNotEmpty() || focusedSingleItem?.isDirectory == true
+                        else -> selectedFiles.isNotEmpty() || focusedSingleItem != null
+                    }
+                    val primaryBtnLabel = when {
+                        isSaveMode -> "保存至此"
+                        isDirMode -> if (focusedSingleItem?.isDirectory == true) {
+                            "选择「${focusedSingleItem!!.name.take(10)}」"
+                        } else {
+                            "选择此文件夹"
                         }
+                        focusedSingleItem?.isDirectory == true && selectedFiles.isEmpty() -> "打开文件夹"
+                        isMultiMode -> if (selectedFiles.isEmpty()) "选择文件" else "添加 (${selectedFiles.size})"
+                        else -> "打开"
+                    }
+                    val summaryLabel = when {
+                        isDirMode && focusedSingleItem?.isDirectory == true -> "将扫描子目录：${focusedSingleItem!!.name}"
+                        isDirMode -> "将扫描当前目录：${currentDir.name.ifBlank { currentDir.absolutePath }}"
+                        isMultiMode && selectedFiles.isNotEmpty() -> "已选 ${selectedFiles.size} 个文件"
+                        selectedFiles.isNotEmpty() -> selectedFiles.first().name
+                        focusedSingleItem?.isDirectory == true -> "文件夹：${focusedSingleItem!!.name}"
+                        else -> "单击预览 · 双击直接打开"
+                    }
 
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(10.dp),
-                            modifier = Modifier.weight(1f, fill = false)
+                    if (isCompactBottomBar) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .background(cs.surfaceContainerLow.copy(alpha = 0.5f))
+                                .padding(horizontal = 14.dp, vertical = 8.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
                             if (isSaveMode) {
                                 Surface(
@@ -1748,8 +1851,8 @@ private fun DesktopStudioFilePickerSurface(request: DesktopFilePickerRequest) {
                                     color = cs.surface,
                                     border = BorderStroke(1.dp, cs.outlineVariant),
                                     modifier = Modifier
-                                        .widthIn(min = 240.dp, max = 380.dp)
-                                        .height(38.dp)
+                                        .fillMaxWidth()
+                                        .height(36.dp)
                                 ) {
                                     Row(
                                         modifier = Modifier
@@ -1795,14 +1898,6 @@ private fun DesktopStudioFilePickerSurface(request: DesktopFilePickerRequest) {
                                     }
                                 }
                             } else {
-                                val summaryLabel = when {
-                                    isDirMode && focusedSingleItem?.isDirectory == true -> "将扫描子目录：${focusedSingleItem!!.name}"
-                                    isDirMode -> "将扫描当前目录：${currentDir.name.ifBlank { currentDir.absolutePath }}"
-                                    isMultiMode && selectedFiles.isNotEmpty() -> "已选 ${selectedFiles.size} 个文件"
-                                    selectedFiles.isNotEmpty() -> selectedFiles.first().name
-                                    focusedSingleItem?.isDirectory == true -> "文件夹：${focusedSingleItem!!.name}"
-                                    else -> "单击预览 · 双击直接打开"
-                                }
                                 Text(
                                     text = summaryLabel,
                                     fontSize = 12.sp,
@@ -1810,52 +1905,213 @@ private fun DesktopStudioFilePickerSurface(request: DesktopFilePickerRequest) {
                                     color = if (selectedFiles.isNotEmpty() || isDirMode) cs.onSurface else cs.onSurfaceVariant,
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis,
-                                    modifier = Modifier.widthIn(max = 280.dp)
+                                    modifier = Modifier.fillMaxWidth()
                                 )
                             }
 
-                            TextButton(
-                                onClick = { DesktopFilePickerController.dismissAndCancel() },
-                                shape = RoundedCornerShape(11.dp),
-                                modifier = Modifier.height(38.dp)
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
                             ) {
-                                Text("取消", fontSize = 12.5.sp, fontWeight = FontWeight.SemiBold)
-                            }
-
-                            val canConfirm = when {
-                                isSaveMode -> saveFileNameInput.isNotBlank()
-                                isDirMode -> true
-                                isMultiMode -> selectedFiles.isNotEmpty() || focusedSingleItem?.isDirectory == true
-                                else -> selectedFiles.isNotEmpty() || focusedSingleItem != null
-                            }
-                            val primaryBtnLabel = when {
-                                isSaveMode -> "保存至此"
-                                isDirMode -> if (focusedSingleItem?.isDirectory == true) {
-                                    "选择「${focusedSingleItem!!.name.take(10)}」"
-                                } else {
-                                    "选择此文件夹"
+                                val switchNativeInteraction = remember { MutableInteractionSource() }
+                                OutlinedButton(
+                                    onClick = {
+                                        DesktopFilePickerController.switchToSystemNativeWindow(
+                                            currentDirectory = currentDir,
+                                            currentSaveFileName = saveFileNameInput,
+                                            activeFilterIndex = activeFilterIndex
+                                        )
+                                    },
+                                    interactionSource = switchNativeInteraction,
+                                    shape = RoundedCornerShape(11.dp),
+                                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
+                                    modifier = Modifier
+                                        .height(36.dp)
+                                        .studioTactile(switchNativeInteraction, pressScale = 0.96f)
+                                        .testTag("switch_to_native_os_file_dialog_button")
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.AutoMirrored.Filled.OpenInNew,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(14.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(5.dp))
+                                    Text(
+                                        text = "系统窗口",
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        maxLines = 1,
+                                        softWrap = false
+                                    )
                                 }
-                                focusedSingleItem?.isDirectory == true && selectedFiles.isEmpty() -> "打开文件夹"
-                                isMultiMode -> if (selectedFiles.isEmpty()) "选择文件" else "添加 (${selectedFiles.size})"
-                                else -> "打开"
-                            }
 
-                            Button(
-                                onClick = { triggerPrimaryConfirm() },
-                                enabled = canConfirm,
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    TextButton(
+                                        onClick = { DesktopFilePickerController.dismissAndCancel() },
+                                        shape = RoundedCornerShape(11.dp),
+                                        modifier = Modifier.height(36.dp)
+                                    ) {
+                                        Text("取消", fontSize = 12.5.sp, fontWeight = FontWeight.SemiBold)
+                                    }
+                                    Button(
+                                        onClick = { triggerPrimaryConfirm() },
+                                        enabled = canConfirm,
+                                        shape = RoundedCornerShape(11.dp),
+                                        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 0.dp),
+                                        modifier = Modifier
+                                            .height(36.dp)
+                                            .testTag("studio_file_picker_confirm_button")
+                                    ) {
+                                        Text(
+                                            text = primaryBtnLabel,
+                                            fontSize = 12.5.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            maxLines = 1,
+                                            softWrap = false
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    } else {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .background(cs.surfaceContainerLow.copy(alpha = 0.5f))
+                                .padding(horizontal = 16.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            val switchNativeInteraction = remember { MutableInteractionSource() }
+                            OutlinedButton(
+                                onClick = {
+                                    DesktopFilePickerController.switchToSystemNativeWindow(
+                                        currentDirectory = currentDir,
+                                        currentSaveFileName = saveFileNameInput,
+                                        activeFilterIndex = activeFilterIndex
+                                    )
+                                },
+                                interactionSource = switchNativeInteraction,
                                 shape = RoundedCornerShape(11.dp),
-                                contentPadding = PaddingValues(horizontal = 18.dp, vertical = 0.dp),
+                                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp),
                                 modifier = Modifier
                                     .height(38.dp)
-                                    .testTag("studio_file_picker_confirm_button")
+                                    .studioTactile(switchNativeInteraction, pressScale = 0.96f)
+                                    .testTag("switch_to_native_os_file_dialog_button")
                             ) {
+                                Icon(
+                                    imageVector = Icons.AutoMirrored.Filled.OpenInNew,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(15.dp)
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
                                 Text(
-                                    text = primaryBtnLabel,
-                                    fontSize = 12.5.sp,
+                                    text = "切换系统窗口",
+                                    fontSize = 12.sp,
                                     fontWeight = FontWeight.Bold,
                                     maxLines = 1,
                                     softWrap = false
                                 )
+                            }
+
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                modifier = Modifier.weight(1f, fill = false)
+                            ) {
+                                if (isSaveMode) {
+                                    Surface(
+                                        shape = RoundedCornerShape(11.dp),
+                                        color = cs.surface,
+                                        border = BorderStroke(1.dp, cs.outlineVariant),
+                                        modifier = Modifier
+                                            .widthIn(min = 200.dp, max = 380.dp)
+                                            .height(38.dp)
+                                    ) {
+                                        Row(
+                                            modifier = Modifier
+                                                .fillMaxSize()
+                                                .padding(horizontal = 11.dp),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                        ) {
+                                            Text(
+                                                text = "文件名：",
+                                                fontSize = 12.sp,
+                                                fontWeight = FontWeight.SemiBold,
+                                                color = cs.onSurfaceVariant
+                                            )
+                                            BasicTextField(
+                                                value = saveFileNameInput,
+                                                onValueChange = { saveFileNameInput = it },
+                                                singleLine = true,
+                                                textStyle = TextStyle(
+                                                    color = cs.onSurface,
+                                                    fontSize = 12.5.sp,
+                                                    fontWeight = FontWeight.Medium
+                                                ),
+                                                cursorBrush = SolidColor(cs.primary),
+                                                modifier = Modifier.weight(1f)
+                                            )
+                                            if (request.requiredSaveExtension.isNotEmpty() &&
+                                                !saveFileNameInput.lowercase().endsWith(".${request.requiredSaveExtension.lowercase()}")
+                                            ) {
+                                                Surface(
+                                                    shape = RoundedCornerShape(5.dp),
+                                                    color = cs.primaryContainer
+                                                ) {
+                                                    Text(
+                                                        text = ".${request.requiredSaveExtension}",
+                                                        fontSize = 10.5.sp,
+                                                        fontWeight = FontWeight.Bold,
+                                                        color = cs.onPrimaryContainer,
+                                                        modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp)
+                                                    )
+                                                }
+                                            }
+                                        }
+                                    }
+                                } else {
+                                    Text(
+                                        text = summaryLabel,
+                                        fontSize = 12.sp,
+                                        fontWeight = if (selectedFiles.isNotEmpty() || isDirMode) FontWeight.SemiBold else FontWeight.Normal,
+                                        color = if (selectedFiles.isNotEmpty() || isDirMode) cs.onSurface else cs.onSurfaceVariant,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                        modifier = Modifier.widthIn(max = 280.dp)
+                                    )
+                                }
+
+                                TextButton(
+                                    onClick = { DesktopFilePickerController.dismissAndCancel() },
+                                    shape = RoundedCornerShape(11.dp),
+                                    modifier = Modifier.height(38.dp)
+                                ) {
+                                    Text("取消", fontSize = 12.5.sp, fontWeight = FontWeight.SemiBold)
+                                }
+
+                                Button(
+                                    onClick = { triggerPrimaryConfirm() },
+                                    enabled = canConfirm,
+                                    shape = RoundedCornerShape(11.dp),
+                                    contentPadding = PaddingValues(horizontal = 18.dp, vertical = 0.dp),
+                                    modifier = Modifier
+                                        .height(38.dp)
+                                        .testTag("studio_file_picker_confirm_button")
+                                ) {
+                                    Text(
+                                        text = primaryBtnLabel,
+                                        fontSize = 12.5.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        maxLines = 1,
+                                        softWrap = false
+                                    )
+                                }
                             }
                         }
                     }
@@ -1954,18 +2210,34 @@ private fun PickerIconPillButton(
             isHovered -> cs.surfaceContainerHigh
             else -> cs.surfaceContainerLow
         },
-        animationSpec = tween(140),
+        animationSpec = StudioMotion.microTween(),
         label = "PickerPillBtnBg"
+    )
+    val borderCol by animateColorAsState(
+        targetValue = when {
+            active -> cs.primary.copy(alpha = 0.55f)
+            isHovered -> cs.primary.copy(alpha = 0.35f)
+            else -> cs.outlineVariant.copy(alpha = 0.55f)
+        },
+        animationSpec = StudioMotion.microTween(),
+        label = "PickerPillBtnBorder"
+    )
+    val iconTint by animateColorAsState(
+        targetValue = when {
+            active -> cs.onPrimaryContainer
+            isHovered -> cs.primary
+            else -> cs.onSurfaceVariant
+        },
+        animationSpec = StudioMotion.microTween(),
+        label = "PickerPillBtnIcon"
     )
     Surface(
         shape = RoundedCornerShape(9.dp),
         color = bg,
-        border = BorderStroke(
-            1.dp,
-            if (active) cs.primary.copy(alpha = 0.55f) else cs.outlineVariant.copy(alpha = 0.55f)
-        ),
+        border = BorderStroke(1.dp, borderCol),
         modifier = Modifier
             .size(32.dp)
+            .studioTactile(interaction, pressScale = 0.93f)
             .clip(RoundedCornerShape(9.dp))
             .hoverable(interaction)
             .pointerHoverIcon(PointerIcon.Hand)
@@ -1975,7 +2247,7 @@ private fun PickerIconPillButton(
             Icon(
                 imageVector = icon,
                 contentDescription = tooltipDesc,
-                tint = if (active) cs.onPrimaryContainer else cs.onSurfaceVariant,
+                tint = iconTint,
                 modifier = Modifier.size(16.dp)
             )
         }
@@ -1998,15 +2270,34 @@ private fun PickerNavIconButton(
         } else {
             cs.surfaceContainerLow
         },
-        animationSpec = tween(120),
+        animationSpec = StudioMotion.microTween(),
         label = "PickerNavBtnBg"
+    )
+    val navBorder by animateColorAsState(
+        targetValue = when {
+            !enabled -> cs.outlineVariant.copy(alpha = 0.25f)
+            isHovered -> cs.primary.copy(alpha = 0.4f)
+            else -> cs.outlineVariant.copy(alpha = 0.55f)
+        },
+        animationSpec = StudioMotion.microTween(),
+        label = "PickerNavBtnBorder"
+    )
+    val navIconTint by animateColorAsState(
+        targetValue = when {
+            !enabled -> cs.onSurfaceVariant.copy(alpha = 0.35f)
+            isHovered -> cs.primary
+            else -> cs.onSurfaceVariant
+        },
+        animationSpec = StudioMotion.microTween(),
+        label = "PickerNavBtnIcon"
     )
     Surface(
         shape = RoundedCornerShape(9.dp),
         color = navBg,
-        border = BorderStroke(1.dp, cs.outlineVariant.copy(alpha = if (enabled) 0.55f else 0.25f)),
+        border = BorderStroke(1.dp, navBorder),
         modifier = Modifier
             .size(32.dp)
+            .studioTactile(interaction, enabled = enabled, pressScale = 0.92f)
             .clip(RoundedCornerShape(9.dp))
             .then(
                 if (enabled) {
@@ -2023,11 +2314,7 @@ private fun PickerNavIconButton(
             Icon(
                 imageVector = icon,
                 contentDescription = contentDescription,
-                tint = when {
-                    !enabled -> cs.onSurfaceVariant.copy(alpha = 0.35f)
-                    isHovered -> cs.primary
-                    else -> cs.onSurfaceVariant
-                },
+                tint = navIconTint,
                 modifier = Modifier.size(16.dp)
             )
         }
@@ -2062,15 +2349,45 @@ private fun SidebarNavRow(
             isHovered -> cs.primaryContainer.copy(alpha = 0.34f)
             else -> cs.primaryContainer.copy(alpha = 0f)
         },
-        animationSpec = tween(120),
+        animationSpec = StudioMotion.microTween(),
         label = "SidebarNavBg"
+    )
+    val borderCol by animateColorAsState(
+        targetValue = when {
+            selected -> cs.primary.copy(alpha = 0.38f)
+            isHovered -> cs.outlineVariant.copy(alpha = 0.5f)
+            else -> Color.Transparent
+        },
+        animationSpec = StudioMotion.microTween(),
+        label = "SidebarNavBorder"
+    )
+    val iconTint by animateColorAsState(
+        targetValue = when {
+            selected -> cs.onPrimaryContainer
+            accentTint != null -> accentTint
+            isHovered -> cs.primary
+            else -> cs.onSurfaceVariant
+        },
+        animationSpec = StudioMotion.microTween(),
+        label = "SidebarNavIcon"
+    )
+    val textCol by animateColorAsState(
+        targetValue = when {
+            selected -> cs.onPrimaryContainer
+            isHovered -> cs.primary
+            else -> cs.onSurface
+        },
+        animationSpec = StudioMotion.microTween(),
+        label = "SidebarNavText"
     )
     Surface(
         shape = RoundedCornerShape(9.dp),
         color = bg,
+        border = BorderStroke(1.dp, borderCol),
         modifier = Modifier
             .fillMaxWidth()
             .height(33.dp)
+            .studioTactile(interaction, pressScale = 0.975f)
             .clip(RoundedCornerShape(9.dp))
             .hoverable(interaction)
             .pointerHoverIcon(PointerIcon.Hand)
@@ -2086,19 +2403,14 @@ private fun SidebarNavRow(
             Icon(
                 imageVector = icon,
                 contentDescription = null,
-                tint = when {
-                    selected -> cs.onPrimaryContainer
-                    accentTint != null -> accentTint
-                    isHovered -> cs.primary
-                    else -> cs.onSurfaceVariant
-                },
+                tint = iconTint,
                 modifier = Modifier.size(15.dp)
             )
             Text(
                 text = label,
                 fontSize = 12.sp,
                 fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
-                color = if (selected) cs.onPrimaryContainer else cs.onSurface,
+                color = textCol,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
@@ -2125,24 +2437,36 @@ private fun VolumeSidebarCard(
             isHovered -> lerp(cs.surface, cs.primaryContainer, 0.26f)
             else -> cs.surface
         },
-        animationSpec = tween(120),
+        animationSpec = StudioMotion.microTween(),
         label = "VolumeCardBg"
+    )
+    val volBorder by animateColorAsState(
+        targetValue = when {
+            selected -> cs.primary.copy(alpha = 0.52f)
+            isHovered -> cs.primary.copy(alpha = 0.32f)
+            else -> cs.outlineVariant.copy(alpha = 0.45f)
+        },
+        animationSpec = StudioMotion.microTween(),
+        label = "VolumeCardBorder"
+    )
+    val volTitleColor by animateColorAsState(
+        targetValue = when {
+            selected -> cs.onPrimaryContainer
+            isHovered -> cs.primary
+            else -> cs.onSurface
+        },
+        animationSpec = StudioMotion.microTween(),
+        label = "VolumeCardTitle"
     )
 
     Surface(
         shape = RoundedCornerShape(10.dp),
         color = volBg,
-        border = BorderStroke(
-            1.dp,
-            when {
-                selected -> cs.primary.copy(alpha = 0.52f)
-                isHovered -> cs.primary.copy(alpha = 0.28f)
-                else -> cs.outlineVariant.copy(alpha = 0.45f)
-            }
-        ),
+        border = BorderStroke(1.dp, volBorder),
         modifier = Modifier
             .fillMaxWidth()
             .padding(vertical = 2.dp)
+            .studioTactile(interaction, pressScale = 0.975f)
             .clip(RoundedCornerShape(10.dp))
             .hoverable(interaction)
             .pointerHoverIcon(PointerIcon.Hand)
@@ -2166,7 +2490,7 @@ private fun VolumeSidebarCard(
                     text = volume.displayName,
                     fontSize = 11.5.sp,
                     fontWeight = FontWeight.Bold,
-                    color = if (selected) cs.onPrimaryContainer else cs.onSurface,
+                    color = volTitleColor,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
@@ -2220,10 +2544,12 @@ private fun SortableHeaderCell(
         )
         if (isCurrent) {
             Icon(
-                imageVector = if (ascending) Icons.Default.ArrowUpward else Icons.Default.ArrowDownward,
+                imageVector = Icons.Default.ArrowUpward,
                 contentDescription = null,
                 tint = cs.primary,
-                modifier = Modifier.size(12.dp)
+                modifier = Modifier
+                    .size(12.dp)
+                    .studioRotateOn(!ascending)
             )
         }
     }
@@ -2235,7 +2561,9 @@ private fun FileTableRowItem(
     isSelected: Boolean,
     isMultiSelectMode: Boolean,
     multiBadgeNumber: Int?,
-    onClick: () -> Unit
+    compactColumns: Boolean = false,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
 ) {
     val cs = MaterialTheme.colorScheme
     val interaction = remember { MutableInteractionSource() }
@@ -2274,7 +2602,7 @@ private fun FileTableRowItem(
         shape = RoundedCornerShape(9.dp),
         color = rowBg,
         border = BorderStroke(1.dp, rowBorderColor),
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
             .height(40.dp)
             .clip(RoundedCornerShape(9.dp))
@@ -2306,9 +2634,13 @@ private fun FileTableRowItem(
                         modifier = Modifier.size(18.dp)
                     ) {
                         Box(contentAlignment = Alignment.Center) {
-                            if (multiBadgeNumber != null) {
+                            androidx.compose.animation.AnimatedVisibility(
+                                visible = multiBadgeNumber != null,
+                                enter = fadeIn(StudioMotion.microTween()) + scaleIn(StudioMotion.tactileSpring(), initialScale = 0.7f),
+                                exit = fadeOut(StudioMotion.shortOutTween()) + scaleOut(StudioMotion.shortOutTween(), targetScale = 0.7f)
+                            ) {
                                 Text(
-                                    text = multiBadgeNumber.toString(),
+                                    text = (multiBadgeNumber ?: 0).toString(),
                                     fontSize = 10.sp,
                                     fontWeight = FontWeight.ExtraBold,
                                     color = cs.onPrimary
@@ -2355,14 +2687,16 @@ private fun FileTableRowItem(
                 )
             }
 
-            Text(
-                text = remember(file.lastModified()) { DesktopFileInspector.formatTimestamp(file.lastModified()) },
-                fontSize = 11.sp,
-                fontFamily = FontFamily.Monospace,
-                color = cs.onSurfaceVariant,
-                maxLines = 1,
-                modifier = Modifier.width(128.dp)
-            )
+            if (!compactColumns) {
+                Text(
+                    text = remember(file.lastModified()) { DesktopFileInspector.formatTimestamp(file.lastModified()) },
+                    fontSize = 11.sp,
+                    fontFamily = FontFamily.Monospace,
+                    color = cs.onSurfaceVariant,
+                    maxLines = 1,
+                    modifier = Modifier.width(128.dp)
+                )
+            }
 
             Text(
                 text = kind.typeLabel,
@@ -2373,14 +2707,16 @@ private fun FileTableRowItem(
                 modifier = Modifier.width(92.dp)
             )
 
-            Text(
-                text = if (file.isDirectory) "—" else remember(file.length()) { DesktopFileInspector.formatBytes(file.length()) },
-                fontSize = 11.sp,
-                fontFamily = FontFamily.Monospace,
-                color = cs.onSurfaceVariant,
-                maxLines = 1,
-                modifier = Modifier.width(76.dp)
-            )
+            if (!compactColumns) {
+                Text(
+                    text = if (file.isDirectory) "—" else remember(file.length()) { DesktopFileInspector.formatBytes(file.length()) },
+                    fontSize = 11.sp,
+                    fontFamily = FontFamily.Monospace,
+                    color = cs.onSurfaceVariant,
+                    maxLines = 1,
+                    modifier = Modifier.width(76.dp)
+                )
+            }
         }
     }
 }
@@ -2390,7 +2726,8 @@ private fun FileGridCardItem(
     file: File,
     isSelected: Boolean,
     multiBadgeNumber: Int?,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
 ) {
     val cs = MaterialTheme.colorScheme
     val interaction = remember { MutableInteractionSource() }
@@ -2430,7 +2767,7 @@ private fun FileGridCardItem(
             width = if (isSelected) 1.5.dp else 1.dp,
             color = cardBorder
         ),
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
             .height(138.dp)
             .clip(RoundedCornerShape(14.dp))
@@ -2496,40 +2833,36 @@ private fun FileGridCardItem(
                 }
             }
 
-            if (multiBadgeNumber != null) {
+            val showSelectionBadge = multiBadgeNumber != null || (isSelected && file.isFile)
+            AnimatedVisibility(
+                visible = showSelectionBadge,
+                enter = fadeIn(StudioMotion.microTween()) + scaleIn(StudioMotion.tactileSpring(), initialScale = 0.72f),
+                exit = fadeOut(StudioMotion.shortOutTween()) + scaleOut(StudioMotion.shortOutTween(), targetScale = 0.72f),
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(6.dp)
+            ) {
                 Surface(
                     shape = CircleShape,
                     color = cs.primary,
-                    modifier = Modifier
-                        .align(Alignment.TopEnd)
-                        .padding(6.dp)
-                        .size(22.dp)
+                    modifier = Modifier.size(if (multiBadgeNumber != null) 22.dp else 20.dp)
                 ) {
                     Box(contentAlignment = Alignment.Center) {
-                        Text(
-                            text = multiBadgeNumber.toString(),
-                            fontSize = 10.5.sp,
-                            fontWeight = FontWeight.ExtraBold,
-                            color = cs.onPrimary
-                        )
-                    }
-                }
-            } else if (isSelected && file.isFile) {
-                Surface(
-                    shape = CircleShape,
-                    color = cs.primary,
-                    modifier = Modifier
-                        .align(Alignment.TopEnd)
-                        .padding(6.dp)
-                        .size(20.dp)
-                ) {
-                    Box(contentAlignment = Alignment.Center) {
-                        Icon(
-                            imageVector = Icons.Default.Check,
-                            contentDescription = null,
-                            tint = cs.onPrimary,
-                            modifier = Modifier.size(13.dp)
-                        )
+                        if (multiBadgeNumber != null) {
+                            Text(
+                                text = multiBadgeNumber.toString(),
+                                fontSize = 10.5.sp,
+                                fontWeight = FontWeight.ExtraBold,
+                                color = cs.onPrimary
+                            )
+                        } else {
+                            Icon(
+                                imageVector = Icons.Default.Check,
+                                contentDescription = null,
+                                tint = cs.onPrimary,
+                                modifier = Modifier.size(13.dp)
+                            )
+                        }
                     }
                 }
             }
@@ -2801,6 +3134,7 @@ private fun EmptyDirectoryPlaceholder(
 @Composable
 private fun semanticStyleForKind(kind: StudioFileSemanticKind): Triple<Color, Color, ImageVector> {
     val cs = MaterialTheme.colorScheme
+    val ext = LocalPhonAcqExtendedColors.current
     return when (kind) {
         StudioFileSemanticKind.FOLDER -> Triple(
             cs.primaryContainer.copy(alpha = 0.65f),
@@ -2809,14 +3143,14 @@ private fun semanticStyleForKind(kind: StudioFileSemanticKind): Triple<Color, Co
         )
         StudioFileSemanticKind.SPREADSHEET,
         StudioFileSemanticKind.CSV_TSV -> Triple(
-            Color(0xFF10B981).copy(alpha = 0.16f),
-            Color(0xFF059669),
+            ext.fileBadgeTableBg,
+            ext.fileBadgeTableFg,
             Icons.Default.TableChart
         )
         StudioFileSemanticKind.DOCUMENT,
         StudioFileSemanticKind.JSON -> Triple(
-            cs.secondaryContainer.copy(alpha = 0.72f),
-            cs.onSecondaryContainer,
+            ext.fileBadgeTextBg,
+            ext.fileBadgeTextFg,
             Icons.Default.Description
         )
         StudioFileSemanticKind.TEPROJ -> Triple(
@@ -2825,23 +3159,23 @@ private fun semanticStyleForKind(kind: StudioFileSemanticKind): Triple<Color, Co
             Icons.Default.GraphicEq
         )
         StudioFileSemanticKind.ARCHIVE -> Triple(
-            Color(0xFFF59E0B).copy(alpha = 0.18f),
-            Color(0xFFD97706),
+            ext.fileBadgeArchiveBg,
+            ext.fileBadgeArchiveFg,
             Icons.Default.Archive
         )
         StudioFileSemanticKind.TEXTGRID -> Triple(
-            Color(0xFF14B8A6).copy(alpha = 0.18f),
-            Color(0xFF0D9488),
+            ext.fileBadgeTextBg,
+            ext.fileBadgeTextFg,
             Icons.Default.GraphicEq
         )
         StudioFileSemanticKind.IMAGE -> Triple(
-            Color(0xFF06B6D4).copy(alpha = 0.18f),
-            Color(0xFF0891B2),
+            ext.fileBadgeImageBg,
+            ext.fileBadgeImageFg,
             Icons.Default.Image
         )
         StudioFileSemanticKind.AUDIO -> Triple(
-            Color(0xFF8B5CF6).copy(alpha = 0.16f),
-            Color(0xFF7C3AED),
+            ext.fileBadgeAudioBg,
+            ext.fileBadgeAudioFg,
             Icons.Default.AudioFile
         )
         StudioFileSemanticKind.OTHER -> Triple(

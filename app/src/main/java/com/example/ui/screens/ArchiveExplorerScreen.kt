@@ -4,9 +4,11 @@ import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
@@ -58,9 +60,14 @@ import androidx.compose.ui.unit.sp
 import com.example.data.Word
 import com.example.i18n.S
 import com.example.i18n.withArgs
+import com.example.ui.components.AnimatedDialogVisibility
 import com.example.ui.components.DesktopAdaptiveState
+import com.example.ui.components.PlatformVerticalScrollbar
+import com.example.ui.components.ResponsiveContentContainer
 import com.example.ui.components.StudioFilterChip
+import com.example.ui.components.StudioMotion
 import com.example.ui.components.rememberStudioInteraction
+import com.example.ui.components.studioAnimateItem
 import com.example.utils.ExportOptions
 import com.example.viewmodel.RecordingViewModel
 import kotlinx.coroutines.Dispatchers
@@ -483,69 +490,122 @@ fun ArchiveExplorerScreen(
                 modifier = Modifier.fillMaxSize()
             )
         } else {
-            Scaffold(
-                topBar = {
-                    TopAppBar(
-                        title = {
-                            Text(
-                                text = S.archive.screenTitle,
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Bold,
-                                maxLines = 1,
-                                softWrap = false,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                        },
-                        navigationIcon = {
-                            if (!isTablet) {
-                                IconButton(onClick = onNavigateBack) {
-                                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = S.common.back)
-                                }
-                            }
-                        },
-                        actions = {
-                            if (project != null) {
-                                if (!isSimpleMode) {
-                                    FilledTonalButton(
-                                        onClick = { showMacroSummarySheet = true },
-                                        shape = RoundedCornerShape(10.dp),
-                                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
-                                        modifier = Modifier
-                                            .padding(end = 6.dp)
-                                            .testTag("open_macro_acoustic_summary_button")
-                                    ) {
-                                        Icon(Icons.Default.Insights, contentDescription = S.archive.macroReportDesc, modifier = Modifier.size(16.dp))
-                                        Spacer(modifier = Modifier.width(4.dp))
-                                        Text(S.archive.macroReportButton, fontSize = 12.sp, fontWeight = FontWeight.Bold, maxLines = 1, softWrap = false)
+            BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+                val isCompactTopBar = maxWidth < 460.dp
+                Scaffold(
+                    topBar = {
+                        TopAppBar(
+                            title = {
+                                Text(
+                                    text = S.archive.screenTitle,
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    maxLines = 1,
+                                    softWrap = false,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            },
+                            navigationIcon = {
+                                if (!isTablet) {
+                                    IconButton(onClick = onNavigateBack) {
+                                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = S.common.back)
                                     }
                                 }
-                                Button(
-                                    onClick = {
-                                        if (isContinuousPlaying) {
-                                            viewModel.stopContinuousPlayback()
+                            },
+                            actions = {
+                                if (project != null) {
+                                    if (!isSimpleMode) {
+                                        if (isCompactTopBar) {
+                                            TooltipBox(
+                                                positionProvider = TooltipDefaults.rememberPlainTooltipPositionProvider(),
+                                                tooltip = { PlainTooltip { Text(S.archive.macroReportButton) } },
+                                                state = rememberTooltipState()
+                                            ) {
+                                                FilledTonalIconButton(
+                                                    onClick = { showMacroSummarySheet = true },
+                                                    modifier = Modifier
+                                                        .padding(end = 4.dp)
+                                                        .pointerHoverIcon(PointerIcon.Hand)
+                                                        .testTag("open_macro_acoustic_summary_button")
+                                                ) {
+                                                    Icon(
+                                                        Icons.Default.Insights,
+                                                        contentDescription = S.archive.macroReportDesc,
+                                                        modifier = Modifier.size(18.dp)
+                                                    )
+                                                }
+                                            }
+                                        } else {
+                                            FilledTonalButton(
+                                                onClick = { showMacroSummarySheet = true },
+                                                shape = RoundedCornerShape(10.dp),
+                                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
+                                                modifier = Modifier
+                                                    .padding(end = 6.dp)
+                                                    .pointerHoverIcon(PointerIcon.Hand)
+                                                    .testTag("open_macro_acoustic_summary_button")
+                                            ) {
+                                                Icon(Icons.Default.Insights, contentDescription = S.archive.macroReportDesc, modifier = Modifier.size(16.dp))
+                                                Spacer(modifier = Modifier.width(4.dp))
+                                                Text(S.archive.macroReportButton, fontSize = 12.sp, fontWeight = FontWeight.Bold, maxLines = 1, softWrap = false)
+                                            }
                                         }
-                                        showExportPage = true
-                                    },
-                                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
-                                    shape = RoundedCornerShape(10.dp),
-                                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
-                                    modifier = Modifier
-                                        .padding(end = 8.dp)
-                                        .testTag("export_zip_button")
-                                ) {
-                                    Icon(Icons.Default.Share, contentDescription = S.archive.exportProjectDesc, modifier = Modifier.size(16.dp))
-                                    Spacer(modifier = Modifier.width(5.dp))
-                                    Text(S.archive.exportProjectButton, fontSize = 12.sp, fontWeight = FontWeight.Bold, maxLines = 1, softWrap = false)
+                                    }
+                                    if (isCompactTopBar) {
+                                        TooltipBox(
+                                            positionProvider = TooltipDefaults.rememberPlainTooltipPositionProvider(),
+                                            tooltip = { PlainTooltip { Text(S.archive.exportProjectButton) } },
+                                            state = rememberTooltipState()
+                                        ) {
+                                            FilledIconButton(
+                                                onClick = {
+                                                    if (isContinuousPlaying) {
+                                                        viewModel.stopContinuousPlayback()
+                                                    }
+                                                    showExportPage = true
+                                                },
+                                                modifier = Modifier
+                                                    .padding(end = 6.dp)
+                                                    .pointerHoverIcon(PointerIcon.Hand)
+                                                    .testTag("export_zip_button")
+                                            ) {
+                                                Icon(
+                                                    Icons.Default.Share,
+                                                    contentDescription = S.archive.exportProjectDesc,
+                                                    modifier = Modifier.size(18.dp)
+                                                )
+                                            }
+                                        }
+                                    } else {
+                                        Button(
+                                            onClick = {
+                                                if (isContinuousPlaying) {
+                                                    viewModel.stopContinuousPlayback()
+                                                }
+                                                showExportPage = true
+                                            },
+                                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
+                                            shape = RoundedCornerShape(10.dp),
+                                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                                            modifier = Modifier
+                                                .padding(end = 8.dp)
+                                                .pointerHoverIcon(PointerIcon.Hand)
+                                                .testTag("export_zip_button")
+                                        ) {
+                                            Icon(Icons.Default.Share, contentDescription = S.archive.exportProjectDesc, modifier = Modifier.size(16.dp))
+                                            Spacer(modifier = Modifier.width(5.dp))
+                                            Text(S.archive.exportProjectButton, fontSize = 12.sp, fontWeight = FontWeight.Bold, maxLines = 1, softWrap = false)
+                                        }
+                                    }
                                 }
-                            }
-                        },
-                        colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surface)
-                    )
-                },
-                contentWindowInsets = WindowInsets(0, 0, 0, 0),
-                containerColor = MaterialTheme.colorScheme.background,
-                modifier = Modifier.fillMaxSize()
-            ) { innerPadding ->
+                            },
+                            colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surface)
+                        )
+                    },
+                    contentWindowInsets = WindowInsets(0, 0, 0, 0),
+                    containerColor = MaterialTheme.colorScheme.background,
+                    modifier = Modifier.fillMaxSize()
+                ) { innerPadding ->
                 val filterCounts = remember(words) {
                     var recCount = 0
                     var flagCount = 0
@@ -612,66 +672,75 @@ fun ArchiveExplorerScreen(
                                     )
                                 }
                             } else {
-                                LazyVerticalGrid(
-                                    columns = if (useMultiColumnGrid) {
-                                        GridCells.Adaptive(minSize = 290.dp)
-                                    } else {
-                                        GridCells.Fixed(1)
-                                    },
-                                    state = gridState,
-                                    modifier = Modifier.fillMaxSize(),
-                                    contentPadding = PaddingValues(
-                                        start = 14.dp,
-                                        top = 10.dp,
-                                        end = 16.dp,
-                                        bottom = 24.dp
-                                    ),
-                                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                                    verticalArrangement = Arrangement.spacedBy(10.dp)
-                                ) {
-                                    itemsIndexed(
-                                        items = filteredWords,
-                                        key = { _, word -> word.id },
-                                        contentType = { _, _ -> "archive_word_row" }
-                                    ) { _, word ->
-                                        ArchiveWordItemRow(
-                                            word = word,
-                                            isPlaying = word.id == playingWordId,
-                                            playbackProgressProvider = playbackProgressProvider,
-                                            onPlayToggle = remember(word) { { viewModel.playWordAudio(word) } },
-                                            onToggleQualityFlag = remember(word) {
-                                                {
-                                                    if (word.isRecorded) {
-                                                        val wasNormal = word.qualityStatus == null || word.qualityStatus == "正常"
-                                                        viewModel.toggleManualQualityFlag(word)
-                                                        Toast.makeText(
-                                                            context,
-                                                            if (wasNormal) S.archive.markedWordRerecordToast.withArgs("word" to word.text)
-                                                            else S.archive.confirmedWordNormalToast.withArgs("word" to word.text),
-                                                            Toast.LENGTH_SHORT
-                                                        ).show()
-                                                    }
-                                                }
-                                            },
-                                            onDeleteAudio = remember(word) { { wordPendingDelete = word } },
-                                            onRowClicked = remember(word.id, wordIdToIndexMap) {
-                                                {
-                                                    val idxInFull = wordIdToIndexMap[word.id] ?: -1
-                                                    if (idxInFull != -1) {
-                                                        val seq = viewModel.wordSequence.value
-                                                        val seqPos = seq.indexOf(idxInFull)
-                                                        if (seqPos != -1) {
-                                                            onSelectedWordPosition(seqPos)
+                                Box(modifier = Modifier.fillMaxSize()) {
+                                    LazyVerticalGrid(
+                                        columns = if (useMultiColumnGrid) {
+                                            GridCells.Adaptive(minSize = 290.dp)
+                                        } else {
+                                            GridCells.Fixed(1)
+                                        },
+                                        state = gridState,
+                                        modifier = Modifier.fillMaxSize(),
+                                        contentPadding = PaddingValues(
+                                            start = 14.dp,
+                                            top = 10.dp,
+                                            end = 16.dp,
+                                            bottom = 24.dp
+                                        ),
+                                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                                    ) {
+                                        itemsIndexed(
+                                            items = filteredWords,
+                                            key = { _, word -> word.id },
+                                            contentType = { _, _ -> "archive_word_row" }
+                                        ) { _, word ->
+                                            ArchiveWordItemRow(
+                                                word = word,
+                                                isPlaying = word.id == playingWordId,
+                                                playbackProgressProvider = playbackProgressProvider,
+                                                onPlayToggle = remember(word) { { viewModel.playWordAudio(word) } },
+                                                onToggleQualityFlag = remember(word) {
+                                                    {
+                                                        if (word.isRecorded) {
+                                                            val wasNormal = word.qualityStatus == null || word.qualityStatus == "正常"
+                                                            viewModel.toggleManualQualityFlag(word)
+                                                            Toast.makeText(
+                                                                context,
+                                                                if (wasNormal) S.archive.markedWordRerecordToast.withArgs("word" to word.text)
+                                                                else S.archive.confirmedWordNormalToast.withArgs("word" to word.text),
+                                                                Toast.LENGTH_SHORT
+                                                            ).show()
                                                         }
                                                     }
-                                                }
-                                            },
-                                            onShowPhoneticDetails = remember(word) { { viewModel.showPhoneticWordDetail(word) } },
-                                            showAcousticDetailsButton = !isSimpleMode,
-                                            multiSpeakerRecordedCount = multiSpeakerWordCounts[word.id] ?: 0,
-                                            startedSpeakersCount = startedSpeakersCount
-                                        )
+                                                },
+                                                onDeleteAudio = remember(word) { { wordPendingDelete = word } },
+                                                onRowClicked = remember(word.id, wordIdToIndexMap) {
+                                                    {
+                                                        val idxInFull = wordIdToIndexMap[word.id] ?: -1
+                                                        if (idxInFull != -1) {
+                                                            val seq = viewModel.wordSequence.value
+                                                            val seqPos = seq.indexOf(idxInFull)
+                                                            if (seqPos != -1) {
+                                                                onSelectedWordPosition(seqPos)
+                                                            }
+                                                        }
+                                                    }
+                                                },
+                                                onShowPhoneticDetails = remember(word) { { viewModel.showPhoneticWordDetail(word) } },
+                                                showAcousticDetailsButton = !isSimpleMode,
+                                                multiSpeakerRecordedCount = multiSpeakerWordCounts[word.id] ?: 0,
+                                                startedSpeakersCount = startedSpeakersCount,
+                                                modifier = studioAnimateItem()
+                                            )
+                                        }
                                     }
+                                    PlatformVerticalScrollbar(
+                                        gridState = gridState,
+                                        modifier = Modifier
+                                            .align(Alignment.CenterEnd)
+                                            .fillMaxHeight()
+                                    )
                                 }
                             }
                         }
@@ -709,9 +778,16 @@ fun ArchiveExplorerScreen(
                         .padding(innerPadding)
                 ) {
                     val useLeftSidebarLayout = maxWidth >= 780.dp
+                    val sidebarTargetWidth = if (maxWidth >= 920.dp) 276.dp else 236.dp
+                    val animatedSidebarWidth by animateDpAsState(
+                        targetValue = sidebarTargetWidth,
+                        animationSpec = StudioMotion.mediumInTween(),
+                        label = "archiveSidebarWidth"
+                    )
                     val (recCount, unrecCount, flagCount) = filterCounts
 
                     if (useLeftSidebarLayout) {
+                        val sidebarScrollState = rememberScrollState()
                         // Wide / Desktop / Tablet: Dedicated Left Control Sidebar + Full-Height Grid
                         Row(
                             modifier = Modifier.fillMaxSize(),
@@ -722,18 +798,19 @@ fun ArchiveExplorerScreen(
                                 border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f)),
                                 shape = RoundedCornerShape(18.dp),
                                 modifier = Modifier
-                                    .width(276.dp)
+                                    .width(animatedSidebarWidth)
                                     .fillMaxHeight()
                                     .padding(start = 16.dp, top = 10.dp, bottom = 16.dp)
                                     .testTag("archive_left_sidebar")
                             ) {
-                                Column(
-                                    modifier = Modifier
-                                        .fillMaxSize()
-                                        .verticalScroll(rememberScrollState())
-                                        .padding(14.dp),
-                                    verticalArrangement = Arrangement.spacedBy(12.dp)
-                                ) {
+                                Box(modifier = Modifier.fillMaxSize()) {
+                                    Column(
+                                        modifier = Modifier
+                                            .fillMaxSize()
+                                            .verticalScroll(sidebarScrollState)
+                                            .padding(14.dp),
+                                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                                    ) {
                                     // 1. Search Input
                                     OutlinedTextField(
                                         value = searchText,
@@ -865,6 +942,24 @@ fun ArchiveExplorerScreen(
                                     // 3. Primary Actions: Continuous Playback & Stats/Cleanup
                                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                                         if (playableInFilter > 0 || isContinuousPlaying) {
+                                            val sidebarContBtnBg by animateColorAsState(
+                                                targetValue = if (isContinuousPlaying) {
+                                                    MaterialTheme.colorScheme.errorContainer
+                                                } else {
+                                                    MaterialTheme.colorScheme.primaryContainer
+                                                },
+                                                animationSpec = StudioMotion.shortInTween(),
+                                                label = "sidebarContPlayBg"
+                                            )
+                                            val sidebarContBtnFg by animateColorAsState(
+                                                targetValue = if (isContinuousPlaying) {
+                                                    MaterialTheme.colorScheme.onErrorContainer
+                                                } else {
+                                                    MaterialTheme.colorScheme.onPrimaryContainer
+                                                },
+                                                animationSpec = StudioMotion.shortInTween(),
+                                                label = "sidebarContPlayFg"
+                                            )
                                             FilledTonalButton(
                                                 onClick = {
                                                     if (isContinuousPlaying) {
@@ -874,74 +969,89 @@ fun ArchiveExplorerScreen(
                                                     }
                                                 },
                                                 colors = ButtonDefaults.filledTonalButtonColors(
-                                                    containerColor = if (isContinuousPlaying) {
-                                                        MaterialTheme.colorScheme.errorContainer
-                                                    } else {
-                                                        MaterialTheme.colorScheme.primaryContainer
-                                                    },
-                                                    contentColor = if (isContinuousPlaying) {
-                                                        MaterialTheme.colorScheme.onErrorContainer
-                                                    } else {
-                                                        MaterialTheme.colorScheme.onPrimaryContainer
-                                                    }
+                                                    containerColor = sidebarContBtnBg,
+                                                    contentColor = sidebarContBtnFg
                                                 ),
                                                 shape = RoundedCornerShape(12.dp),
                                                 contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
                                                 modifier = Modifier
                                                     .fillMaxWidth()
                                                     .height(38.dp)
+                                                    .pointerHoverIcon(PointerIcon.Hand)
                                                     .testTag("continuous_playback_button")
                                             ) {
-                                                Icon(
-                                                    imageVector = if (isContinuousPlaying) Icons.Default.Stop else Icons.AutoMirrored.Filled.PlaylistPlay,
-                                                    contentDescription = null,
-                                                    modifier = Modifier.size(18.dp)
-                                                )
-                                                Spacer(Modifier.width(6.dp))
-                                                Text(
-                                                    text = if (isContinuousPlaying) S.archive.stopContinuousPlay else S.archive.continuousListen,
-                                                    fontSize = 12.5.sp,
-                                                    fontWeight = FontWeight.Bold,
-                                                    maxLines = 1,
-                                                    softWrap = false
-                                                )
+                                                AnimatedContent(
+                                                    targetState = isContinuousPlaying,
+                                                    transitionSpec = { StudioMotion.subtleFadeScale() },
+                                                    label = "sidebarContPlayContent"
+                                                ) { playing ->
+                                                    Row(
+                                                        verticalAlignment = Alignment.CenterVertically,
+                                                        horizontalArrangement = Arrangement.Center
+                                                    ) {
+                                                        Icon(
+                                                            imageVector = if (playing) Icons.Default.Stop else Icons.AutoMirrored.Filled.PlaylistPlay,
+                                                            contentDescription = null,
+                                                            modifier = Modifier.size(18.dp)
+                                                        )
+                                                        Spacer(Modifier.width(6.dp))
+                                                        Text(
+                                                            text = if (playing) S.archive.stopContinuousPlay else S.archive.continuousListen,
+                                                            fontSize = 12.5.sp,
+                                                            fontWeight = FontWeight.Bold,
+                                                            maxLines = 1,
+                                                            softWrap = false
+                                                        )
+                                                    }
+                                                }
                                             }
                                         }
 
-                                        if (isContinuousPlaying && currentPlayingWord != null) {
-                                            Surface(
-                                                shape = RoundedCornerShape(10.dp),
-                                                color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f),
-                                                border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.35f)),
-                                                modifier = Modifier.fillMaxWidth()
-                                            ) {
-                                                Column(
-                                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
-                                                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                                        var lastPlayingWord by remember { mutableStateOf<Word?>(null) }
+                                        if (currentPlayingWord != null) {
+                                            lastPlayingWord = currentPlayingWord
+                                        }
+                                        AnimatedVisibility(
+                                            visible = isContinuousPlaying && currentPlayingWord != null,
+                                            enter = StudioMotion.verticalPanelEnter,
+                                            exit = StudioMotion.verticalPanelExit
+                                        ) {
+                                            val displayPlayingWord = currentPlayingWord ?: lastPlayingWord
+                                            if (displayPlayingWord != null) {
+                                                Surface(
+                                                    shape = RoundedCornerShape(10.dp),
+                                                    color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f),
+                                                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.35f)),
+                                                    modifier = Modifier.fillMaxWidth()
                                                 ) {
-                                                    Row(
-                                                        verticalAlignment = Alignment.CenterVertically,
-                                                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                                    Column(
+                                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+                                                        verticalArrangement = Arrangement.spacedBy(6.dp)
                                                     ) {
-                                                        Icon(
-                                                            imageVector = Icons.Default.GraphicEq,
-                                                            contentDescription = null,
-                                                            tint = MaterialTheme.colorScheme.primary,
-                                                            modifier = Modifier.size(14.dp)
-                                                        )
-                                                        Text(
-                                                            text = "正在试听：${currentPlayingWord.text}",
-                                                            fontSize = 12.sp,
-                                                            fontWeight = FontWeight.Bold,
-                                                            color = MaterialTheme.colorScheme.primary,
-                                                            maxLines = 1,
-                                                            overflow = TextOverflow.Ellipsis
+                                                        Row(
+                                                            verticalAlignment = Alignment.CenterVertically,
+                                                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                                        ) {
+                                                            Icon(
+                                                                imageVector = Icons.Default.GraphicEq,
+                                                                contentDescription = null,
+                                                                tint = MaterialTheme.colorScheme.primary,
+                                                                modifier = Modifier.size(14.dp)
+                                                            )
+                                                            Text(
+                                                                text = "正在试听：${displayPlayingWord.text}",
+                                                                fontSize = 12.sp,
+                                                                fontWeight = FontWeight.Bold,
+                                                                color = MaterialTheme.colorScheme.primary,
+                                                                maxLines = 1,
+                                                                overflow = TextOverflow.Ellipsis
+                                                            )
+                                                        }
+                                                        ActiveWordPlaybackProgressBar(
+                                                            playbackProgressProvider = playbackProgressProvider,
+                                                            heightDp = 4.dp
                                                         )
                                                     }
-                                                    ActiveWordPlaybackProgressBar(
-                                                        playbackProgressProvider = playbackProgressProvider,
-                                                        heightDp = 4.dp
-                                                    )
                                                 }
                                             }
                                         }
@@ -1072,6 +1182,13 @@ fun ArchiveExplorerScreen(
                                             }
                                         }
                                     }
+                                    }
+                                    PlatformVerticalScrollbar(
+                                        scrollState = sidebarScrollState,
+                                        modifier = Modifier
+                                            .align(Alignment.CenterEnd)
+                                            .fillMaxHeight()
+                                    )
                                 }
                             }
 
@@ -1084,22 +1201,24 @@ fun ArchiveExplorerScreen(
                     } else {
                         // Narrow Mobile Layout: Compact Top Card + Vertical Grid
                         Column(modifier = Modifier.fillMaxSize()) {
-                            Card(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(horizontal = 16.dp, vertical = 10.dp),
-                                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f)),
-                                elevation = CardDefaults.cardElevation(
-                                    defaultElevation = 0.dp,
-                                    pressedElevation = 0.dp,
-                                    focusedElevation = 0.dp,
-                                    hoveredElevation = 0.dp,
-                                    draggedElevation = 0.dp,
-                                    disabledElevation = 0.dp
-                                ),
-                                shape = RoundedCornerShape(16.dp)
+                            ResponsiveContentContainer(
+                                maxWidth = 720.dp,
+                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp)
                             ) {
+                                Card(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f)),
+                                    elevation = CardDefaults.cardElevation(
+                                        defaultElevation = 0.dp,
+                                        pressedElevation = 0.dp,
+                                        focusedElevation = 0.dp,
+                                        hoveredElevation = 0.dp,
+                                        draggedElevation = 0.dp,
+                                        disabledElevation = 0.dp
+                                    ),
+                                    shape = RoundedCornerShape(16.dp)
+                                ) {
                                 Column(
                                     modifier = Modifier.padding(14.dp),
                                     verticalArrangement = Arrangement.spacedBy(10.dp)
@@ -1230,6 +1349,24 @@ fun ArchiveExplorerScreen(
                                                 horizontalArrangement = Arrangement.spacedBy(4.dp)
                                             ) {
                                                 if (playableInFilter > 0 || isContinuousPlaying) {
+                                                    val compactContBtnBg by animateColorAsState(
+                                                        targetValue = if (isContinuousPlaying) {
+                                                            MaterialTheme.colorScheme.errorContainer
+                                                        } else {
+                                                            MaterialTheme.colorScheme.primaryContainer
+                                                        },
+                                                        animationSpec = StudioMotion.shortInTween(),
+                                                        label = "compactContPlayBg"
+                                                    )
+                                                    val compactContBtnFg by animateColorAsState(
+                                                        targetValue = if (isContinuousPlaying) {
+                                                            MaterialTheme.colorScheme.onErrorContainer
+                                                        } else {
+                                                            MaterialTheme.colorScheme.onPrimaryContainer
+                                                        },
+                                                        animationSpec = StudioMotion.shortInTween(),
+                                                        label = "compactContPlayFg"
+                                                    )
                                                     FilledTonalButton(
                                                         onClick = {
                                                             if (isContinuousPlaying) {
@@ -1239,35 +1376,36 @@ fun ArchiveExplorerScreen(
                                                             }
                                                         },
                                                         colors = ButtonDefaults.filledTonalButtonColors(
-                                                            containerColor = if (isContinuousPlaying) {
-                                                                MaterialTheme.colorScheme.errorContainer
-                                                            } else {
-                                                                MaterialTheme.colorScheme.primaryContainer
-                                                            },
-                                                            contentColor = if (isContinuousPlaying) {
-                                                                MaterialTheme.colorScheme.onErrorContainer
-                                                            } else {
-                                                                MaterialTheme.colorScheme.onPrimaryContainer
-                                                            }
+                                                            containerColor = compactContBtnBg,
+                                                            contentColor = compactContBtnFg
                                                         ),
                                                         contentPadding = PaddingValues(horizontal = if (isCompactToolbar) 8.dp else 10.dp, vertical = 4.dp),
                                                         modifier = Modifier
                                                             .height(34.dp)
+                                                            .pointerHoverIcon(PointerIcon.Hand)
                                                             .testTag("continuous_playback_button")
                                                     ) {
-                                                        Icon(
-                                                            imageVector = if (isContinuousPlaying) Icons.Default.Stop else Icons.AutoMirrored.Filled.PlaylistPlay,
-                                                            contentDescription = null,
-                                                            modifier = Modifier.size(16.dp)
-                                                        )
-                                                        Spacer(Modifier.width(3.dp))
-                                                        Text(
-                                                            text = if (isContinuousPlaying) S.archive.stopContinuousPlay else S.archive.continuousListen,
-                                                            fontSize = 11.sp,
-                                                            fontWeight = FontWeight.Bold,
-                                                            maxLines = 1,
-                                                            softWrap = false
-                                                        )
+                                                        AnimatedContent(
+                                                            targetState = isContinuousPlaying,
+                                                            transitionSpec = { StudioMotion.subtleFadeScale() },
+                                                            label = "compactContPlayContent"
+                                                        ) { playing ->
+                                                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                                                Icon(
+                                                                    imageVector = if (playing) Icons.Default.Stop else Icons.AutoMirrored.Filled.PlaylistPlay,
+                                                                    contentDescription = null,
+                                                                    modifier = Modifier.size(16.dp)
+                                                                )
+                                                                Spacer(Modifier.width(3.dp))
+                                                                Text(
+                                                                    text = if (playing) S.archive.stopContinuousPlay else S.archive.continuousListen,
+                                                                    fontSize = 11.sp,
+                                                                    fontWeight = FontWeight.Bold,
+                                                                    maxLines = 1,
+                                                                    softWrap = false
+                                                                )
+                                                            }
+                                                        }
                                                     }
                                                 }
 
@@ -1364,6 +1502,7 @@ fun ArchiveExplorerScreen(
                                     }
                                 }
                             }
+                            }
 
                             renderArchiveGridPane(
                                 Modifier
@@ -1374,20 +1513,28 @@ fun ArchiveExplorerScreen(
                     }
                 }
             }
+            }
         }
     }
 
-    if (showMacroSummarySheet && project != null) {
-        ProjectAcousticSummarySheet(
-            projectId = project!!.id,
-            projectName = project!!.name,
-            speaker = currentSpeaker,
-            words = words,
-            viewModel = viewModel,
-            playingWordId = playingWordId,
-            onPlayWord = { viewModel.playWordAudio(it) },
-            onDismiss = { showMacroSummarySheet = false }
-        )
+    var cachedMacroProject by remember { mutableStateOf(project) }
+    if (project != null) {
+        cachedMacroProject = project
+    }
+    AnimatedDialogVisibility(visible = showMacroSummarySheet && project != null) {
+        val macroProj = project ?: cachedMacroProject
+        if (macroProj != null) {
+            ProjectAcousticSummarySheet(
+                projectId = macroProj.id,
+                projectName = macroProj.name,
+                speaker = currentSpeaker,
+                words = words,
+                viewModel = viewModel,
+                playingWordId = playingWordId,
+                onPlayWord = { viewModel.playWordAudio(it) },
+                onDismiss = { showMacroSummarySheet = false }
+            )
+        }
     }
 
     com.example.ui.components.AnimatedNullableDialogVisibility(value = wordPendingDelete) { targetWord ->
@@ -1521,33 +1668,44 @@ fun ArchiveWordItemRow(
                     verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier.weight(1f)
                 ) {
+                    val badgeBgColor by animateColorAsState(
+                        targetValue = when {
+                            isPlaying -> colorScheme.primary
+                            word.isRecorded -> colorScheme.primaryContainer.copy(alpha = 0.55f)
+                            else -> colorScheme.surfaceVariant
+                        },
+                        animationSpec = StudioMotion.shortInTween(),
+                        label = "archiveBadgeBg_${word.id}"
+                    )
                     Box(
                         modifier = Modifier
                             .size(34.dp)
                             .background(
-                                color = when {
-                                    isPlaying -> MaterialTheme.colorScheme.primary
-                                    word.isRecorded -> MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.55f)
-                                    else -> MaterialTheme.colorScheme.surfaceVariant
-                                },
+                                color = badgeBgColor,
                                 shape = CircleShape
                             ),
                         contentAlignment = Alignment.Center
                     ) {
-                        if (isPlaying) {
-                            Icon(
-                                imageVector = Icons.Default.GraphicEq,
-                                contentDescription = S.common.play,
-                                tint = MaterialTheme.colorScheme.onPrimary,
-                                modifier = Modifier.size(16.dp)
-                            )
-                        } else {
-                            Text(
-                                text = (word.originalIndex + 1).toString(),
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = if (word.isRecorded) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline
-                            )
+                        AnimatedContent(
+                            targetState = isPlaying,
+                            transitionSpec = { StudioMotion.subtleFadeScale() },
+                            label = "archiveBadgeContent_${word.id}"
+                        ) { playing ->
+                            if (playing) {
+                                Icon(
+                                    imageVector = Icons.Default.GraphicEq,
+                                    contentDescription = S.common.play,
+                                    tint = colorScheme.onPrimary,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                            } else {
+                                Text(
+                                    text = (word.originalIndex + 1).toString(),
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = if (word.isRecorded) colorScheme.primary else colorScheme.outline
+                                )
+                            }
                         }
                     }
 
@@ -1630,6 +1788,7 @@ fun ArchiveWordItemRow(
                                     modifier = if (onToggleQualityFlag != null) {
                                         Modifier
                                             .clip(RoundedCornerShape(4.dp))
+                                            .pointerHoverIcon(PointerIcon.Hand)
                                             .clickable { onToggleQualityFlag() }
                                     } else {
                                         Modifier
@@ -1716,7 +1875,11 @@ fun ArchiveWordItemRow(
                             contentAlignment = Alignment.Center,
                             modifier = Modifier.size(38.dp)
                         ) {
-                            if (isPlaying) {
+                            androidx.compose.animation.AnimatedVisibility(
+                                visible = isPlaying,
+                                enter = fadeIn(StudioMotion.shortInTween()),
+                                exit = fadeOut(StudioMotion.shortOutTween())
+                            ) {
                                 ActiveWordCircularProgressRing(
                                     playbackProgressProvider = playbackProgressProvider,
                                     modifier = Modifier.size(34.dp)
@@ -1726,31 +1889,50 @@ fun ArchiveWordItemRow(
                                 onClick = onPlayToggle,
                                 modifier = Modifier
                                     .size(38.dp)
+                                    .pointerHoverIcon(PointerIcon.Hand)
                                     .testTag("archive_play_${word.id}")
                             ) {
-                                Icon(
-                                    imageVector = if (isPlaying) Icons.Default.Stop else Icons.Default.PlayArrow,
-                                    contentDescription = if (isPlaying) S.common.stop else S.common.play,
-                                    tint = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.size(if (isPlaying) 18.dp else 22.dp)
-                                )
+                                AnimatedContent(
+                                    targetState = isPlaying,
+                                    transitionSpec = { StudioMotion.subtleFadeScale() },
+                                    label = "archivePlayIcon_${word.id}"
+                                ) { playing ->
+                                    Icon(
+                                        imageVector = if (playing) Icons.Default.Stop else Icons.Default.PlayArrow,
+                                        contentDescription = if (playing) S.common.stop else S.common.play,
+                                        tint = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.size(if (playing) 18.dp else 22.dp)
+                                    )
+                                }
                             }
                         }
 
                         if (onToggleQualityFlag != null) {
                             val isFlaggedBtn = word.qualityStatus != null && word.qualityStatus != "正常"
+                            val flagIconTint by animateColorAsState(
+                                targetValue = if (isFlaggedBtn) colorScheme.primary else colorScheme.outline,
+                                animationSpec = StudioMotion.shortInTween(),
+                                label = "archiveFlagTint_${word.id}"
+                            )
                             IconButton(
                                 onClick = onToggleQualityFlag,
                                 modifier = Modifier
                                     .size(38.dp)
+                                    .pointerHoverIcon(PointerIcon.Hand)
                                     .testTag("archive_flag_${word.id}")
                             ) {
-                                Icon(
-                                    imageVector = if (isFlaggedBtn) Icons.Default.CheckCircle else Icons.Default.Flag,
-                                    contentDescription = if (isFlaggedBtn) S.archive.confirmAsNormalDesc else S.archive.markAsRerecordDesc,
-                                    tint = if (isFlaggedBtn) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline,
-                                    modifier = Modifier.size(20.dp)
-                                )
+                                AnimatedContent(
+                                    targetState = isFlaggedBtn,
+                                    transitionSpec = { StudioMotion.subtleFadeScale() },
+                                    label = "archiveFlagIcon_${word.id}"
+                                ) { flagged ->
+                                    Icon(
+                                        imageVector = if (flagged) Icons.Default.CheckCircle else Icons.Default.Flag,
+                                        contentDescription = if (flagged) S.archive.confirmAsNormalDesc else S.archive.markAsRerecordDesc,
+                                        tint = flagIconTint,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                }
                             }
                         }
 
@@ -1759,6 +1941,7 @@ fun ArchiveWordItemRow(
                                 onClick = onShowPhoneticDetails,
                                 modifier = Modifier
                                     .size(38.dp)
+                                    .pointerHoverIcon(PointerIcon.Hand)
                                     .testTag("archive_detail_${word.id}")
                             ) {
                                 Icon(
@@ -1773,6 +1956,7 @@ fun ArchiveWordItemRow(
                             onClick = onDeleteAudio,
                             modifier = Modifier
                                 .size(38.dp)
+                                .pointerHoverIcon(PointerIcon.Hand)
                                 .testTag("archive_delete_audio_${word.id}")
                         ) {
                             Icon(
@@ -1792,7 +1976,11 @@ fun ArchiveWordItemRow(
                 }
             }
 
-            if (isPlaying) {
+            AnimatedVisibility(
+                visible = isPlaying,
+                enter = StudioMotion.verticalPanelEnter,
+                exit = StudioMotion.verticalPanelExit
+            ) {
                 ActiveWordPlaybackProgressBar(playbackProgressProvider = playbackProgressProvider)
             }
         }

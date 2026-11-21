@@ -1,15 +1,8 @@
 package com.example.ui.screens
 
 import android.widget.Toast
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.Spring
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.spring
-import androidx.compose.animation.expandVertically
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.shrinkVertically
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
@@ -19,6 +12,7 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -62,9 +56,14 @@ import com.example.data.Speaker
 import com.example.i18n.S
 import com.example.i18n.withArgs
 import com.example.ui.components.DesktopAdaptiveState
+import com.example.ui.components.PlatformVerticalScrollbar
 import com.example.ui.components.PredictiveBackGestureHandler
+import com.example.ui.components.ResponsiveContentContainer
+import com.example.ui.components.StudioMotion
 import com.example.ui.components.predictiveBackLayer
 import com.example.ui.components.rememberPredictiveBackVisualState
+import com.example.ui.components.studioAnimateItem
+import com.example.ui.components.studioRotateOn
 import com.example.viewmodel.RecordingViewModel
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -139,24 +138,30 @@ fun GlobalManagementDialog(
         topBar = {
             TopAppBar(
                 title = {
-                    if (isSelectionMode) {
-                        Text(
-                            text = S.management.selectedProjectsCount.withArgs("count" to selectedProjectIds.size),
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.ExtraBold
-                        )
-                    } else {
-                        Column {
+                    AnimatedContent(
+                        targetState = isSelectionMode,
+                        transitionSpec = { StudioMotion.subtleFadeScale() },
+                        label = "GlobalMgmtTopTitle"
+                    ) { selecting ->
+                        if (selecting) {
                             Text(
-                                text = S.management.screenTitle,
+                                text = S.management.selectedProjectsCount.withArgs("count" to selectedProjectIds.size),
                                 style = MaterialTheme.typography.titleMedium,
                                 fontWeight = FontWeight.ExtraBold
                             )
-                            Text(
-                                text = S.management.screenSubtitle,
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
+                        } else {
+                            Column {
+                                Text(
+                                    text = S.management.screenTitle,
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.ExtraBold
+                                )
+                                Text(
+                                    text = S.management.screenSubtitle,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
                         }
                     }
                 },
@@ -252,82 +257,88 @@ fun GlobalManagementPane(
     val selectedProjectIds = remember { mutableStateListOf<Long>() }
 
     Column(modifier = Modifier.fillMaxSize()) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 12.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            if (isSelectionMode) {
-                Text(
-                    text = S.management.selectedProjectsCount.withArgs("count" to selectedProjectIds.size),
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.ExtraBold
-                )
-                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                    TextButton(
-                        onClick = {
-                            if (selectedProjectIds.size == projects.size) {
-                                selectedProjectIds.clear()
-                            } else {
-                                selectedProjectIds.clear()
-                                selectedProjectIds.addAll(projects.map { it.id })
+        AnimatedContent(
+            targetState = isSelectionMode,
+            transitionSpec = { StudioMotion.subtleFadeScale() },
+            label = "GlobalMgmtPaneTopBar"
+        ) { selecting ->
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                if (selecting) {
+                    Text(
+                        text = S.management.selectedProjectsCount.withArgs("count" to selectedProjectIds.size),
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.ExtraBold
+                    )
+                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                        TextButton(
+                            onClick = {
+                                if (selectedProjectIds.size == projects.size) {
+                                    selectedProjectIds.clear()
+                                } else {
+                                    selectedProjectIds.clear()
+                                    selectedProjectIds.addAll(projects.map { it.id })
+                                }
                             }
+                        ) {
+                            Text(
+                                text = if (selectedProjectIds.size == projects.size) S.management.deselectAll else S.management.selectAll,
+                                fontSize = 12.sp,
+                                maxLines = 1,
+                                softWrap = false
+                            )
                         }
+                        TextButton(
+                            onClick = {
+                                selectedProjectIds.clear()
+                                isSelectionMode = false
+                            }
+                        ) {
+                            Text(S.common.cancel, fontSize = 12.sp, maxLines = 1, softWrap = false)
+                        }
+                    }
+                } else {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
+                        Icon(
+                            imageVector = Icons.Default.PieChart,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(20.dp)
+                        )
                         Text(
-                            text = if (selectedProjectIds.size == projects.size) S.management.deselectAll else S.management.selectAll,
-                            fontSize = 12.sp,
+                            text = S.management.screenTitle,
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.ExtraBold,
                             maxLines = 1,
                             softWrap = false
                         )
                     }
-                    TextButton(
-                        onClick = {
-                            selectedProjectIds.clear()
-                            isSelectionMode = false
-                        }
-                    ) {
-                        Text(S.common.cancel, fontSize = 12.sp, maxLines = 1, softWrap = false)
-                    }
-                }
-            } else {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.PieChart,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(20.dp)
-                    )
-                    Text(
-                        text = S.management.screenTitle,
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.ExtraBold,
-                        maxLines = 1,
-                        softWrap = false
-                    )
-                }
 
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(4.dp)
-                ) {
-                    if (projects.isNotEmpty()) {
-                        TextButton(
-                            onClick = {
-                                isSelectionMode = true
-                                selectedProjectIds.clear()
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        if (projects.isNotEmpty()) {
+                            TextButton(
+                                onClick = {
+                                    isSelectionMode = true
+                                    selectedProjectIds.clear()
+                                }
+                            ) {
+                                Text(S.management.multiSelectManage, fontSize = 12.sp, fontWeight = FontWeight.Bold, maxLines = 1, softWrap = false)
                             }
-                        ) {
-                            Text(S.management.multiSelectManage, fontSize = 12.sp, fontWeight = FontWeight.Bold, maxLines = 1, softWrap = false)
                         }
-                    }
-                    IconButton(onClick = onDismiss, modifier = Modifier.size(32.dp)) {
-                        Icon(Icons.Default.Close, contentDescription = S.common.close, modifier = Modifier.size(18.dp))
+                        IconButton(onClick = onDismiss, modifier = Modifier.size(32.dp)) {
+                            Icon(Icons.Default.Close, contentDescription = S.common.close, modifier = Modifier.size(18.dp))
+                        }
                     }
                 }
             }
@@ -400,17 +411,24 @@ private fun RecordingStatsAndCleanupBody(
         selectedProjectIds.sumOf { pid -> storageReport.projectStats[pid]?.totalBytes ?: 0L }
     }
 
+    val listState = rememberLazyListState()
+
     Box(modifier = modifier) {
-        LazyColumn(
-            modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(
-                start = 16.dp,
-                end = 16.dp,
-                top = 14.dp,
-                bottom = if (isSelectionMode) 96.dp else 28.dp
-            ),
-            verticalArrangement = Arrangement.spacedBy(14.dp)
+        ResponsiveContentContainer(
+            maxWidth = 860.dp,
+            modifier = Modifier.fillMaxSize()
         ) {
+            LazyColumn(
+                state = listState,
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(
+                    start = 16.dp,
+                    end = 16.dp,
+                    top = 14.dp,
+                    bottom = if (isSelectionMode) 96.dp else 28.dp
+                ),
+                verticalArrangement = Arrangement.spacedBy(14.dp)
+            ) {
             // 模块 1：全局语料与存储看板 (Hero Card)
             item(key = "hero_storage_card", contentType = "hero_card") {
                 GlobalCorpusStorageHeroCard(
@@ -592,27 +610,36 @@ private fun RecordingStatsAndCleanupBody(
                         },
                         onRequestDeleteProject = {
                             projectToDeleteSingle = project
-                        }
+                        },
+                        modifier = studioAnimateItem()
                     )
                 }
             }
         }
+        }
+
+        PlatformVerticalScrollbar(
+            listState = listState,
+            modifier = Modifier.align(Alignment.CenterEnd)
+        )
 
         // 多选模式底部悬浮操作栏
         AnimatedVisibility(
             visible = isSelectionMode,
-            enter = expandVertically() + fadeIn(),
-            exit = shrinkVertically() + fadeOut(),
+            enter = StudioMotion.verticalPanelEnter,
+            exit = StudioMotion.verticalPanelExit,
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .fillMaxWidth()
         ) {
-            Surface(
-                color = MaterialTheme.colorScheme.surfaceContainerHighest,
-                tonalElevation = 8.dp,
-                shadowElevation = 12.dp,
-                shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp)
-            ) {
+            ResponsiveContentContainer(maxWidth = 860.dp) {
+                Surface(
+                    color = MaterialTheme.colorScheme.surfaceContainerHighest,
+                    tonalElevation = 0.dp,
+                    shadowElevation = 0.dp,
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f)),
+                    shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp)
+                ) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -691,6 +718,7 @@ private fun RecordingStatsAndCleanupBody(
                         }
                     }
                 }
+            }
             }
         }
     }
@@ -1393,7 +1421,8 @@ private fun ProjectStorageExpandableCard(
     onOpenProjectWithSpeaker: (Speaker?) -> Unit,
     onRequestCleanProjectBackups: (RecordingViewModel.ProjectStorageStat) -> Unit,
     onRequestDeleteSpeakerRecordings: (RecordingViewModel.SpeakerStorageStat) -> Unit,
-    onRequestDeleteProject: () -> Unit
+    onRequestDeleteProject: () -> Unit,
+    modifier: Modifier = Modifier
 ) {
     var expanded by remember { mutableStateOf(false) }
 
@@ -1432,7 +1461,7 @@ private fun ProjectStorageExpandableCard(
     val headerInteractionSource = remember { MutableInteractionSource() }
 
     Surface(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
             .testTag("stats_project_card_${project.id}"),
         shape = cardShape,
@@ -1567,16 +1596,11 @@ private fun ProjectStorageExpandableCard(
                         }
 
                         if (!isSelectionMode) {
-                            val chevronRotation by animateFloatAsState(
-                                targetValue = if (expanded) 180f else 0f,
-                                animationSpec = spring(dampingRatio = 0.72f, stiffness = Spring.StiffnessMedium),
-                                label = "storageCardChevron"
-                            )
                             Icon(
                                 imageVector = Icons.Default.ExpandMore,
                                 contentDescription = if (expanded) S.management.collapseDetailsDesc else S.management.expandDetailsDesc,
                                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.graphicsLayer { rotationZ = chevronRotation }
+                                modifier = Modifier.studioRotateOn(expanded)
                             )
                         }
                     }
@@ -1599,8 +1623,8 @@ private fun ProjectStorageExpandableCard(
             // Expanded Details: Speaker-level breakdown + Project Cleanup Actions
             AnimatedVisibility(
                 visible = expanded && !isSelectionMode,
-                enter = expandVertically() + fadeIn(),
-                exit = shrinkVertically() + fadeOut()
+                enter = StudioMotion.verticalPanelEnter,
+                exit = StudioMotion.verticalPanelExit
             ) {
                 Column(
                     modifier = Modifier

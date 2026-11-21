@@ -2,7 +2,9 @@ package com.example.ui.screens
 
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
@@ -50,7 +52,11 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.ui.components.DesktopAdaptiveState
+import com.example.ui.components.PlatformVerticalScrollbar
 import com.example.ui.components.PredictiveBackGestureHandler
+import com.example.ui.components.ResponsiveContentContainer
+import com.example.ui.components.StudioMotion
+import com.example.ui.components.StudioSidebarNavItem
 import com.example.ui.components.predictiveBackLayer
 import com.example.ui.components.rememberPredictiveBackVisualState
 import com.example.ui.components.rememberStudioInteraction
@@ -136,8 +142,13 @@ fun FieldworkEncyclopediaScreen(
             .predictiveBackLayer(backVisualState)
             .testTag("fieldwork_encyclopedia_screen")
     ) {
-        val isTwoPaneLayout = maxWidth >= 700.dp || (isDesktop && maxWidth >= 560.dp)
-        val sidebarWidth = if (maxWidth >= 960.dp) 292.dp else 252.dp
+        val isTwoPaneLayout = maxWidth >= 760.dp
+        val isSingleRowFilterBar = maxWidth >= 680.dp
+        val sidebarWidth by animateDpAsState(
+            targetValue = if (maxWidth >= 960.dp) 292.dp else 252.dp,
+            animationSpec = StudioMotion.mediumInTween(),
+            label = "encyclopediaSidebarWidth"
+        )
 
         Scaffold(
             topBar = {
@@ -181,7 +192,7 @@ fun FieldworkEncyclopediaScreen(
                         onSearchQueryChange = { searchQuery = it },
                         selectedVolume = selectedVolume,
                         onSelectVolume = { vol -> selectedVolumeName = vol?.name ?: "ALL" },
-                        isTwoPane = isTwoPaneLayout
+                        isSingleRowBar = isSingleRowFilterBar
                     )
 
                     HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f))
@@ -204,103 +215,129 @@ fun FieldworkEncyclopediaScreen(
                         .padding(innerPadding)
                 )
             } else if (isTwoPaneLayout) {
-                Row(
+                Box(
                     modifier = Modifier
                         .fillMaxSize()
-                        .padding(innerPadding)
+                        .padding(innerPadding),
+                    contentAlignment = Alignment.TopCenter
                 ) {
-                    val sidebarScroll = rememberScrollState()
-                    Column(
+                    Row(
                         modifier = Modifier
-                            .width(sidebarWidth)
-                            .fillMaxHeight()
-                            .verticalScroll(sidebarScroll)
-                            .padding(horizontal = 12.dp, vertical = 12.dp)
-                            .testTag("encyclopedia_desktop_sidebar"),
-                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                            .widthIn(max = 1120.dp)
+                            .fillMaxSize()
                     ) {
-                        var lastVol: EncyclopediaVolume? = null
-                        filteredEntries.forEach { entry ->
-                            if (entry.volume != lastVol) {
-                                if (lastVol != null) {
-                                    Spacer(modifier = Modifier.height(8.dp))
-                                }
-                                Text(
-                                    text = entry.volume.fullTitle,
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = MaterialTheme.colorScheme.primary,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
-                                )
-                                lastVol = entry.volume
-                            }
-
-                            EncyclopediaSidebarItem(
-                                entry = entry,
-                                selected = activeDesktopEntry?.id == entry.id,
-                                onClick = { selectedDesktopEntryId = entry.id }
-                            )
-                        }
-                        Spacer(modifier = Modifier.height(18.dp))
-                    }
-
-                    VerticalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f))
-
-                    Box(
-                        modifier = Modifier
-                            .weight(1f)
-                            .fillMaxHeight()
-                            .testTag("encyclopedia_desktop_reader_pane"),
-                        contentAlignment = Alignment.TopCenter
-                    ) {
-                        val currentEntry = activeDesktopEntry ?: filteredEntries.first()
-                        AnimatedContent(
-                            targetState = currentEntry.id,
-                            transitionSpec = {
-                                val fromNum = EncyclopediaRepository.getEntryById(initialState)?.number ?: 0
-                                val toNum = EncyclopediaRepository.getEntryById(targetState)?.number ?: 0
-                                val dir = if (toNum >= fromNum) 1 else -1
-                                (fadeIn(tween(210, easing = FastOutSlowInEasing)) +
-                                    slideInVertically(tween(230, easing = FastOutSlowInEasing)) { fullH -> dir * (fullH / 18) }) togetherWith
-                                    (fadeOut(tween(130)) +
-                                        slideOutVertically(tween(150)) { fullH -> -dir * (fullH / 24) })
-                            },
-                            label = "EncyclopediaReaderTransition"
-                        ) { entryId ->
-                            val entry = EncyclopediaRepository.getEntryById(entryId) ?: filteredEntries.first()
-                            val readerScroll = rememberScrollState()
+                        val sidebarScroll = rememberScrollState()
+                        Box(
+                            modifier = Modifier
+                                .width(sidebarWidth)
+                                .fillMaxHeight()
+                        ) {
                             Column(
                                 modifier = Modifier
                                     .fillMaxSize()
-                                    .verticalScroll(readerScroll)
-                                    .padding(horizontal = 24.dp, vertical = 18.dp),
-                                horizontalAlignment = Alignment.CenterHorizontally
+                                    .verticalScroll(sidebarScroll)
+                                    .padding(horizontal = 12.dp, vertical = 12.dp)
+                                    .testTag("encyclopedia_desktop_sidebar"),
+                                verticalArrangement = Arrangement.spacedBy(4.dp)
                             ) {
-                                Column(
-                                    modifier = Modifier
-                                        .widthIn(max = 780.dp)
-                                        .fillMaxWidth(),
-                                    verticalArrangement = Arrangement.spacedBy(14.dp)
-                                ) {
-                                    EncyclopediaDesktopHeaderCard(entry = entry)
-
-                                    EncyclopediaEntryBodyContent(
-                                        entry = entry,
-                                        onClickRelated = { relId -> jumpToRelatedEntry(relId, isTwoPane = true) }
-                                    )
-
-                                    val curIdx = filteredEntries.indexOfFirst { it.id == entry.id }
-                                    if (filteredEntries.size > 1 && curIdx >= 0) {
-                                        EncyclopediaPrevNextBar(
-                                            prevEntry = filteredEntries.getOrNull(curIdx - 1),
-                                            nextEntry = filteredEntries.getOrNull(curIdx + 1),
-                                            onSelectEntry = { selectedDesktopEntryId = it.id }
+                                var lastVol: EncyclopediaVolume? = null
+                                filteredEntries.forEach { entry ->
+                                    if (entry.volume != lastVol) {
+                                        if (lastVol != null) {
+                                            Spacer(modifier = Modifier.height(8.dp))
+                                        }
+                                        Text(
+                                            text = entry.volume.fullTitle,
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = MaterialTheme.colorScheme.primary,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
+                                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
                                         )
+                                        lastVol = entry.volume
                                     }
 
-                                    Spacer(modifier = Modifier.height(24.dp))
+                                    EncyclopediaSidebarItem(
+                                        entry = entry,
+                                        selected = activeDesktopEntry?.id == entry.id,
+                                        onClick = { selectedDesktopEntryId = entry.id }
+                                    )
+                                }
+                                Spacer(modifier = Modifier.height(18.dp))
+                            }
+                            PlatformVerticalScrollbar(
+                                scrollState = sidebarScroll,
+                                modifier = Modifier
+                                    .align(Alignment.CenterEnd)
+                                    .fillMaxHeight()
+                            )
+                        }
+
+                        VerticalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f))
+
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .fillMaxHeight()
+                                .testTag("encyclopedia_desktop_reader_pane"),
+                            contentAlignment = Alignment.TopCenter
+                        ) {
+                            val currentEntry = activeDesktopEntry ?: filteredEntries.first()
+                            AnimatedContent(
+                                targetState = currentEntry.id,
+                                transitionSpec = {
+                                    val fromNum = EncyclopediaRepository.getEntryById(initialState)?.number ?: 0
+                                    val toNum = EncyclopediaRepository.getEntryById(targetState)?.number ?: 0
+                                    val dir = if (toNum >= fromNum) 1 else -1
+                                    (fadeIn(tween(210, easing = FastOutSlowInEasing)) +
+                                        slideInVertically(tween(230, easing = FastOutSlowInEasing)) { fullH -> dir * (fullH / 18) }) togetherWith
+                                        (fadeOut(tween(130)) +
+                                            slideOutVertically(tween(150)) { fullH -> -dir * (fullH / 24) })
+                                },
+                                label = "EncyclopediaReaderTransition"
+                            ) { entryId ->
+                                val entry = EncyclopediaRepository.getEntryById(entryId) ?: filteredEntries.first()
+                                val readerScroll = rememberScrollState()
+                                Box(modifier = Modifier.fillMaxSize()) {
+                                    Column(
+                                        modifier = Modifier
+                                            .fillMaxSize()
+                                            .verticalScroll(readerScroll)
+                                            .padding(horizontal = 24.dp, vertical = 18.dp),
+                                        horizontalAlignment = Alignment.CenterHorizontally
+                                    ) {
+                                        Column(
+                                            modifier = Modifier
+                                                .widthIn(max = 780.dp)
+                                                .fillMaxWidth(),
+                                            verticalArrangement = Arrangement.spacedBy(14.dp)
+                                        ) {
+                                            EncyclopediaDesktopHeaderCard(entry = entry)
+
+                                            EncyclopediaEntryBodyContent(
+                                                entry = entry,
+                                                onClickRelated = { relId -> jumpToRelatedEntry(relId, isTwoPane = true) }
+                                            )
+
+                                            val curIdx = filteredEntries.indexOfFirst { it.id == entry.id }
+                                            if (filteredEntries.size > 1 && curIdx >= 0) {
+                                                EncyclopediaPrevNextBar(
+                                                    prevEntry = filteredEntries.getOrNull(curIdx - 1),
+                                                    nextEntry = filteredEntries.getOrNull(curIdx + 1),
+                                                    onSelectEntry = { selectedDesktopEntryId = it.id }
+                                                )
+                                            }
+
+                                            Spacer(modifier = Modifier.height(24.dp))
+                                        }
+                                    }
+                                    PlatformVerticalScrollbar(
+                                        scrollState = readerScroll,
+                                        modifier = Modifier
+                                            .align(Alignment.CenterEnd)
+                                            .fillMaxHeight()
+                                    )
                                 }
                             }
                         }
@@ -310,38 +347,46 @@ fun FieldworkEncyclopediaScreen(
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
-                        .padding(innerPadding),
-                    contentAlignment = Alignment.TopCenter
+                        .padding(innerPadding)
                 ) {
-                    LazyColumn(
-                        state = mobileListState,
-                        modifier = Modifier
-                            .widthIn(max = 760.dp)
-                            .fillMaxSize(),
-                        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 12.dp),
-                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ResponsiveContentContainer(
+                        maxWidth = 760.dp,
+                        modifier = Modifier.fillMaxSize()
                     ) {
-                        items(
-                            items = filteredEntries,
-                            key = { it.id }
-                        ) { entry ->
-                            val isOpen = expandedMobileIds[entry.id] == true || searchQuery.isNotBlank()
-                            ExpandableEncyclopediaCard(
-                                entry = entry,
-                                expanded = isOpen,
-                                onToggle = {
-                                    expandedMobileIds[entry.id] = !isOpen
-                                },
-                                onClickRelated = { relId ->
-                                    jumpToRelatedEntry(relId, isTwoPane = false)
-                                }
-                            )
-                        }
+                        LazyColumn(
+                            state = mobileListState,
+                            modifier = Modifier.fillMaxSize(),
+                            contentPadding = PaddingValues(horizontal = 14.dp, vertical = 12.dp),
+                            verticalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            items(
+                                items = filteredEntries,
+                                key = { it.id }
+                            ) { entry ->
+                                val isOpen = expandedMobileIds[entry.id] == true || searchQuery.isNotBlank()
+                                ExpandableEncyclopediaCard(
+                                    entry = entry,
+                                    expanded = isOpen,
+                                    onToggle = {
+                                        expandedMobileIds[entry.id] = !isOpen
+                                    },
+                                    onClickRelated = { relId ->
+                                        jumpToRelatedEntry(relId, isTwoPane = false)
+                                    }
+                                )
+                            }
 
-                        item(key = "bottom_spacer") {
-                            Spacer(modifier = Modifier.height(24.dp))
+                            item(key = "bottom_spacer") {
+                                Spacer(modifier = Modifier.height(24.dp))
+                            }
                         }
                     }
+                    PlatformVerticalScrollbar(
+                        listState = mobileListState,
+                        modifier = Modifier
+                            .align(Alignment.CenterEnd)
+                            .fillMaxHeight()
+                    )
                 }
             }
         }
@@ -354,91 +399,97 @@ private fun EncyclopediaSearchAndVolumeBar(
     onSearchQueryChange: (String) -> Unit,
     selectedVolume: EncyclopediaVolume?,
     onSelectVolume: (EncyclopediaVolume?) -> Unit,
-    isTwoPane: Boolean
+    isSingleRowBar: Boolean
 ) {
     val cs = MaterialTheme.colorScheme
-    if (isTwoPane) {
-        // Sleek single-row bar on Desktop / Tablet so article content gets maximum vertical room
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 20.dp, vertical = 6.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(12.dp)
+    if (isSingleRowBar) {
+        // Sleek single-row bar on >=680dp so article content gets maximum vertical room
+        Box(
+            modifier = Modifier.fillMaxWidth(),
+            contentAlignment = Alignment.Center
         ) {
             Row(
                 modifier = Modifier
-                    .weight(1f)
-                    .horizontalScroll(rememberScrollState()),
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                verticalAlignment = Alignment.CenterVertically
+                    .widthIn(max = 1120.dp)
+                    .fillMaxWidth()
+                    .padding(horizontal = 20.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                VolumeFilterChip(
-                    selected = selectedVolume == null,
-                    icon = null,
-                    label = "全部 (${EncyclopediaRepository.allEntries.size})",
-                    onClick = { onSelectVolume(null) },
-                    modifier = Modifier.testTag("encyclopedia_vol_ALL")
-                )
-                EncyclopediaVolume.entries.forEach { vol ->
+                Row(
+                    modifier = Modifier
+                        .weight(1f)
+                        .horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
                     VolumeFilterChip(
-                        selected = selectedVolume == vol,
-                        icon = vol.icon,
-                        label = vol.shortTitle,
-                        onClick = { onSelectVolume(vol) },
-                        modifier = Modifier.testTag("encyclopedia_vol_${vol.name}")
+                        selected = selectedVolume == null,
+                        icon = null,
+                        label = "全部 (${EncyclopediaRepository.allEntries.size})",
+                        onClick = { onSelectVolume(null) },
+                        modifier = Modifier.testTag("encyclopedia_vol_ALL")
                     )
-                }
-            }
-
-            OutlinedTextField(
-                value = searchQuery,
-                onValueChange = onSearchQueryChange,
-                singleLine = true,
-                placeholder = {
-                    Text(
-                        text = "搜索术语（入声、共振峰、蓝牙、TextGrid...）",
-                        fontSize = 12.sp,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                },
-                leadingIcon = {
-                    Icon(
-                        imageVector = Icons.Default.Search,
-                        contentDescription = null,
-                        tint = cs.primary,
-                        modifier = Modifier.size(17.dp)
-                    )
-                },
-                trailingIcon = {
-                    if (searchQuery.isNotEmpty()) {
-                        IconButton(
-                            onClick = { onSearchQueryChange("") },
-                            modifier = Modifier
-                                .size(28.dp)
-                                .testTag("encyclopedia_clear_search_button")
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Close,
-                                contentDescription = "清空搜索",
-                                modifier = Modifier.size(15.dp)
-                            )
-                        }
+                    EncyclopediaVolume.entries.forEach { vol ->
+                        VolumeFilterChip(
+                            selected = selectedVolume == vol,
+                            icon = vol.icon,
+                            label = vol.shortTitle,
+                            onClick = { onSelectVolume(vol) },
+                            modifier = Modifier.testTag("encyclopedia_vol_${vol.name}")
+                        )
                     }
-                },
-                shape = RoundedCornerShape(12.dp),
-                textStyle = LocalTextStyle.current.copy(fontSize = 12.5.sp),
-                colors = OutlinedTextFieldDefaults.colors(
-                    focusedContainerColor = cs.surfaceContainerLowest,
-                    unfocusedContainerColor = cs.surfaceContainerLowest,
-                    unfocusedBorderColor = cs.outlineVariant.copy(alpha = 0.6f)
-                ),
-                modifier = Modifier
-                    .widthIn(min = 240.dp, max = 340.dp)
-                    .heightIn(min = 48.dp)
-                    .testTag("encyclopedia_search_input")
-            )
+                }
+
+                OutlinedTextField(
+                    value = searchQuery,
+                    onValueChange = onSearchQueryChange,
+                    singleLine = true,
+                    placeholder = {
+                        Text(
+                            text = "搜索术语（入声、共振峰、蓝牙、TextGrid...）",
+                            fontSize = 12.sp,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    },
+                    leadingIcon = {
+                        Icon(
+                            imageVector = Icons.Default.Search,
+                            contentDescription = null,
+                            tint = cs.primary,
+                            modifier = Modifier.size(17.dp)
+                        )
+                    },
+                    trailingIcon = {
+                        if (searchQuery.isNotEmpty()) {
+                            IconButton(
+                                onClick = { onSearchQueryChange("") },
+                                modifier = Modifier
+                                    .size(28.dp)
+                                    .testTag("encyclopedia_clear_search_button")
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Close,
+                                    contentDescription = "清空搜索",
+                                    modifier = Modifier.size(15.dp)
+                                )
+                            }
+                        }
+                    },
+                    shape = RoundedCornerShape(12.dp),
+                    textStyle = LocalTextStyle.current.copy(fontSize = 12.5.sp),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedContainerColor = cs.surfaceContainerLowest,
+                        unfocusedContainerColor = cs.surfaceContainerLowest,
+                        unfocusedBorderColor = cs.outlineVariant.copy(alpha = 0.6f)
+                    ),
+                    modifier = Modifier
+                        .widthIn(min = 220.dp, max = 340.dp)
+                        .heightIn(min = 48.dp)
+                        .testTag("encyclopedia_search_input")
+                )
+            }
         }
     } else {
         Column(
@@ -536,16 +587,49 @@ private fun VolumeFilterChip(
     val (hoverSrc, isHoveredState) = rememberStudioInteraction()
     val isHovered by isHoveredState
 
-    Surface(
-        shape = RoundedCornerShape(10.dp),
-        color = when {
+    val chipBg by animateColorAsState(
+        targetValue = when {
             selected -> cs.primaryContainer
             isHovered -> lerp(cs.surfaceContainerLow, cs.primaryContainer, 0.35f)
             else -> cs.surfaceContainerLow
         },
+        animationSpec = StudioMotion.microTween(),
+        label = "volumeChipBg"
+    )
+    val chipBorder by animateColorAsState(
+        targetValue = when {
+            selected -> cs.primary
+            isHovered -> cs.primary.copy(alpha = 0.55f)
+            else -> cs.outlineVariant.copy(alpha = 0.55f)
+        },
+        animationSpec = StudioMotion.microTween(),
+        label = "volumeChipBorder"
+    )
+    val chipIconTint by animateColorAsState(
+        targetValue = when {
+            selected -> cs.primary
+            isHovered -> cs.primary
+            else -> cs.onSurfaceVariant
+        },
+        animationSpec = StudioMotion.microTween(),
+        label = "volumeChipIconTint"
+    )
+    val chipTextColor by animateColorAsState(
+        targetValue = when {
+            selected -> cs.onPrimaryContainer
+            isHovered -> cs.primary
+            else -> cs.onSurfaceVariant
+        },
+        animationSpec = StudioMotion.microTween(),
+        label = "volumeChipTextColor"
+    )
+
+    Surface(
+        shape = RoundedCornerShape(10.dp),
+        color = chipBg,
         border = BorderStroke(
             width = if (selected) 1.2.dp else 1.dp,
-            color = if (selected) cs.primary else cs.outlineVariant.copy(alpha = 0.55f)
+            color = chipBorder
         ),
         modifier = modifier
             .height(32.dp)
@@ -563,7 +647,7 @@ private fun VolumeFilterChip(
                 Icon(
                     imageVector = icon,
                     contentDescription = null,
-                    tint = if (selected) cs.primary else cs.onSurfaceVariant,
+                    tint = chipIconTint,
                     modifier = Modifier.size(14.dp)
                 )
             }
@@ -571,7 +655,7 @@ private fun VolumeFilterChip(
                 text = label,
                 fontSize = 12.sp,
                 fontWeight = if (selected) FontWeight.ExtraBold else FontWeight.SemiBold,
-                color = if (selected) cs.onPrimaryContainer else cs.onSurfaceVariant,
+                color = chipTextColor,
                 maxLines = 1,
                 softWrap = false
             )
@@ -586,65 +670,34 @@ private fun EncyclopediaSidebarItem(
     onClick: () -> Unit
 ) {
     val cs = MaterialTheme.colorScheme
-    val (hoverSrc, isHoveredState) = rememberStudioInteraction()
-    val isHovered by isHoveredState
-
-    Surface(
-        shape = RoundedCornerShape(13.dp),
-        color = when {
-            selected -> cs.secondaryContainer.copy(alpha = 0.85f)
-            isHovered -> cs.surfaceContainerHigh.copy(alpha = 0.6f)
-            else -> cs.background
-        },
-        border = if (selected) BorderStroke(1.dp, cs.primary.copy(alpha = 0.35f)) else null,
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(13.dp))
-            .hoverable(hoverSrc)
-            .pointerHoverIcon(PointerIcon.Hand)
-            .clickable(interactionSource = hoverSrc, indication = null, onClick = onClick)
-            .testTag("enc_item_${entry.id}")
-    ) {
-        Row(
-            modifier = Modifier.padding(horizontal = 10.dp, vertical = 9.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(9.dp)
-        ) {
+    StudioSidebarNavItem(
+        title = entry.title,
+        subtitle = entry.oneLineSummary,
+        icon = entry.volume.icon,
+        selected = selected,
+        onClick = onClick,
+        iconContainerColor = cs.primaryContainer.copy(alpha = 0.6f),
+        iconTint = cs.primary,
+        trailing = {
             Surface(
                 shape = CircleShape,
-                color = if (selected) cs.primary else cs.primaryContainer.copy(alpha = 0.6f),
-                modifier = Modifier.size(24.dp)
+                color = if (selected) cs.primary else cs.surfaceContainerHigh,
+                modifier = Modifier.size(22.dp)
             ) {
                 Box(contentAlignment = Alignment.Center) {
                     Text(
                         text = "${entry.number}",
-                        fontSize = 10.5.sp,
-                        fontWeight = FontWeight.ExtraBold,
-                        color = if (selected) cs.onPrimary else cs.primary,
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = if (selected) cs.onPrimary else cs.onSurfaceVariant,
                         maxLines = 1,
                         softWrap = false
                     )
                 }
             }
-            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
-                Text(
-                    text = entry.title,
-                    fontSize = 12.5.sp,
-                    fontWeight = if (selected) FontWeight.ExtraBold else FontWeight.SemiBold,
-                    color = if (selected) cs.onSecondaryContainer else cs.onSurface,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-                Text(
-                    text = entry.oneLineSummary,
-                    fontSize = 11.sp,
-                    color = cs.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-            }
-        }
-    }
+        },
+        modifier = Modifier.testTag("enc_item_${entry.id}")
+    )
 }
 
 @Composable

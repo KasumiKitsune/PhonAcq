@@ -23,6 +23,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -69,9 +70,11 @@ import androidx.compose.ui.window.DialogProperties
 import com.example.i18n.S
 import com.example.i18n.SSmartImport
 import com.example.i18n.withArgs
+import com.example.ui.components.AdaptiveModalSurface
+import com.example.ui.components.PlatformVerticalScrollbar
 import com.example.ui.components.StudioModalDialog
-import com.example.ui.components.consumeDialogCardTaps
 import com.example.ui.components.rememberStudioInteraction
+import com.example.ui.components.studioAnimateItem
 import com.example.utils.AudioWordPairingRow
 import com.example.utils.CandidateTargetWord
 import com.example.utils.ImportItemKind
@@ -734,16 +737,12 @@ internal fun WordRebindPickerDialog(
             usePlatformDefaultWidth = false
         )
     ) {
-        Surface(
+        AdaptiveModalSurface(
+            targetMaxWidth = 480.dp,
+            maxHeightFraction = 0.88f,
             shape = RoundedCornerShape(24.dp),
-            color = cs.surface,
-            tonalElevation = 4.dp,
-            shadowElevation = 0.dp,
-            border = BorderStroke(1.dp, cs.outlineVariant.copy(alpha = 0.6f)),
-            modifier = Modifier
-                .padding(horizontal = 20.dp, vertical = 24.dp)
-                .widthIn(min = 320.dp, max = 480.dp)
-                .consumeDialogCardTaps()
+            containerColor = cs.surface,
+            border = BorderStroke(1.dp, cs.outlineVariant.copy(alpha = 0.6f))
         ) {
             Column(
                 modifier = Modifier.padding(20.dp),
@@ -850,25 +849,31 @@ internal fun WordRebindPickerDialog(
 
                 HorizontalDivider(color = cs.outlineVariant.copy(alpha = 0.5f))
 
-                LazyColumn(
-                    contentPadding = PaddingValues(vertical = 2.dp),
-                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                val rebindListState = rememberLazyListState()
+                Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .heightIn(min = 120.dp, max = 260.dp)
+                        .weight(1f, fill = false)
+                        .heightIn(min = 120.dp, max = 300.dp)
                 ) {
-                    items(items = selectableWords, key = { it.key }) { cw ->
-                        val isCurrent = cw.key == row.targetWordKey
-                        Surface(
-                            shape = RoundedCornerShape(10.dp),
-                            color = if (isCurrent) cs.primaryContainer else cs.surfaceContainerLow,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .defaultMinSize(minHeight = 44.dp)
-                                .clip(RoundedCornerShape(10.dp))
-                                .pointerHoverIcon(PointerIcon.Hand)
-                                .clickable { onSelectOverride(cw.key) }
-                        ) {
+                    LazyColumn(
+                        state = rebindListState,
+                        contentPadding = PaddingValues(vertical = 2.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        items(items = selectableWords, key = { it.key }) { cw ->
+                            val isCurrent = cw.key == row.targetWordKey
+                            Surface(
+                                shape = RoundedCornerShape(10.dp),
+                                color = if (isCurrent) cs.primaryContainer else cs.surfaceContainerLow,
+                                modifier = studioAnimateItem()
+                                    .fillMaxWidth()
+                                    .defaultMinSize(minHeight = 44.dp)
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .pointerHoverIcon(PointerIcon.Hand)
+                                    .clickable { onSelectOverride(cw.key) }
+                            ) {
                             Row(
                                 modifier = Modifier
                                     .fillMaxSize()
@@ -911,6 +916,11 @@ internal fun WordRebindPickerDialog(
                             }
                         }
                     }
+                    }
+                    PlatformVerticalScrollbar(
+                        listState = rebindListState,
+                        modifier = Modifier.align(Alignment.CenterEnd)
+                    )
                 }
 
                 Row(

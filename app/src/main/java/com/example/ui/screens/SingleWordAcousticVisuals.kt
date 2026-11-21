@@ -56,6 +56,7 @@ import com.example.data.Word
 import com.example.i18n.S
 import com.example.i18n.withArgs
 import com.example.ui.components.StudioFilterChip
+import com.example.ui.theme.LocalPhonAcqExtendedColors
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
@@ -415,17 +416,18 @@ fun SingleWordWidebandSpectrogramCard(
             val gridLineColor = colorScheme.outline.copy(alpha = if (isDark) 0.26f else 0.22f)
             val coreWinFill = colorScheme.tertiaryContainer.copy(alpha = if (isDark) 0.22f else 0.28f)
             val coreWinStroke = colorScheme.tertiary.copy(alpha = 0.88f)
-            val f1Col = remember(colorScheme, isDark) {
-                lerp(if (isDark) Color(0xFFFF7043) else Color(0xFFE64A19), colorScheme.error, 0.22f)
+            val specChartPalette = LocalPhonAcqExtendedColors.current.chartPalette
+            val f1Col = remember(colorScheme, specChartPalette) {
+                lerp(specChartPalette[1], colorScheme.error, 0.22f)
             }
-            val f2Col = remember(colorScheme, isDark) {
-                lerp(if (isDark) Color(0xFFFFCA28) else Color(0xFFF57F17), colorScheme.tertiary, 0.18f)
+            val f2Col = remember(colorScheme, specChartPalette) {
+                lerp(specChartPalette[4], colorScheme.tertiary, 0.18f)
             }
-            val f3Col = remember(colorScheme, isDark) {
-                lerp(if (isDark) Color(0xFFCE93D8) else Color(0xFF8E24AA), colorScheme.secondary, 0.22f)
+            val f3Col = remember(colorScheme, specChartPalette) {
+                lerp(specChartPalette[3], colorScheme.secondary, 0.18f)
             }
-            val f0Color = remember(colorScheme, isDark) {
-                lerp(colorScheme.tertiary, if (isDark) Color(0xFF4FC3F7) else Color(0xFF00687A), 0.48f)
+            val f0Color = remember(colorScheme, specChartPalette) {
+                lerp(specChartPalette[5], colorScheme.primary, 0.20f)
             }
             val cursorColor = colorScheme.tertiary
 
@@ -1075,6 +1077,27 @@ fun SingleWordDynamicVowelCard(
             val boundaryColor = MaterialTheme.colorScheme.outlineVariant
             val textHintColor = MaterialTheme.colorScheme.onSurfaceVariant
             val interSylLinkColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.72f)
+            val chartPalette = LocalPhonAcqExtendedColors.current.chartPalette
+            val sylPalette = remember(chartPalette) {
+                listOf(
+                    chartPalette[6],
+                    chartPalette[0],
+                    chartPalette[2],
+                    chartPalette[1],
+                    chartPalette[3],
+                    chartPalette[5]
+                )
+            }
+            val cmpCols = remember(chartPalette) {
+                listOf(
+                    chartPalette[5],
+                    chartPalette[3],
+                    chartPalette[4],
+                    chartPalette[1],
+                    chartPalette[2],
+                    chartPalette[0]
+                )
+            }
 
             Box(
                 modifier = Modifier
@@ -1126,22 +1149,6 @@ fun SingleWordDynamicVowelCard(
                             width = 1.2.dp.toPx(),
                             pathEffect = PathEffect.dashPathEffect(floatArrayOf(8f, 7f), 0f)
                         )
-                    )
-
-                    val sylPalette = listOf(
-                        Color(0xFFD93025),
-                        Color(0xFF1976D2),
-                        Color(0xFF2E7D32),
-                        Color(0xFFEF6C00),
-                        Color(0xFF8E24AA)
-                    )
-
-                    val cmpCols = listOf(
-                        Color(0xFF00897B),
-                        Color(0xFF8E24AA),
-                        Color(0xFF5D4037),
-                        Color(0xFFC2185B),
-                        Color(0xFFEF6C00)
                     )
 
                     fun normalizeHzForSpeaker(spk: Speaker?, rawF1: Int, rawF2: Int): Pair<Int, Int> {
@@ -1198,7 +1205,8 @@ fun SingleWordDynamicVowelCard(
                                             mapToCanvas(nf1, nf2)
                                         },
                                         color = col,
-                                        dashed = true
+                                        dashed = true,
+                                        haloColor = vowelPlotBg
                                     )
                                 }
                             }
@@ -1242,7 +1250,8 @@ fun SingleWordDynamicVowelCard(
                                     traj = traj,
                                     mapFn = ::mapActiveSpeaker,
                                     color = drawCol,
-                                    dashed = false
+                                    dashed = false,
+                                    haloColor = vowelPlotBg
                                 )
 
                                 if (trajectories.size > 1 && !isDimmed) {
@@ -1288,13 +1297,6 @@ fun SingleWordDynamicVowelCard(
 
             // Cross-Speaker Vowel Overlay Color Legend & Interactive Visibility Toggles
             if (overlayOtherSpeakers && otherSpeakersEntries.isNotEmpty()) {
-                val cmpCols = listOf(
-                    Color(0xFF00897B),
-                    Color(0xFF8E24AA),
-                    Color(0xFF5D4037),
-                    Color(0xFFC2185B),
-                    Color(0xFFEF6C00)
-                )
                 Spacer(modifier = Modifier.height(8.dp))
                 FlowRow(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -1307,7 +1309,7 @@ fun SingleWordDynamicVowelCard(
                             .background(MaterialTheme.colorScheme.surface, RoundedCornerShape(7.dp))
                             .padding(horizontal = 8.dp, vertical = 4.dp)
                     ) {
-                        Box(modifier = Modifier.size(8.dp).background(Color(0xFFD93025), CircleShape))
+                        Box(modifier = Modifier.size(8.dp).background(sylPalette[0], CircleShape))
                         Text(
                             text = "${speaker?.name ?: "当前发音人"} (实线)",
                             fontSize = 11.sp,
@@ -1370,7 +1372,6 @@ fun SingleWordDynamicVowelCard(
                 }
                 if (trajectories.size > 1) {
                     Text(S.acoustics.legendPolysyllableDashed, fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    val sylPalette = listOf(Color(0xFFD93025), Color(0xFF1976D2), Color(0xFF2E7D32), Color(0xFFEF6C00), Color(0xFF8E24AA))
                     trajectories.forEachIndexed { idx, t ->
                         val col = sylPalette[idx % sylPalette.size]
                         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -1466,7 +1467,8 @@ fun DrawScope.drawSyllableVowelElement(
     traj: SyllableFormantTrajectory,
     mapFn: (Int, Int) -> Offset,
     color: Color,
-    dashed: Boolean = false
+    dashed: Boolean = false,
+    haloColor: Color = Color.White
 ) {
     if (traj.vowelType == VowelGlideType.MONOPHTHONG) {
         val center = mapFn(traj.nucleusF1, traj.nucleusF2)
@@ -1477,7 +1479,7 @@ fun DrawScope.drawSyllableVowelElement(
             style = Fill
         )
         drawCircle(
-            color = Color.White,
+            color = haloColor,
             radius = 5.6.dp.toPx(),
             center = center
         )
@@ -1529,7 +1531,7 @@ fun DrawScope.drawSyllableVowelElement(
 
     // Hollow onset circle ring
     drawCircle(
-        color = Color.White,
+        color = haloColor,
         radius = 4.2.dp.toPx(),
         center = rawPts.first()
     )

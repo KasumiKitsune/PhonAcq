@@ -52,6 +52,7 @@ class MainActivity : ComponentActivity() {
 
     setContent {
       val themeMode by viewModel.themeMode.collectAsState()
+      val themePaletteId by viewModel.themePaletteId.collectAsState()
       val dynamicColor by viewModel.dynamicColorEnabled.collectAsState()
       val systemInDark = isSystemInDarkTheme()
       val useDarkTheme = when (themeMode) {
@@ -60,7 +61,11 @@ class MainActivity : ComponentActivity() {
         else -> systemInDark
       }
 
-      MyApplicationTheme(darkTheme = useDarkTheme, dynamicColor = dynamicColor) {
+      MyApplicationTheme(
+        darkTheme = useDarkTheme,
+        dynamicColor = dynamicColor,
+        themePaletteId = themePaletteId
+      ) {
         var micPermissionGranted by remember {
           mutableStateOf(
             ContextCompat.checkSelfPermission(

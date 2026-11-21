@@ -9,14 +9,8 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.Spring
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.spring
-import androidx.compose.animation.expandVertically
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -26,6 +20,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -66,13 +61,19 @@ import com.example.data.toggleSpeakerGroupInRaw
 import com.example.i18n.S
 import com.example.i18n.withArgs
 import com.example.ui.components.DesktopAdaptiveState
+import com.example.ui.components.LocalAppWindowMetrics
+import com.example.ui.components.PlatformVerticalScrollbar
 import com.example.ui.components.PredictiveBackGestureHandler
+import com.example.ui.components.ResponsiveContentContainer
 import com.example.ui.components.StudioFilterChip
+import com.example.ui.components.StudioMotion
 import com.example.ui.components.StudioSegmentedControl
 import com.example.ui.components.StudioSwitchRow
 import com.example.ui.components.ZoomableWordImage
 import com.example.ui.components.predictiveBackLayer
 import com.example.ui.components.rememberPredictiveBackVisualState
+import com.example.ui.components.studioAnimateItem
+import com.example.ui.components.studioRotateOn
 import com.example.utils.SpreadsheetWordImporter
 import com.example.utils.WordImageManager
 import com.example.utils.rememberWordImageBitmap
@@ -750,27 +751,46 @@ fun WordListEditorScreen(
                     }
                 },
                 actions = {
+                    val isCompactTopBar = LocalAppWindowMetrics.current.widthDp < 460.dp
                     TextButton(
                         onClick = { handleSave(openRecordingAfterSave = false) },
-                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
+                        contentPadding = PaddingValues(horizontal = if (isCompactTopBar) 8.dp else 10.dp, vertical = 6.dp),
                         modifier = Modifier
-                            .defaultMinSize(minWidth = 48.dp, minHeight = 38.dp)
+                            .defaultMinSize(minWidth = 44.dp, minHeight = 38.dp)
                             .testTag("word_editor_save_button")
                     ) {
                         Text(S.common.save, fontWeight = FontWeight.Bold, maxLines = 1, softWrap = false)
                     }
-                    Button(
-                        onClick = { handleSave(openRecordingAfterSave = true) },
-                        shape = RoundedCornerShape(12.dp),
-                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
-                        modifier = Modifier
-                            .padding(end = 8.dp)
-                            .defaultMinSize(minHeight = 38.dp)
-                            .testTag("word_editor_save_and_record_button")
-                    ) {
-                        Icon(Icons.Default.Mic, contentDescription = null, modifier = Modifier.size(15.dp))
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text(S.wordEditor.saveAndRecordButton, fontSize = 12.sp, fontWeight = FontWeight.Bold, maxLines = 1, softWrap = false)
+                    if (isCompactTopBar) {
+                        Button(
+                            onClick = { handleSave(openRecordingAfterSave = true) },
+                            shape = RoundedCornerShape(12.dp),
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
+                            modifier = Modifier
+                                .padding(end = 8.dp)
+                                .defaultMinSize(minWidth = 40.dp, minHeight = 38.dp)
+                                .testTag("word_editor_save_and_record_button")
+                        ) {
+                            Icon(
+                                Icons.Default.Mic,
+                                contentDescription = S.wordEditor.saveAndRecordButton,
+                                modifier = Modifier.size(17.dp)
+                            )
+                        }
+                    } else {
+                        Button(
+                            onClick = { handleSave(openRecordingAfterSave = true) },
+                            shape = RoundedCornerShape(12.dp),
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                            modifier = Modifier
+                                .padding(end = 8.dp)
+                                .defaultMinSize(minHeight = 38.dp)
+                                .testTag("word_editor_save_and_record_button")
+                        ) {
+                            Icon(Icons.Default.Mic, contentDescription = null, modifier = Modifier.size(15.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(S.wordEditor.saveAndRecordButton, fontSize = 12.sp, fontWeight = FontWeight.Bold, maxLines = 1, softWrap = false)
+                        }
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
@@ -898,24 +918,19 @@ fun WordListEditorScreen(
                                 )
                             }
                             if (!alwaysExpanded) {
-                                val projChevronRotation by animateFloatAsState(
-                                    targetValue = if (showProjectInfoExpanded) 180f else 0f,
-                                    animationSpec = spring(dampingRatio = 0.72f, stiffness = Spring.StiffnessMedium),
-                                    label = "projInfoChevronRotation"
-                                )
                                 Icon(
                                     imageVector = Icons.Default.ExpandMore,
                                     contentDescription = S.wordEditor.toggleMetaDesc,
                                     tint = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.graphicsLayer { rotationZ = projChevronRotation }
+                                    modifier = Modifier.studioRotateOn(showProjectInfoExpanded)
                                 )
                             }
                         }
 
                         AnimatedVisibility(
                             visible = expanded,
-                            enter = expandVertically() + fadeIn(),
-                            exit = shrinkVertically() + fadeOut()
+                            enter = StudioMotion.verticalPanelEnter,
+                            exit = StudioMotion.verticalPanelExit
                         ) {
                             val mobileMetaScrollModifier = if (!alwaysExpanded) {
                                 Modifier
@@ -1064,401 +1079,432 @@ fun WordListEditorScreen(
                 }
 
                 // 4. Main Editor Area
-                if (isSimpleMode || editTab == 0) {
-                    // Visual List Mode
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(vertical = 4.dp),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        // Compact custom search box with zero vertical truncation
-                        Surface(
-                            shape = RoundedCornerShape(12.dp),
-                            color = MaterialTheme.colorScheme.surface,
-                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-                            modifier = Modifier
-                                .weight(1f)
-                                .height(44.dp)
-                        ) {
+                val isVisualListMode = isSimpleMode || editTab == 0
+                AnimatedContent(
+                    targetState = isVisualListMode,
+                    transitionSpec = { StudioMotion.subtleFadeScale() },
+                    label = "WordEditorTabContent",
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f)
+                ) { visualMode ->
+                    if (visualMode) {
+                        Column(modifier = Modifier.fillMaxSize()) {
+                            // Visual List Mode
                             Row(
                                 modifier = Modifier
-                                    .fillMaxSize()
-                                    .padding(horizontal = 12.dp),
+                                    .fillMaxWidth()
+                                    .padding(vertical = 4.dp),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Icon(
-                                    imageVector = Icons.Default.Search,
-                                    contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    modifier = Modifier.size(18.dp)
-                                )
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Box(
-                                    modifier = Modifier.weight(1f),
-                                    contentAlignment = Alignment.CenterStart
+                                // Compact custom search box with zero vertical truncation
+                                Surface(
+                                    shape = RoundedCornerShape(12.dp),
+                                    color = MaterialTheme.colorScheme.surface,
+                                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .height(44.dp)
                                 ) {
-                                    if (searchQuery.isEmpty()) {
-                                        Text(
-                                            text = S.wordEditor.searchPlaceholder,
-                                            fontSize = 13.sp,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.75f),
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis
-                                        )
-                                    }
-                                    BasicTextField(
-                                        value = searchQuery,
-                                        onValueChange = { searchQuery = it },
-                                        singleLine = true,
-                                        textStyle = TextStyle(
-                                            fontSize = 13.sp,
-                                            color = MaterialTheme.colorScheme.onSurface
-                                        ),
-                                        cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
-                                        modifier = Modifier.fillMaxWidth()
-                                    )
-                                }
-                                if (searchQuery.isNotEmpty()) {
-                                    IconButton(
-                                        onClick = { searchQuery = "" },
-                                        modifier = Modifier.size(28.dp)
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxSize()
+                                            .padding(horizontal = 12.dp),
+                                        verticalAlignment = Alignment.CenterVertically
                                     ) {
                                         Icon(
-                                            imageVector = Icons.Default.Clear,
-                                            contentDescription = S.wordEditor.clearSearchDesc,
+                                            imageVector = Icons.Default.Search,
+                                            contentDescription = null,
                                             tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                            modifier = Modifier.size(16.dp)
+                                            modifier = Modifier.size(18.dp)
                                         )
-                                    }
-                                }
-                            }
-                        }
-
-                        Button(
-                            onClick = {
-                                editingWordIndex = null
-                                showAddOrEditWordDialog = true
-                            },
-                            shape = RoundedCornerShape(12.dp),
-                            contentPadding = PaddingValues(horizontal = 14.dp, vertical = 0.dp),
-                            modifier = Modifier
-                                .height(44.dp)
-                                .testTag("add_single_word_button")
-                        ) {
-                            Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text(S.wordEditor.addWordButton, fontSize = 13.sp, fontWeight = FontWeight.Bold)
-                        }
-                    }
-
-                    if (distinctWordGroups.isNotEmpty() || draftItems.size > 1) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(vertical = 2.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            LazyRow(
-                                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                contentPadding = PaddingValues(end = 24.dp),
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .graphicsLayer(compositingStrategy = CompositingStrategy.Offscreen)
-                                    .drawWithContent {
-                                        drawContent()
-                                        val fadeWidth = 28.dp.toPx()
-                                        if (size.width > fadeWidth) {
-                                            drawRect(
-                                                brush = Brush.horizontalGradient(
-                                                    colors = listOf(Color.Black, Color.Transparent),
-                                                    startX = size.width - fadeWidth,
-                                                    endX = size.width
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Box(
+                                            modifier = Modifier.weight(1f),
+                                            contentAlignment = Alignment.CenterStart
+                                        ) {
+                                            if (searchQuery.isEmpty()) {
+                                                Text(
+                                                    text = S.wordEditor.searchPlaceholder,
+                                                    fontSize = 13.sp,
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.75f),
+                                                    maxLines = 1,
+                                                    overflow = TextOverflow.Ellipsis
+                                                )
+                                            }
+                                            BasicTextField(
+                                                value = searchQuery,
+                                                onValueChange = { searchQuery = it },
+                                                singleLine = true,
+                                                textStyle = TextStyle(
+                                                    fontSize = 13.sp,
+                                                    color = MaterialTheme.colorScheme.onSurface
                                                 ),
-                                                blendMode = BlendMode.DstIn
+                                                cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                                                modifier = Modifier.fillMaxWidth()
                                             )
                                         }
+                                        if (searchQuery.isNotEmpty()) {
+                                            IconButton(
+                                                onClick = { searchQuery = "" },
+                                                modifier = Modifier.size(28.dp)
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Default.Clear,
+                                                    contentDescription = S.wordEditor.clearSearchDesc,
+                                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                    modifier = Modifier.size(16.dp)
+                                                )
+                                            }
+                                        }
                                     }
-                            ) {
-                                item {
-                                    StudioFilterChip(
-                                        selected = selectedGroupFilter == "ALL",
-                                        onClick = { selectedGroupFilter = "ALL" },
-                                        labelText = S.wordEditor.allFilterChip.withArgs("count" to draftItems.size)
-                                    )
                                 }
-                                items(distinctWordGroups, key = { it }) { grp ->
-                                    val c = groupSummary[grp] ?: 0
-                                    StudioFilterChip(
-                                        selected = selectedGroupFilter == grp,
-                                        onClick = { selectedGroupFilter = grp },
-                                        labelText = "$grp ($c)"
-                                    )
-                                }
-                            }
 
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(2.dp)
-                            ) {
-                                VerticalDivider(
+                                Button(
+                                    onClick = {
+                                        editingWordIndex = null
+                                        showAddOrEditWordDialog = true
+                                    },
+                                    shape = RoundedCornerShape(12.dp),
+                                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 0.dp),
                                     modifier = Modifier
-                                        .height(16.dp)
-                                        .padding(horizontal = 4.dp),
-                                    color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)
-                                )
-                                if (draftItems.size > 1) {
-                                    TextButton(
-                                        onClick = {
-                                            val seen = mutableSetOf<String>()
-                                            val deduped = draftItems.filter { item ->
-                                                val key = "${item.groupName.trim()}::${item.text.trim()}"
-                                                seen.add(key)
-                                            }
-                                            val removedCount = draftItems.size - deduped.size
-                                            if (removedCount > 0) {
-                                                draftItems.clear()
-                                                draftItems.addAll(deduped)
-                                                hasUnsavedChanges = true
-                                                Toast.makeText(
-                                                    context,
-                                                    S.wordEditor.removedDuplicatesToast.withArgs("count" to removedCount),
-                                                    Toast.LENGTH_SHORT
-                                                ).show()
-                                            } else {
-                                                Toast.makeText(context, S.wordEditor.noDuplicatesFoundToast, Toast.LENGTH_SHORT).show()
-                                            }
-                                        },
-                                        contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp)
-                                    ) {
-                                        Text(S.wordEditor.deduplicateButton, fontSize = 11.sp)
-                                    }
-                                }
-                                if (draftItems.isNotEmpty()) {
-                                    TextButton(
-                                        onClick = { showClearConfirmDialog = true },
-                                        colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error),
-                                        contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp)
-                                    ) {
-                                        Text(S.wordEditor.clearAllButton, fontSize = 11.sp)
-                                    }
+                                        .height(44.dp)
+                                        .testTag("add_single_word_button")
+                                ) {
+                                    Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text(S.wordEditor.addWordButton, fontSize = 13.sp, fontWeight = FontWeight.Bold)
                                 }
                             }
-                        }
-                    }
 
-                    if (draftItems.isEmpty()) {
-                        Card(
-                            shape = RoundedCornerShape(20.dp),
-                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .weight(1f)
-                                .padding(vertical = 6.dp)
-                        ) {
-                            BoxWithConstraints(
-                                modifier = Modifier.fillMaxSize(),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                val isCompactEmptyCard = maxHeight < 235.dp
-                                Column(
+                            if (distinctWordGroups.isNotEmpty() || draftItems.size > 1) {
+                                Row(
                                     modifier = Modifier
                                         .fillMaxWidth()
-                                        .verticalScroll(rememberScrollState())
-                                        .padding(
-                                            horizontal = if (isCompactEmptyCard) 16.dp else 22.dp,
-                                            vertical = if (isCompactEmptyCard) 14.dp else 20.dp
-                                        ),
-                                    verticalArrangement = Arrangement.Center,
-                                    horizontalAlignment = Alignment.CenterHorizontally
+                                        .padding(vertical = 2.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
                                 ) {
-                                    if (isCompactEmptyCard) {
-                                        Row(
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                        ) {
-                                            Icon(
-                                                imageVector = Icons.AutoMirrored.Filled.LibraryBooks,
-                                                contentDescription = null,
-                                                tint = MaterialTheme.colorScheme.primary,
-                                                modifier = Modifier.size(24.dp)
-                                            )
-                                            Text(
-                                                text = S.wordEditor.emptyListTitle,
-                                                style = MaterialTheme.typography.titleSmall,
-                                                fontWeight = FontWeight.Bold
-                                            )
-                                        }
-                                    } else {
-                                        Icon(
-                                            imageVector = Icons.AutoMirrored.Filled.LibraryBooks,
-                                            contentDescription = null,
-                                            tint = MaterialTheme.colorScheme.primary,
-                                            modifier = Modifier.size(40.dp)
-                                        )
-                                        Spacer(modifier = Modifier.height(10.dp))
-                                        Text(
-                                            text = S.wordEditor.emptyListTitle,
-                                            style = MaterialTheme.typography.titleMedium,
-                                            fontWeight = FontWeight.Bold
-                                        )
-                                    }
-
-                                    Spacer(modifier = Modifier.height(if (isCompactEmptyCard) 6.dp else 8.dp))
-                                    Text(
-                                        text = if (isSimpleMode) {
-                                            S.wordEditor.emptyListHintMobile
-                                        } else {
-                                            S.wordEditor.emptyListHintDesktop
-                                        },
-                                        fontSize = if (isCompactEmptyCard) 12.sp else 13.sp,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        lineHeight = if (isCompactEmptyCard) 17.sp else 19.sp
-                                    )
-                                    Spacer(modifier = Modifier.height(if (isCompactEmptyCard) 12.dp else 16.dp))
-
-                                    FlowRow(
-                                        horizontalArrangement = Arrangement.spacedBy(10.dp, Alignment.CenterHorizontally),
-                                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                                    LazyRow(
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                        contentPadding = PaddingValues(end = 24.dp),
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .graphicsLayer(compositingStrategy = CompositingStrategy.Offscreen)
+                                            .drawWithContent {
+                                                drawContent()
+                                                val fadeWidth = 28.dp.toPx()
+                                                if (size.width > fadeWidth) {
+                                                    drawRect(
+                                                        brush = Brush.horizontalGradient(
+                                                            colors = listOf(Color.Black, Color.Transparent),
+                                                            startX = size.width - fadeWidth,
+                                                            endX = size.width
+                                                        ),
+                                                        blendMode = BlendMode.DstIn
+                                                    )
+                                                }
+                                            }
                                     ) {
-                                        Button(
-                                            onClick = { showTemplateDialog = true },
-                                            shape = RoundedCornerShape(12.dp),
-                                            contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
-                                            modifier = Modifier.defaultMinSize(minHeight = 42.dp)
-                                        ) {
-                                            Icon(Icons.AutoMirrored.Filled.LibraryBooks, contentDescription = null, modifier = Modifier.size(16.dp))
-                                            Spacer(modifier = Modifier.width(6.dp))
-                                            Text(S.wordEditor.chooseTemplateButton, fontWeight = FontWeight.Bold, maxLines = 1, softWrap = false)
+                                        item {
+                                            StudioFilterChip(
+                                                selected = selectedGroupFilter == "ALL",
+                                                onClick = { selectedGroupFilter = "ALL" },
+                                                labelText = S.wordEditor.allFilterChip.withArgs("count" to draftItems.size)
+                                            )
                                         }
-                                        OutlinedButton(
-                                            onClick = { handlePasteFromClipboard() },
-                                            shape = RoundedCornerShape(12.dp),
-                                            contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
-                                            modifier = Modifier.defaultMinSize(minHeight = 42.dp)
-                                        ) {
-                                            Icon(Icons.Default.ContentPaste, contentDescription = null, modifier = Modifier.size(16.dp))
-                                            Spacer(modifier = Modifier.width(6.dp))
-                                            Text(S.wordEditor.pasteAsWordListButton, fontWeight = FontWeight.SemiBold, maxLines = 1, softWrap = false)
+                                        items(distinctWordGroups, key = { it }) { grp ->
+                                            val c = groupSummary[grp] ?: 0
+                                            StudioFilterChip(
+                                                selected = selectedGroupFilter == grp,
+                                                onClick = { selectedGroupFilter = grp },
+                                                labelText = "$grp ($c)"
+                                            )
                                         }
                                     }
 
-                                    if (enablePicturePrompts) {
-                                        Spacer(modifier = Modifier.height(10.dp))
-                                        FilledTonalButton(
-                                            onClick = {
-                                                batchImagesPickerLauncher.launch(
-                                                    PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
-                                                )
-                                            },
-                                            enabled = !isBatchImportingImages,
-                                            shape = RoundedCornerShape(12.dp),
-                                            contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(2.dp)
+                                    ) {
+                                        VerticalDivider(
                                             modifier = Modifier
-                                                .defaultMinSize(minHeight = 42.dp)
-                                                .testTag("empty_state_batch_import_images_button")
-                                        ) {
-                                            Icon(Icons.Default.AddPhotoAlternate, contentDescription = null, modifier = Modifier.size(17.dp))
-                                            Spacer(modifier = Modifier.width(6.dp))
-                                            Text(
-                                                text = if (isBatchImportingImages) {
-                                                    S.wordEditor.batchImportImagesLoading
-                                                } else {
-                                                    S.wordEditor.batchImportImagesAutoHint
+                                                .height(16.dp)
+                                                .padding(horizontal = 4.dp),
+                                            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)
+                                        )
+                                        if (draftItems.size > 1) {
+                                            TextButton(
+                                                onClick = {
+                                                    val seen = mutableSetOf<String>()
+                                                    val deduped = draftItems.filter { item ->
+                                                        val key = "${item.groupName.trim()}::${item.text.trim()}"
+                                                        seen.add(key)
+                                                    }
+                                                    val removedCount = draftItems.size - deduped.size
+                                                    if (removedCount > 0) {
+                                                        draftItems.clear()
+                                                        draftItems.addAll(deduped)
+                                                        hasUnsavedChanges = true
+                                                        Toast.makeText(
+                                                            context,
+                                                            S.wordEditor.removedDuplicatesToast.withArgs("count" to removedCount),
+                                                            Toast.LENGTH_SHORT
+                                                        ).show()
+                                                    } else {
+                                                        Toast.makeText(context, S.wordEditor.noDuplicatesFoundToast, Toast.LENGTH_SHORT).show()
+                                                    }
                                                 },
-                                                fontSize = 12.5.sp,
-                                                fontWeight = FontWeight.Bold,
-                                                maxLines = 1,
-                                                overflow = TextOverflow.Ellipsis
-                                            )
+                                                contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp)
+                                            ) {
+                                                Text(S.wordEditor.deduplicateButton, fontSize = 11.sp)
+                                            }
                                         }
+                                        if (draftItems.isNotEmpty()) {
+                                            TextButton(
+                                                onClick = { showClearConfirmDialog = true },
+                                                colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error),
+                                                contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp)
+                                            ) {
+                                                Text(S.wordEditor.clearAllButton, fontSize = 11.sp)
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            AnimatedContent(
+                                targetState = draftItems.isEmpty(),
+                                transitionSpec = { StudioMotion.subtleFadeScale() },
+                                label = "WordEditorEmptyOrList",
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .weight(1f)
+                            ) { isEmptyList ->
+                                if (isEmptyList) {
+                                    Card(
+                                        shape = RoundedCornerShape(20.dp),
+                                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
+                                        modifier = Modifier
+                                            .fillMaxSize()
+                                            .padding(vertical = 6.dp)
+                                    ) {
+                                        BoxWithConstraints(
+                                            modifier = Modifier.fillMaxSize(),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            val isCompactEmptyCard = maxHeight < 235.dp
+                                            Column(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .verticalScroll(rememberScrollState())
+                                                    .padding(
+                                                        horizontal = if (isCompactEmptyCard) 16.dp else 22.dp,
+                                                        vertical = if (isCompactEmptyCard) 14.dp else 20.dp
+                                                    ),
+                                                verticalArrangement = Arrangement.Center,
+                                                horizontalAlignment = Alignment.CenterHorizontally
+                                            ) {
+                                                if (isCompactEmptyCard) {
+                                                    Row(
+                                                        verticalAlignment = Alignment.CenterVertically,
+                                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                                    ) {
+                                                        Icon(
+                                                            imageVector = Icons.AutoMirrored.Filled.LibraryBooks,
+                                                            contentDescription = null,
+                                                            tint = MaterialTheme.colorScheme.primary,
+                                                            modifier = Modifier.size(24.dp)
+                                                        )
+                                                        Text(
+                                                            text = S.wordEditor.emptyListTitle,
+                                                            style = MaterialTheme.typography.titleSmall,
+                                                            fontWeight = FontWeight.Bold
+                                                        )
+                                                    }
+                                                } else {
+                                                    Icon(
+                                                        imageVector = Icons.AutoMirrored.Filled.LibraryBooks,
+                                                        contentDescription = null,
+                                                        tint = MaterialTheme.colorScheme.primary,
+                                                        modifier = Modifier.size(40.dp)
+                                                    )
+                                                    Spacer(modifier = Modifier.height(10.dp))
+                                                    Text(
+                                                        text = S.wordEditor.emptyListTitle,
+                                                        style = MaterialTheme.typography.titleMedium,
+                                                        fontWeight = FontWeight.Bold
+                                                    )
+                                                }
+
+                                                Spacer(modifier = Modifier.height(if (isCompactEmptyCard) 6.dp else 8.dp))
+                                                Text(
+                                                    text = if (isSimpleMode) {
+                                                        S.wordEditor.emptyListHintMobile
+                                                    } else {
+                                                        S.wordEditor.emptyListHintDesktop
+                                                    },
+                                                    fontSize = if (isCompactEmptyCard) 12.sp else 13.sp,
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                    lineHeight = if (isCompactEmptyCard) 17.sp else 19.sp
+                                                )
+                                                Spacer(modifier = Modifier.height(if (isCompactEmptyCard) 12.dp else 16.dp))
+
+                                                FlowRow(
+                                                    horizontalArrangement = Arrangement.spacedBy(10.dp, Alignment.CenterHorizontally),
+                                                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                                                ) {
+                                                    Button(
+                                                        onClick = { showTemplateDialog = true },
+                                                        shape = RoundedCornerShape(12.dp),
+                                                        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
+                                                        modifier = Modifier.defaultMinSize(minHeight = 42.dp)
+                                                    ) {
+                                                        Icon(Icons.AutoMirrored.Filled.LibraryBooks, contentDescription = null, modifier = Modifier.size(16.dp))
+                                                        Spacer(modifier = Modifier.width(6.dp))
+                                                        Text(S.wordEditor.chooseTemplateButton, fontWeight = FontWeight.Bold, maxLines = 1, softWrap = false)
+                                                    }
+                                                    OutlinedButton(
+                                                        onClick = { handlePasteFromClipboard() },
+                                                        shape = RoundedCornerShape(12.dp),
+                                                        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
+                                                        modifier = Modifier.defaultMinSize(minHeight = 42.dp)
+                                                    ) {
+                                                        Icon(Icons.Default.ContentPaste, contentDescription = null, modifier = Modifier.size(16.dp))
+                                                        Spacer(modifier = Modifier.width(6.dp))
+                                                        Text(S.wordEditor.pasteAsWordListButton, fontWeight = FontWeight.SemiBold, maxLines = 1, softWrap = false)
+                                                    }
+                                                }
+
+                                                AnimatedVisibility(
+                                                    visible = enablePicturePrompts,
+                                                    enter = StudioMotion.verticalPanelEnter,
+                                                    exit = StudioMotion.verticalPanelExit
+                                                ) {
+                                                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                                        Spacer(modifier = Modifier.height(10.dp))
+                                                        FilledTonalButton(
+                                                            onClick = {
+                                                                batchImagesPickerLauncher.launch(
+                                                                    PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                                                                )
+                                                            },
+                                                            enabled = !isBatchImportingImages,
+                                                            shape = RoundedCornerShape(12.dp),
+                                                            contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
+                                                            modifier = Modifier
+                                                                .defaultMinSize(minHeight = 42.dp)
+                                                                .testTag("empty_state_batch_import_images_button")
+                                                        ) {
+                                                            Icon(Icons.Default.AddPhotoAlternate, contentDescription = null, modifier = Modifier.size(17.dp))
+                                                            Spacer(modifier = Modifier.width(6.dp))
+                                                            Text(
+                                                                text = if (isBatchImportingImages) {
+                                                                    S.wordEditor.batchImportImagesLoading
+                                                                } else {
+                                                                    S.wordEditor.batchImportImagesAutoHint
+                                                                },
+                                                                fontSize = 12.5.sp,
+                                                                fontWeight = FontWeight.Bold,
+                                                                maxLines = 1,
+                                                                overflow = TextOverflow.Ellipsis
+                                                            )
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                } else {
+                                    val onEditRow = remember {
+                                        { idx: Int ->
+                                            editingWordIndex = idx
+                                            showAddOrEditWordDialog = true
+                                        }
+                                    }
+                                    val onClickImageSlotRow = remember {
+                                        { idx: Int ->
+                                            activeImageMenuRowIndex = idx
+                                        }
+                                    }
+                                    val onMoveUpRow = remember {
+                                        { idx: Int ->
+                                            if (idx > 0 && idx < draftItems.size) {
+                                                val removed = draftItems.removeAt(idx)
+                                                draftItems.add(idx - 1, removed)
+                                                hasUnsavedChanges = true
+                                            }
+                                        }
+                                    }
+                                    val onMoveDownRow = remember {
+                                        { idx: Int ->
+                                            if (idx >= 0 && idx < draftItems.size - 1) {
+                                                val removed = draftItems.removeAt(idx)
+                                                draftItems.add(idx + 1, removed)
+                                                hasUnsavedChanges = true
+                                            }
+                                        }
+                                    }
+                                    val onDeleteRow = remember {
+                                        { idx: Int ->
+                                            if (idx in draftItems.indices) {
+                                                draftItems.removeAt(idx)
+                                                hasUnsavedChanges = true
+                                            }
+                                        }
+                                    }
+                                    val totalDraftCount = draftItems.size
+                                    val currentProjectId = targetProject?.id ?: 0L
+                                    val wordListState = rememberLazyListState()
+
+                                    Box(modifier = Modifier.fillMaxSize()) {
+                                        LazyColumn(
+                                            state = wordListState,
+                                            modifier = Modifier.fillMaxSize(),
+                                            contentPadding = PaddingValues(vertical = 6.dp),
+                                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                                        ) {
+                                            itemsIndexed(
+                                                items = filteredIndexedItems,
+                                                key = { _, pair -> pair.second.localKey },
+                                                contentType = { _, _ -> "word_editor_draft_row" }
+                                            ) { _, (realIndex, item) ->
+                                                WordEditorDraftRow(
+                                                    realIndex = realIndex,
+                                                    totalCount = totalDraftCount,
+                                                    item = item,
+                                                    projectId = currentProjectId,
+                                                    enablePicturePrompts = enablePicturePrompts,
+                                                    onEdit = onEditRow,
+                                                    onClickImageSlot = onClickImageSlotRow,
+                                                    onMoveUp = onMoveUpRow,
+                                                    onMoveDown = onMoveDownRow,
+                                                    onDelete = onDeleteRow,
+                                                    modifier = studioAnimateItem()
+                                                )
+                                            }
+                                        }
+                                        PlatformVerticalScrollbar(
+                                            listState = wordListState,
+                                            modifier = Modifier.align(Alignment.CenterEnd)
+                                        )
                                     }
                                 }
                             }
                         }
                     } else {
-                        val onEditRow = remember {
-                            { idx: Int ->
-                                editingWordIndex = idx
-                                showAddOrEditWordDialog = true
-                            }
+                        // Mode 1: Raw TXT Batch Edit & Paste Mode
+                        val parsedGroupsCount = remember(liveParsedPreview) {
+                            liveParsedPreview.mapNotNull { it.groupName.takeIf { g -> g.isNotEmpty() } }.distinct().size
                         }
-                        val onClickImageSlotRow = remember {
-                            { idx: Int ->
-                                activeImageMenuRowIndex = idx
-                            }
-                        }
-                        val onMoveUpRow = remember {
-                            { idx: Int ->
-                                if (idx > 0 && idx < draftItems.size) {
-                                    val removed = draftItems.removeAt(idx)
-                                    draftItems.add(idx - 1, removed)
-                                    hasUnsavedChanges = true
-                                }
-                            }
-                        }
-                        val onMoveDownRow = remember {
-                            { idx: Int ->
-                                if (idx >= 0 && idx < draftItems.size - 1) {
-                                    val removed = draftItems.removeAt(idx)
-                                    draftItems.add(idx + 1, removed)
-                                    hasUnsavedChanges = true
-                                }
-                            }
-                        }
-                        val onDeleteRow = remember {
-                            { idx: Int ->
-                                if (idx in draftItems.indices) {
-                                    draftItems.removeAt(idx)
-                                    hasUnsavedChanges = true
-                                }
-                            }
-                        }
-                        val totalDraftCount = draftItems.size
-                        val currentProjectId = targetProject?.id ?: 0L
 
-                        LazyColumn(
+                        Column(
                             modifier = Modifier
-                                .fillMaxWidth()
-                                .weight(1f),
-                            contentPadding = PaddingValues(vertical = 6.dp),
-                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                                .fillMaxSize()
+                                .padding(vertical = 4.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            itemsIndexed(
-                                items = filteredIndexedItems,
-                                key = { _, pair -> pair.second.localKey },
-                                contentType = { _, _ -> "word_editor_draft_row" }
-                            ) { _, (realIndex, item) ->
-                                WordEditorDraftRow(
-                                    realIndex = realIndex,
-                                    totalCount = totalDraftCount,
-                                    item = item,
-                                    projectId = currentProjectId,
-                                    enablePicturePrompts = enablePicturePrompts,
-                                    onEdit = onEditRow,
-                                    onClickImageSlot = onClickImageSlotRow,
-                                    onMoveUp = onMoveUpRow,
-                                    onMoveDown = onMoveDownRow,
-                                    onDelete = onDeleteRow
-                                )
-                            }
-                        }
-                    }
-                } else {
-                    // Mode 1: Raw TXT Batch Edit & Paste Mode
-                    val parsedGroupsCount = remember(liveParsedPreview) {
-                        liveParsedPreview.mapNotNull { it.groupName.takeIf { g -> g.isNotEmpty() } }.distinct().size
-                    }
-
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .weight(1f)
-                            .padding(vertical = 4.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
                         Surface(
                             shape = RoundedCornerShape(14.dp),
                             color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.55f),
@@ -1595,6 +1641,7 @@ fun WordListEditorScreen(
                                 .testTag("raw_txt_editor_input")
                         )
                     }
+                    }
                 }
 
                 if (showBottomImportBar) {
@@ -1603,7 +1650,11 @@ fun WordListEditorScreen(
                         modifier = Modifier.padding(top = 4.dp),
                         color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f)
                     )
-                    if (enablePicturePrompts) {
+                    AnimatedVisibility(
+                        visible = enablePicturePrompts,
+                        enter = StudioMotion.verticalPanelEnter,
+                        exit = StudioMotion.verticalPanelExit
+                    ) {
                         val picturedCnt = draftItems.count { it.imagePath.isNotBlank() }
                         Row(
                             modifier = Modifier
@@ -1719,59 +1770,111 @@ fun WordListEditorScreen(
 
             if (isWideEditor) {
                 // Desktop / Wide 2-Column Split Layout
-                Row(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(bottom = 12.dp),
-                    horizontalArrangement = Arrangement.spacedBy(20.dp)
+                ResponsiveContentContainer(
+                    maxWidth = 1180.dp,
+                    modifier = Modifier.fillMaxSize()
                 ) {
-                    // Left Column (310.dp): Scrollable so 640dp-tall windows never clip bottom import buttons
-                    Column(
+                    Row(
                         modifier = Modifier
-                            .width(310.dp)
-                            .fillMaxHeight()
-                            .verticalScroll(rememberScrollState()),
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                            .fillMaxSize()
+                            .padding(bottom = 12.dp),
+                        horizontalArrangement = Arrangement.spacedBy(20.dp)
                     ) {
-                        ProjectSelectorAndMetaSection(alwaysExpanded = true)
-
-                        Card(
-                            shape = RoundedCornerShape(16.dp),
-                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
-                            modifier = Modifier.fillMaxWidth()
+                        // Left Column (310.dp): Scrollable so 640dp-tall windows never clip bottom import buttons
+                        Column(
+                            modifier = Modifier
+                                .width(310.dp)
+                                .fillMaxHeight()
+                                .verticalScroll(rememberScrollState()),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            Column(
-                                modifier = Modifier.padding(14.dp),
-                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                            ProjectSelectorAndMetaSection(alwaysExpanded = true)
+
+                            Card(
+                                shape = RoundedCornerShape(16.dp),
+                                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
+                                modifier = Modifier.fillMaxWidth()
                             ) {
-                                Text(
-                                    text = S.wordEditor.quickCreateSectionTitle,
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 13.sp,
-                                    color = MaterialTheme.colorScheme.onSurface
-                                )
-                                if (enablePicturePrompts) {
-                                    Button(
-                                        onClick = {
-                                            batchImagesPickerLauncher.launch(
-                                                PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                                Column(
+                                    modifier = Modifier.padding(14.dp),
+                                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    Text(
+                                        text = S.wordEditor.quickCreateSectionTitle,
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 13.sp,
+                                        color = MaterialTheme.colorScheme.onSurface
+                                    )
+                                    AnimatedVisibility(
+                                        visible = enablePicturePrompts,
+                                        enter = StudioMotion.verticalPanelEnter,
+                                        exit = StudioMotion.verticalPanelExit
+                                    ) {
+                                        Button(
+                                            onClick = {
+                                                batchImagesPickerLauncher.launch(
+                                                    PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                                                )
+                                            },
+                                            enabled = !isBatchImportingImages,
+                                            shape = RoundedCornerShape(12.dp),
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .defaultMinSize(minHeight = 42.dp)
+                                                .testTag("batch_import_images_button")
+                                        ) {
+                                            Icon(Icons.Default.AddPhotoAlternate, contentDescription = null, modifier = Modifier.size(16.dp))
+                                            Spacer(modifier = Modifier.width(6.dp))
+                                            Text(
+                                                text = if (isBatchImportingImages) {
+                                                    S.wordEditor.batchImportImagesLoading
+                                                } else {
+                                                    S.wordEditor.batchImportImagesLongButton
+                                                },
+                                                fontSize = 12.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                maxLines = 1,
+                                                softWrap = false,
+                                                overflow = TextOverflow.Ellipsis
                                             )
-                                        },
-                                        enabled = !isBatchImportingImages,
+                                        }
+                                    }
+                                    FilledTonalButton(
+                                        onClick = { showTemplateDialog = true },
                                         shape = RoundedCornerShape(12.dp),
                                         modifier = Modifier
                                             .fillMaxWidth()
                                             .defaultMinSize(minHeight = 42.dp)
-                                            .testTag("batch_import_images_button")
+                                            .testTag("open_templates_in_editor_button")
                                     ) {
-                                        Icon(Icons.Default.AddPhotoAlternate, contentDescription = null, modifier = Modifier.size(16.dp))
+                                        Icon(Icons.AutoMirrored.Filled.LibraryBooks, contentDescription = null, modifier = Modifier.size(16.dp))
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Text(S.wordEditor.commonTemplatesButton, fontSize = 12.sp, fontWeight = FontWeight.Bold, maxLines = 1, softWrap = false)
+                                    }
+                                    FilledTonalButton(
+                                        onClick = { handlePasteFromClipboard() },
+                                        shape = RoundedCornerShape(12.dp),
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .defaultMinSize(minHeight = 42.dp)
+                                            .testTag("paste_txt_as_wordlist_button")
+                                    ) {
+                                        Icon(Icons.Default.ContentPaste, contentDescription = null, modifier = Modifier.size(16.dp))
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Text(S.wordEditor.pasteClipboardAsWordListButton, fontSize = 12.sp, fontWeight = FontWeight.Bold, maxLines = 1, softWrap = false)
+                                    }
+                                    OutlinedButton(
+                                        onClick = { txtFileLauncher.launch("*/*") },
+                                        shape = RoundedCornerShape(12.dp),
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .defaultMinSize(minHeight = 42.dp)
+                                            .testTag("import_txt_file_button")
+                                    ) {
+                                        Icon(Icons.Default.FolderOpen, contentDescription = null, modifier = Modifier.size(16.dp))
                                         Spacer(modifier = Modifier.width(6.dp))
                                         Text(
-                                            text = if (isBatchImportingImages) {
-                                                S.wordEditor.batchImportImagesLoading
-                                            } else {
-                                                S.wordEditor.batchImportImagesLongButton
-                                            },
+                                            S.wordEditor.importLocalFileButton,
                                             fontSize = 12.sp,
                                             fontWeight = FontWeight.Bold,
                                             maxLines = 1,
@@ -1780,72 +1883,40 @@ fun WordListEditorScreen(
                                         )
                                     }
                                 }
-                                FilledTonalButton(
-                                    onClick = { showTemplateDialog = true },
-                                    shape = RoundedCornerShape(12.dp),
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .defaultMinSize(minHeight = 42.dp)
-                                        .testTag("open_templates_in_editor_button")
-                                ) {
-                                    Icon(Icons.AutoMirrored.Filled.LibraryBooks, contentDescription = null, modifier = Modifier.size(16.dp))
-                                    Spacer(modifier = Modifier.width(6.dp))
-                                    Text(S.wordEditor.commonTemplatesButton, fontSize = 12.sp, fontWeight = FontWeight.Bold, maxLines = 1, softWrap = false)
-                                }
-                                FilledTonalButton(
-                                    onClick = { handlePasteFromClipboard() },
-                                    shape = RoundedCornerShape(12.dp),
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .defaultMinSize(minHeight = 42.dp)
-                                        .testTag("paste_txt_as_wordlist_button")
-                                ) {
-                                    Icon(Icons.Default.ContentPaste, contentDescription = null, modifier = Modifier.size(16.dp))
-                                    Spacer(modifier = Modifier.width(6.dp))
-                                    Text(S.wordEditor.pasteClipboardAsWordListButton, fontSize = 12.sp, fontWeight = FontWeight.Bold, maxLines = 1, softWrap = false)
-                                }
-                                OutlinedButton(
-                                    onClick = { txtFileLauncher.launch("*/*") },
-                                    shape = RoundedCornerShape(12.dp),
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .defaultMinSize(minHeight = 42.dp)
-                                        .testTag("import_txt_file_button")
-                                ) {
-                                    Icon(Icons.Default.FolderOpen, contentDescription = null, modifier = Modifier.size(16.dp))
-                                    Spacer(modifier = Modifier.width(6.dp))
-                                    Text(
-                                        S.wordEditor.importLocalFileButton,
-                                        fontSize = 12.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        maxLines = 1,
-                                        softWrap = false,
-                                        overflow = TextOverflow.Ellipsis
-                                    )
-                                }
+                            }
+                        }
+
+                        VerticalDivider(
+                            modifier = Modifier.fillMaxHeight().width(1.dp),
+                            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
+                        )
+
+                        // Right Column: Mode Switcher + Compact Word List / TXT Editor
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .fillMaxHeight(),
+                            contentAlignment = Alignment.TopCenter
+                        ) {
+                            Column(
+                                modifier = Modifier
+                                    .widthIn(max = 820.dp)
+                                    .fillMaxSize()
+                            ) {
+                                EditorMainContent(showBottomImportBar = false)
                             }
                         }
                     }
-
-                    VerticalDivider(
-                        modifier = Modifier.fillMaxHeight().width(1.dp),
-                        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
-                    )
-
-                    // Right Column: Mode Switcher + Compact Word List / TXT Editor
-                    Column(
-                        modifier = Modifier
-                            .weight(1f)
-                            .widthIn(max = 820.dp)
-                            .fillMaxHeight()
-                    ) {
-                        EditorMainContent(showBottomImportBar = false)
-                    }
                 }
             } else {
-                Column(modifier = Modifier.fillMaxSize()) {
-                    ProjectSelectorAndMetaSection(alwaysExpanded = false)
-                    EditorMainContent(showBottomImportBar = true)
+                ResponsiveContentContainer(
+                    maxWidth = 720.dp,
+                    modifier = Modifier.fillMaxSize()
+                ) {
+                    Column(modifier = Modifier.fillMaxSize()) {
+                        ProjectSelectorAndMetaSection(alwaysExpanded = false)
+                        EditorMainContent(showBottomImportBar = true)
+                    }
                 }
             }
         }
@@ -1858,18 +1929,16 @@ fun WordListEditorScreen(
             icon = { Icon(Icons.AutoMirrored.Filled.LibraryBooks, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
             title = { Text(S.wordEditor.chooseTemplateDialogTitle, fontWeight = FontWeight.Bold) },
             text = {
-                LazyColumn(
+                Column(
                     verticalArrangement = Arrangement.spacedBy(10.dp),
-                    modifier = Modifier.heightIn(max = 420.dp)
+                    modifier = Modifier.fillMaxWidth()
                 ) {
-                    item {
-                        Text(
-                            text = S.wordEditor.chooseTemplateDialogHint,
-                            fontSize = 12.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                    items(S.wordEditor.builtinTemplates) { tpl ->
+                    Text(
+                        text = S.wordEditor.chooseTemplateDialogHint,
+                        fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    S.wordEditor.builtinTemplates.forEach { tpl ->
                         Surface(
                             shape = RoundedCornerShape(14.dp),
                             color = MaterialTheme.colorScheme.surfaceContainerLow,
@@ -2530,13 +2599,14 @@ private fun WordEditorDraftRow(
     onClickImageSlot: (Int) -> Unit,
     onMoveUp: (Int) -> Unit,
     onMoveDown: (Int) -> Unit,
-    onDelete: (Int) -> Unit
+    onDelete: (Int) -> Unit,
+    modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
     Surface(
         shape = RoundedCornerShape(14.dp),
         color = MaterialTheme.colorScheme.surfaceContainerLow,
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(14.dp))
             .clickable { onEdit(realIndex) }

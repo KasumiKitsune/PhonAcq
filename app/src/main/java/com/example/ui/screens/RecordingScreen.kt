@@ -8,6 +8,8 @@ import android.media.AudioDeviceInfo
 import android.media.AudioManager
 import android.widget.Toast
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -44,21 +46,18 @@ import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material.icons.filled.Warning
-import androidx.compose.material3.BottomSheetDefaults
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
-import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -66,12 +65,13 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.input.pointer.PointerIcon
+import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalView
@@ -85,13 +85,16 @@ import com.example.i18n.withArgs
 import com.example.link.LinkRole
 import com.example.ui.components.DesktopAdaptiveState
 import com.example.ui.components.KeycapBadge
+import com.example.ui.components.LocalAppWindowMetrics
 import com.example.ui.components.PredictiveBackGestureHandler
+import com.example.ui.components.StudioAdaptiveSheet
+import com.example.ui.components.StudioMotion
 import com.example.ui.components.SuspendDesktopShortcutsWhen
 import com.example.ui.components.predictiveBackLayer
 import com.example.ui.components.rememberPredictiveBackVisualState
+import com.example.ui.components.studioAnimateSize
 import com.example.viewmodel.RecordingViewModel
 import kotlin.math.max
-import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
@@ -311,6 +314,7 @@ fun RecordingScreen(
                                         },
                                         modifier = Modifier
                                             .size(38.dp)
+                                            .pointerHoverIcon(PointerIcon.Hand)
                                             .testTag("record_back_button")
                                     ) {
                                         Icon(
@@ -358,29 +362,77 @@ fun RecordingScreen(
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(4.dp)
                             ) {
-                                if (participantCleanMode) {
-                                    if (enablePicturePrompts) {
-                                        val isWordTextShown = !hideTextInCleanMode
-                                        Surface(
-                                            shape = RoundedCornerShape(8.dp),
-                                            color = if (isWordTextShown) {
-                                                MaterialTheme.colorScheme.primaryContainer
+                                AnimatedVisibility(
+                                    visible = participantCleanMode,
+                                    enter = StudioMotion.horizontalPaneEnter,
+                                    exit = StudioMotion.horizontalPaneExit
+                                ) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                    ) {
+                                        if (enablePicturePrompts) {
+                                            val isWordTextShown = !hideTextInCleanMode
+                                            val textChipBg by animateColorAsState(
+                                                targetValue = if (isWordTextShown) {
+                                                    MaterialTheme.colorScheme.primaryContainer
+                                                } else {
+                                                    MaterialTheme.colorScheme.surfaceContainerHigh
+                                                },
+                                                animationSpec = StudioMotion.microTween(),
+                                                label = "shortCleanTextChipBg"
+                                            )
+                                            Surface(
+                                                shape = RoundedCornerShape(8.dp),
+                                                color = textChipBg,
+                                                modifier = Modifier
+                                                    .clip(RoundedCornerShape(8.dp))
+                                                    .pointerHoverIcon(PointerIcon.Hand)
+                                                    .clickable { viewModel.setHideTextInCleanMode(!hideTextInCleanMode) }
+                                                    .testTag("clean_mode_toggle_word_text_chip")
+                                            ) {
+                                                Text(
+                                                    text = if (isWordTextShown) S.recording.showTextLabel else S.recording.hideTextLabel,
+                                                    style = MaterialTheme.typography.labelSmall,
+                                                    fontWeight = FontWeight.Bold,
+                                                    maxLines = 1,
+                                                    softWrap = false,
+                                                    color = if (isWordTextShown) {
+                                                        MaterialTheme.colorScheme.onPrimaryContainer
+                                                    } else {
+                                                        MaterialTheme.colorScheme.onSurfaceVariant
+                                                    },
+                                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                                )
+                                            }
+                                        }
+                                        val isRemarkShown = !hideRemarkInCleanMode
+                                        val remarkChipBg by animateColorAsState(
+                                            targetValue = if (isRemarkShown) {
+                                                MaterialTheme.colorScheme.secondaryContainer
                                             } else {
                                                 MaterialTheme.colorScheme.surfaceContainerHigh
                                             },
+                                            animationSpec = StudioMotion.microTween(),
+                                            label = "shortCleanRemarkChipBg"
+                                        )
+                                        Surface(
+                                            shape = RoundedCornerShape(8.dp),
+                                            color = remarkChipBg,
                                             modifier = Modifier
                                                 .clip(RoundedCornerShape(8.dp))
-                                                .clickable { viewModel.setHideTextInCleanMode(!hideTextInCleanMode) }
-                                                .testTag("clean_mode_toggle_word_text_chip")
+                                                .pointerHoverIcon(PointerIcon.Hand)
+                                                .clickable { viewModel.setHideRemarkInCleanMode(!hideRemarkInCleanMode) }
+                                                .testTag("clean_mode_toggle_remark_chip")
                                         ) {
                                             Text(
-                                                text = if (isWordTextShown) S.recording.showTextLabel else S.recording.hideTextLabel,
+                                                text = if (isRemarkShown) S.recording.shownRemarkLabel else S.recording.hiddenRemarkLabel,
                                                 style = MaterialTheme.typography.labelSmall,
                                                 fontWeight = FontWeight.Bold,
                                                 maxLines = 1,
                                                 softWrap = false,
-                                                color = if (isWordTextShown) {
-                                                    MaterialTheme.colorScheme.onPrimaryContainer
+                                                color = if (isRemarkShown) {
+                                                    MaterialTheme.colorScheme.onSecondaryContainer
                                                 } else {
                                                     MaterialTheme.colorScheme.onSurfaceVariant
                                                 },
@@ -388,44 +440,24 @@ fun RecordingScreen(
                                             )
                                         }
                                     }
-                                    val isRemarkShown = !hideRemarkInCleanMode
-                                    Surface(
-                                        shape = RoundedCornerShape(8.dp),
-                                        color = if (isRemarkShown) {
-                                            MaterialTheme.colorScheme.secondaryContainer
-                                        } else {
-                                            MaterialTheme.colorScheme.surfaceContainerHigh
-                                        },
-                                        modifier = Modifier
-                                            .clip(RoundedCornerShape(8.dp))
-                                            .clickable { viewModel.setHideRemarkInCleanMode(!hideRemarkInCleanMode) }
-                                            .testTag("clean_mode_toggle_remark_chip")
-                                    ) {
-                                        Text(
-                                            text = if (isRemarkShown) S.recording.shownRemarkLabel else S.recording.hiddenRemarkLabel,
-                                            style = MaterialTheme.typography.labelSmall,
-                                            fontWeight = FontWeight.Bold,
-                                            maxLines = 1,
-                                            softWrap = false,
-                                            color = if (isRemarkShown) {
-                                                MaterialTheme.colorScheme.onSecondaryContainer
-                                            } else {
-                                                MaterialTheme.colorScheme.onSurfaceVariant
-                                            },
-                                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                                        )
-                                    }
                                 }
-                                Surface(
-                                    shape = RoundedCornerShape(10.dp),
-                                    color = if (participantCleanMode) {
+                                val shortCleanBg by animateColorAsState(
+                                    targetValue = if (participantCleanMode) {
                                         MaterialTheme.colorScheme.primaryContainer
                                     } else {
                                         MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.65f)
                                     },
+                                    animationSpec = StudioMotion.microTween(),
+                                    label = "shortCleanPillBg"
+                                )
+                                Surface(
+                                    shape = RoundedCornerShape(10.dp),
+                                    color = shortCleanBg,
                                     modifier = Modifier
                                         .defaultMinSize(minHeight = 34.dp)
+                                        .studioAnimateSize()
                                         .clip(RoundedCornerShape(10.dp))
+                                        .pointerHoverIcon(PointerIcon.Hand)
                                         .clickable { viewModel.setParticipantCleanMode(!participantCleanMode) }
                                         .testTag("participant_clean_mode_button")
                                 ) {
@@ -470,6 +502,7 @@ fun RecordingScreen(
                                         onClick = onViewArchive,
                                         modifier = Modifier
                                             .size(36.dp)
+                                            .pointerHoverIcon(PointerIcon.Hand)
                                             .testTag("view_archive_button")
                                     ) {
                                         Icon(
@@ -489,6 +522,7 @@ fun RecordingScreen(
                                         },
                                         modifier = Modifier
                                             .size(36.dp)
+                                            .pointerHoverIcon(PointerIcon.Hand)
                                             .testTag("vad_settings_button")
                                     ) {
                                         Icon(
@@ -551,7 +585,9 @@ fun RecordingScreen(
                                             onNavigateBack()
                                         }
                                     },
-                                    modifier = Modifier.testTag("record_back_button")
+                                    modifier = Modifier
+                                        .pointerHoverIcon(PointerIcon.Hand)
+                                        .testTag("record_back_button")
                                 ) {
                                     Icon(
                                         Icons.AutoMirrored.Filled.ArrowBack,
@@ -561,30 +597,76 @@ fun RecordingScreen(
                             }
                         },
                         actions = {
-                            if (participantCleanMode) {
-                                if (enablePicturePrompts) {
-                                    val isWordTextShown = !hideTextInCleanMode
-                                    Surface(
-                                        shape = RoundedCornerShape(10.dp),
-                                        color = if (isWordTextShown) {
-                                            MaterialTheme.colorScheme.primaryContainer
+                            AnimatedVisibility(
+                                visible = participantCleanMode,
+                                enter = StudioMotion.horizontalPaneEnter,
+                                exit = StudioMotion.horizontalPaneExit
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    if (enablePicturePrompts) {
+                                        val isWordTextShown = !hideTextInCleanMode
+                                        val textChipBg by animateColorAsState(
+                                            targetValue = if (isWordTextShown) {
+                                                MaterialTheme.colorScheme.primaryContainer
+                                            } else {
+                                                MaterialTheme.colorScheme.surfaceContainerHigh
+                                            },
+                                            animationSpec = StudioMotion.microTween(),
+                                            label = "cleanTextChipBg"
+                                        )
+                                        Surface(
+                                            shape = RoundedCornerShape(10.dp),
+                                            color = textChipBg,
+                                            modifier = Modifier
+                                                .padding(end = 6.dp)
+                                                .clip(RoundedCornerShape(10.dp))
+                                                .pointerHoverIcon(PointerIcon.Hand)
+                                                .clickable { viewModel.setHideTextInCleanMode(!hideTextInCleanMode) }
+                                                .testTag("clean_mode_toggle_word_text_chip")
+                                        ) {
+                                            Text(
+                                                text = if (isWordTextShown) S.recording.showTextLabel else S.recording.hideTextLabel,
+                                                style = MaterialTheme.typography.labelSmall,
+                                                fontWeight = FontWeight.Bold,
+                                                maxLines = 1,
+                                                softWrap = false,
+                                                color = if (isWordTextShown) {
+                                                    MaterialTheme.colorScheme.onPrimaryContainer
+                                                } else {
+                                                    MaterialTheme.colorScheme.onSurfaceVariant
+                                                },
+                                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
+                                            )
+                                        }
+                                    }
+                                    val isRemarkShown = !hideRemarkInCleanMode
+                                    val remarkChipBg by animateColorAsState(
+                                        targetValue = if (isRemarkShown) {
+                                            MaterialTheme.colorScheme.secondaryContainer
                                         } else {
                                             MaterialTheme.colorScheme.surfaceContainerHigh
                                         },
+                                        animationSpec = StudioMotion.microTween(),
+                                        label = "cleanRemarkChipBg"
+                                    )
+                                    Surface(
+                                        shape = RoundedCornerShape(10.dp),
+                                        color = remarkChipBg,
                                         modifier = Modifier
                                             .padding(end = 6.dp)
                                             .clip(RoundedCornerShape(10.dp))
-                                            .clickable { viewModel.setHideTextInCleanMode(!hideTextInCleanMode) }
-                                            .testTag("clean_mode_toggle_word_text_chip")
+                                            .pointerHoverIcon(PointerIcon.Hand)
+                                            .clickable { viewModel.setHideRemarkInCleanMode(!hideRemarkInCleanMode) }
+                                            .testTag("clean_mode_toggle_remark_chip")
                                     ) {
                                         Text(
-                                            text = if (isWordTextShown) S.recording.showTextLabel else S.recording.hideTextLabel,
+                                            text = if (isRemarkShown) S.recording.shownRemarkLabel else S.recording.hiddenRemarkLabel,
                                             style = MaterialTheme.typography.labelSmall,
                                             fontWeight = FontWeight.Bold,
                                             maxLines = 1,
                                             softWrap = false,
-                                            color = if (isWordTextShown) {
-                                                MaterialTheme.colorScheme.onPrimaryContainer
+                                            color = if (isRemarkShown) {
+                                                MaterialTheme.colorScheme.onSecondaryContainer
                                             } else {
                                                 MaterialTheme.colorScheme.onSurfaceVariant
                                             },
@@ -592,47 +674,26 @@ fun RecordingScreen(
                                         )
                                     }
                                 }
-                                val isRemarkShown = !hideRemarkInCleanMode
-                                Surface(
-                                    shape = RoundedCornerShape(10.dp),
-                                    color = if (isRemarkShown) {
-                                        MaterialTheme.colorScheme.secondaryContainer
-                                    } else {
-                                        MaterialTheme.colorScheme.surfaceContainerHigh
-                                    },
-                                    modifier = Modifier
-                                        .padding(end = 6.dp)
-                                        .clip(RoundedCornerShape(10.dp))
-                                        .clickable { viewModel.setHideRemarkInCleanMode(!hideRemarkInCleanMode) }
-                                        .testTag("clean_mode_toggle_remark_chip")
-                                ) {
-                                    Text(
-                                        text = if (isRemarkShown) S.recording.shownRemarkLabel else S.recording.hiddenRemarkLabel,
-                                        style = MaterialTheme.typography.labelSmall,
-                                        fontWeight = FontWeight.Bold,
-                                        maxLines = 1,
-                                        softWrap = false,
-                                        color = if (isRemarkShown) {
-                                            MaterialTheme.colorScheme.onSecondaryContainer
-                                        } else {
-                                            MaterialTheme.colorScheme.onSurfaceVariant
-                                        },
-                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
-                                    )
-                                }
                             }
 
-                            Surface(
-                                shape = RoundedCornerShape(12.dp),
-                                color = if (participantCleanMode) {
+                            val cleanPillBg by animateColorAsState(
+                                targetValue = if (participantCleanMode) {
                                     MaterialTheme.colorScheme.primaryContainer
                                 } else {
                                     MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.65f)
                                 },
+                                animationSpec = StudioMotion.microTween(),
+                                label = "cleanPillBg"
+                            )
+                            Surface(
+                                shape = RoundedCornerShape(12.dp),
+                                color = cleanPillBg,
                                 modifier = Modifier
                                     .padding(end = if (participantCleanMode) 4.dp else 2.dp)
                                     .defaultMinSize(minHeight = 36.dp)
+                                    .studioAnimateSize()
                                     .clip(RoundedCornerShape(12.dp))
+                                    .pointerHoverIcon(PointerIcon.Hand)
                                     .clickable { viewModel.setParticipantCleanMode(!participantCleanMode) }
                                     .testTag("participant_clean_mode_button")
                             ) {
@@ -677,7 +738,9 @@ fun RecordingScreen(
                                 if (onOpenWirelessLink != null) {
                                     IconButton(
                                         onClick = onOpenWirelessLink,
-                                        modifier = Modifier.testTag("recording_wireless_link_button")
+                                        modifier = Modifier
+                                            .pointerHoverIcon(PointerIcon.Hand)
+                                            .testTag("recording_wireless_link_button")
                                     ) {
                                         Icon(
                                             Icons.Default.Devices,
@@ -687,7 +750,9 @@ fun RecordingScreen(
                                 }
                                 IconButton(
                                     onClick = onViewArchive,
-                                    modifier = Modifier.testTag("view_archive_button")
+                                    modifier = Modifier
+                                        .pointerHoverIcon(PointerIcon.Hand)
+                                        .testTag("view_archive_button")
                                 ) {
                                     Icon(
                                         Icons.Default.LibraryMusic,
@@ -703,7 +768,9 @@ fun RecordingScreen(
                                             showSettingsSheet = true
                                         }
                                     },
-                                    modifier = Modifier.testTag("vad_settings_button")
+                                    modifier = Modifier
+                                        .pointerHoverIcon(PointerIcon.Hand)
+                                        .testTag("vad_settings_button")
                                 ) {
                                     Icon(Icons.Default.Tune, contentDescription = S.recording.openQuickSettingsDesc)
                                 }
@@ -748,88 +815,119 @@ fun RecordingScreen(
                         .fillMaxSize()
                         .padding(padding)
                 ) {
-                    val isWideWorkspace = maxWidth >= 620.dp && maxHeight >= 430.dp && !participantCleanMode
-                    val isCompactStageHeight = maxHeight < 620.dp
+                    val windowMetrics = LocalAppWindowMetrics.current
+                    val suppressTripleSidebarSqueeze = isSplitPaneMode &&
+                        !DesktopAdaptiveState.isProjectSidebarCollapsed &&
+                        windowMetrics.widthDp < 1280.dp
+                    val isWideWorkspace = maxWidth >= 760.dp &&
+                        maxHeight >= 430.dp &&
+                        !participantCleanMode &&
+                        !suppressTripleSidebarSqueeze
+                    val isCompactStageHeight = maxHeight < 600.dp || windowMetrics.isShortHeight
+
+                    val showBluetoothWarnBanner = !participantCleanMode &&
+                        !isShortScreenHeader &&
+                        hasBluetoothInputMic &&
+                        !dismissBluetoothBanner
+                    val showSampleSpeakerBanner = !participantCleanMode &&
+                        !isShortScreenHeader &&
+                        !showBluetoothWarnBanner &&
+                        activeSpeaker?.name == "示例发音人" &&
+                        recordedCount == 0 &&
+                        !dismissSampleSpeakerTip
 
                     Column(modifier = Modifier.fillMaxSize()) {
-                        if (!participantCleanMode && !isShortScreenHeader) {
-                            if (hasBluetoothInputMic && !dismissBluetoothBanner) {
-                                Surface(
-                                    color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.85f),
-                                    modifier = Modifier.fillMaxWidth()
-                                ) {
-                                    Row(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .padding(horizontal = 14.dp, vertical = 5.dp),
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.SpaceBetween
-                                    ) {
-                                        Row(
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                            modifier = Modifier.weight(1f)
-                                        ) {
-                                            Icon(
-                                                Icons.Default.Warning,
-                                                contentDescription = null,
-                                                modifier = Modifier.size(14.dp),
-                                                tint = MaterialTheme.colorScheme.onErrorContainer
-                                            )
-                                            Text(
-                                                text = S.recording.bluetoothCutBannerText,
-                                                style = MaterialTheme.typography.labelSmall,
-                                                color = MaterialTheme.colorScheme.onErrorContainer,
-                                                maxLines = 1,
-                                                overflow = TextOverflow.Ellipsis
-                                            )
-                                        }
-                                        IconButton(
-                                            onClick = { dismissBluetoothBanner = true },
-                                            modifier = Modifier.size(24.dp)
-                                        ) {
-                                            Icon(
-                                                Icons.Default.Close,
-                                                contentDescription = S.recording.dismissTipDesc,
-                                                modifier = Modifier.size(14.dp),
-                                                tint = MaterialTheme.colorScheme.onErrorContainer
-                                            )
-                                        }
-                                    }
-                                }
-                            } else if (activeSpeaker?.name == "示例发音人" && recordedCount == 0 && !dismissSampleSpeakerTip) {
-                                Surface(
-                                    color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.6f),
+                        AnimatedVisibility(
+                            visible = showBluetoothWarnBanner,
+                            enter = StudioMotion.verticalPanelEnter,
+                            exit = StudioMotion.verticalPanelExit
+                        ) {
+                            Surface(
+                                color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.85f),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Row(
                                     modifier = Modifier
                                         .fillMaxWidth()
-                                        .clickable { showSpeakerDialog = true }
+                                        .padding(horizontal = 14.dp, vertical = 5.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween
                                 ) {
                                     Row(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .padding(horizontal = 14.dp, vertical = 5.dp),
                                         verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.SpaceBetween
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                        modifier = Modifier.weight(1f)
                                     ) {
-                                        Text(
-                                            text = S.recording.sampleSpeakerBannerText,
-                                            style = MaterialTheme.typography.labelSmall,
-                                            color = MaterialTheme.colorScheme.onSecondaryContainer,
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis,
-                                            modifier = Modifier.weight(1f)
+                                        Icon(
+                                            Icons.Default.Warning,
+                                            contentDescription = null,
+                                            modifier = Modifier.size(14.dp),
+                                            tint = MaterialTheme.colorScheme.onErrorContainer
                                         )
-                                        IconButton(
-                                            onClick = { dismissSampleSpeakerTip = true },
-                                            modifier = Modifier.size(24.dp)
-                                        ) {
-                                            Icon(
-                                                Icons.Default.Close,
-                                                contentDescription = S.recording.dismissTipDesc,
-                                                modifier = Modifier.size(14.dp),
-                                                tint = MaterialTheme.colorScheme.onSecondaryContainer
-                                            )
-                                        }
+                                        Text(
+                                            text = S.recording.bluetoothCutBannerText,
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.onErrorContainer,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                    }
+                                    IconButton(
+                                        onClick = { dismissBluetoothBanner = true },
+                                        modifier = Modifier
+                                            .size(24.dp)
+                                            .pointerHoverIcon(PointerIcon.Hand)
+                                    ) {
+                                        Icon(
+                                            Icons.Default.Close,
+                                            contentDescription = S.recording.dismissTipDesc,
+                                            modifier = Modifier.size(14.dp),
+                                            tint = MaterialTheme.colorScheme.onErrorContainer
+                                        )
+                                    }
+                                }
+                            }
+                        }
+
+                        AnimatedVisibility(
+                            visible = showSampleSpeakerBanner,
+                            enter = StudioMotion.verticalPanelEnter,
+                            exit = StudioMotion.verticalPanelExit
+                        ) {
+                            Surface(
+                                color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.72f),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .pointerHoverIcon(PointerIcon.Hand)
+                                    .clickable { showSpeakerDialog = true }
+                            ) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 14.dp, vertical = 5.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Text(
+                                        text = S.recording.sampleSpeakerBannerText,
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSecondaryContainer,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                        modifier = Modifier.weight(1f)
+                                    )
+                                    IconButton(
+                                        onClick = { dismissSampleSpeakerTip = true },
+                                        modifier = Modifier
+                                            .size(24.dp)
+                                            .pointerHoverIcon(PointerIcon.Hand)
+                                    ) {
+                                        Icon(
+                                            Icons.Default.Close,
+                                            contentDescription = S.recording.dismissTipDesc,
+                                            modifier = Modifier.size(14.dp),
+                                            tint = MaterialTheme.colorScheme.onSecondaryContainer
+                                        )
                                     }
                                 }
                             }
@@ -1115,64 +1213,55 @@ fun RecordingScreen(
                 )
             }
 
-            // Acoustic & VAD Settings BottomSheet
-            if (showSettingsSheet) {
-                val vadSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-                val vadSheetScope = rememberCoroutineScope()
-                ModalBottomSheet(
-                    onDismissRequest = { showSettingsSheet = false },
-                    sheetState = vadSheetState,
-                    containerColor = MaterialTheme.colorScheme.surface,
-                    dragHandle = { BottomSheetDefaults.DragHandle() },
-                    modifier = Modifier.testTag("vad_settings_sheet")
-                ) {
-                    RecordingSettingsSheetContent(
-                        isAutoNext = isAutoNext,
-                        onAutoNextChange = { viewModel.setAutoNextEnabled(it) },
-                        isPushToTalk = isPushToTalk,
-                        onPushToTalkChange = { viewModel.setPushToTalkEnabled(it) },
-                        autoAdvanceOnHoldRelease = autoAdvanceOnHoldRelease,
-                        onAutoAdvanceOnHoldReleaseChange = { viewModel.setAutoAdvanceOnHoldRelease(it) },
-                        autoPlayAfterRecord = autoPlayAfterRecord,
-                        onAutoPlayChange = { viewModel.setAutoPlayAfterRecord(it) },
-                        skipSilenceOnPlayback = skipSilenceOnPlayback,
-                        onSkipSilenceOnPlaybackChange = { viewModel.setSkipSilenceOnPlayback(it) },
-                        volumeKeyControlEnabled = volumeKeyControlEnabled,
-                        onVolumeKeyChange = { viewModel.setVolumeKeyControlEnabled(it) },
-                        vadThreshold = vadThreshold,
-                        onVadThresholdChange = { viewModel.setVadThreshold(it) },
-                        onApplyVadPreset = { viewModel.applyVadSensitivityPreset(it) },
-                        silenceDelayMs = silenceDelayMs,
-                        onSilenceDelayChange = { viewModel.setSilenceDelayMs(it) },
-                        characterSize = characterSize,
-                        onCharacterSizeChange = { viewModel.setCharacterSize(it) },
-                        hideRemarkInCleanMode = hideRemarkInCleanMode,
-                        onHideRemarkInCleanModeChange = { viewModel.setHideRemarkInCleanMode(it) },
-                        isShuffleEnabled = isShuffleEnabled,
-                        onToggleShuffle = { viewModel.toggleShuffle() },
-                        shufflingMode = shufflingMode,
-                        onShufflingModeChange = { viewModel.setShufflingMode(it) },
-                        lowVolumeThreshold = lowVolumeThreshold,
-                        onLowVolumeThresholdChange = { viewModel.setLowVolumeThreshold(it) },
-                        creakySensitivity = creakySensitivity,
-                        onCreakySensitivityChange = { viewModel.setCreakySensitivity(it) },
-                        recordedCount = recordedCount,
-                        onRequestClearAll = {
-                            showSettingsSheet = false
-                            showClearAllConfirmDialog = true
-                        },
-                        onOpenFullSettings = {
-                            showSettingsSheet = false
-                            onOpenFullSettings()
-                        },
-                        onClose = {
-                            vadSheetScope.launch { vadSheetState.hide() }.invokeOnCompletion {
-                                showSettingsSheet = false
-                            }
-                        },
-                        isSimpleMode = isSimpleMode
-                    )
-                }
+            // Acoustic & VAD Settings Sheet (Centered Modal Dialog on Desktop/Wide, BottomSheet on Compact Mobile)
+            StudioAdaptiveSheet(
+                visible = showSettingsSheet,
+                onDismissRequest = { showSettingsSheet = false },
+                maxWidth = 560.dp,
+                modifier = Modifier.testTag("vad_settings_sheet")
+            ) { closeSheet ->
+                RecordingSettingsSheetContent(
+                    isAutoNext = isAutoNext,
+                    onAutoNextChange = { viewModel.setAutoNextEnabled(it) },
+                    isPushToTalk = isPushToTalk,
+                    onPushToTalkChange = { viewModel.setPushToTalkEnabled(it) },
+                    autoAdvanceOnHoldRelease = autoAdvanceOnHoldRelease,
+                    onAutoAdvanceOnHoldReleaseChange = { viewModel.setAutoAdvanceOnHoldRelease(it) },
+                    autoPlayAfterRecord = autoPlayAfterRecord,
+                    onAutoPlayChange = { viewModel.setAutoPlayAfterRecord(it) },
+                    skipSilenceOnPlayback = skipSilenceOnPlayback,
+                    onSkipSilenceOnPlaybackChange = { viewModel.setSkipSilenceOnPlayback(it) },
+                    volumeKeyControlEnabled = volumeKeyControlEnabled,
+                    onVolumeKeyChange = { viewModel.setVolumeKeyControlEnabled(it) },
+                    vadThreshold = vadThreshold,
+                    onVadThresholdChange = { viewModel.setVadThreshold(it) },
+                    onApplyVadPreset = { viewModel.applyVadSensitivityPreset(it) },
+                    silenceDelayMs = silenceDelayMs,
+                    onSilenceDelayChange = { viewModel.setSilenceDelayMs(it) },
+                    characterSize = characterSize,
+                    onCharacterSizeChange = { viewModel.setCharacterSize(it) },
+                    hideRemarkInCleanMode = hideRemarkInCleanMode,
+                    onHideRemarkInCleanModeChange = { viewModel.setHideRemarkInCleanMode(it) },
+                    isShuffleEnabled = isShuffleEnabled,
+                    onToggleShuffle = { viewModel.toggleShuffle() },
+                    shufflingMode = shufflingMode,
+                    onShufflingModeChange = { viewModel.setShufflingMode(it) },
+                    lowVolumeThreshold = lowVolumeThreshold,
+                    onLowVolumeThresholdChange = { viewModel.setLowVolumeThreshold(it) },
+                    creakySensitivity = creakySensitivity,
+                    onCreakySensitivityChange = { viewModel.setCreakySensitivity(it) },
+                    recordedCount = recordedCount,
+                    onRequestClearAll = {
+                        showSettingsSheet = false
+                        showClearAllConfirmDialog = true
+                    },
+                    onOpenFullSettings = {
+                        showSettingsSheet = false
+                        onOpenFullSettings()
+                    },
+                    onClose = closeSheet,
+                    isSimpleMode = isSimpleMode
+                )
             }
         }
     }

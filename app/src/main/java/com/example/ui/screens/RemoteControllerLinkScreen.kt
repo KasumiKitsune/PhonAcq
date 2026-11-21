@@ -75,6 +75,8 @@ import com.example.link.RemoteSessionSnapshot
 import com.example.link.RemoteSpeakerSummary
 import com.example.link.RemoteWordItem
 import com.example.ui.components.ActiveMicEdgeGlowOverlay
+import com.example.ui.components.ResponsiveContentContainer
+import com.example.ui.components.StudioAdaptiveSheet
 import com.example.ui.components.StudioDialogEnterAnimation
 import com.example.ui.components.StudioFilterChip
 import com.example.ui.components.StudioRecordTriggerButton
@@ -306,13 +308,19 @@ fun RemoteControllerLinkScreen(
                 }
 
                 if (isWideConsole) {
-                    // Wide Tablet / Windows Desktop 3-Zone Console
-                    Row(
+                    // Wide Tablet / Windows Desktop 3-Zone Console clamped to 1360dp
+                    ResponsiveContentContainer(
+                        maxWidth = 1360.dp,
                         modifier = Modifier
-                            .fillMaxSize()
-                            .padding(14.dp),
-                        horizontalArrangement = Arrangement.spacedBy(14.dp)
+                            .weight(1f)
+                            .fillMaxWidth()
                     ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .padding(14.dp),
+                            horizontalArrangement = Arrangement.spacedBy(14.dp)
+                        ) {
                         // Left: Wordlist Navigator
                         Surface(
                             shape = RoundedCornerShape(20.dp),
@@ -411,16 +419,19 @@ fun RemoteControllerLinkScreen(
                             )
                         }
                     }
+                    }
                 } else {
-                    // Compact Phone Console: Vertical stacked ergonomic layout
+                    // Compact Phone / Narrow Window Console: Vertical stacked ergonomic layout clamped to 680dp
                     Column(
                         modifier = Modifier
-                            .fillMaxSize()
+                            .weight(1f)
+                            .fillMaxWidth()
                             .verticalScroll(rememberScrollState())
                             .navigationBarsPadding()
-                            .padding(horizontal = 14.dp, vertical = 10.dp),
-                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                            .padding(horizontal = 14.dp, vertical = 10.dp)
                     ) {
+                        ResponsiveContentContainer(maxWidth = 680.dp) {
+                            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                         ControllerCenterStageCard(
                             snapshot = snapshot,
                             currentWord = currentWord,
@@ -489,6 +500,8 @@ fun RemoteControllerLinkScreen(
                                 }
                             )
                         }
+                            }
+                        }
                     }
                 }
             }
@@ -541,51 +554,51 @@ fun RemoteControllerLinkScreen(
         }
 
         // Live Quick Settings Sheet for 看读端 Permissions & Visual Presets
-        if (showPolicyBottomSheet) {
-            ModalBottomSheet(
-                onDismissRequest = { showPolicyBottomSheet = false }
+        StudioAdaptiveSheet(
+            visible = showPolicyBottomSheet,
+            onDismissRequest = { showPolicyBottomSheet = false },
+            maxWidth = 580.dp
+        ) { _ ->
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState())
+                    .padding(horizontal = 18.dp, vertical = 12.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp)
             ) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .verticalScroll(rememberScrollState())
-                        .padding(horizontal = 18.dp, vertical = 8.dp),
-                    verticalArrangement = Arrangement.spacedBy(14.dp)
-                ) {
-                    Text(
-                        text = S.wireless.linkSettingsSheetTitle,
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.ExtraBold
-                    )
-                    MultiDeviceLinkCategoryContent(
-                        viewModel = viewModel,
-                        onOpenPairingDialog = {},
-                        showLaunchCard = false
-                    )
-                    Spacer(modifier = Modifier.height(24.dp))
-                }
+                Text(
+                    text = S.wireless.linkSettingsSheetTitle,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.ExtraBold
+                )
+                MultiDeviceLinkCategoryContent(
+                    viewModel = viewModel,
+                    onOpenPairingDialog = {},
+                    showLaunchCard = false
+                )
+                Spacer(modifier = Modifier.height(24.dp))
             }
         }
 
         // Mobile Word List Sheet
-        if (showWordDrawerSheet) {
-            ModalBottomSheet(
-                onDismissRequest = { showWordDrawerSheet = false }
-            ) {
-                Box(modifier = Modifier.fillMaxWidth().height(460.dp)) {
-                    ControllerWordListPane(
-                        snapshot = snapshot,
-                        onOpenProjectSwitcher = {
-                            showWordDrawerSheet = false
-                            projectSpeakerPickerTab = 0
-                        },
-                        onToggleShuffle = onToggleShuffleWithToast,
-                        onSelectSeqPos = { pos ->
-                            wireless.requestSelectWordSeqPos(pos)
-                            showWordDrawerSheet = false
-                        }
-                    )
-                }
+        StudioAdaptiveSheet(
+            visible = showWordDrawerSheet,
+            onDismissRequest = { showWordDrawerSheet = false },
+            maxWidth = 540.dp
+        ) { onRequestClose ->
+            Box(modifier = Modifier.fillMaxWidth().height(460.dp)) {
+                ControllerWordListPane(
+                    snapshot = snapshot,
+                    onOpenProjectSwitcher = {
+                        onRequestClose()
+                        projectSpeakerPickerTab = 0
+                    },
+                    onToggleShuffle = onToggleShuffleWithToast,
+                    onSelectSeqPos = { pos ->
+                        wireless.requestSelectWordSeqPos(pos)
+                        onRequestClose()
+                    }
+                )
             }
         }
 

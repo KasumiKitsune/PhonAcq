@@ -59,11 +59,12 @@ import com.example.link.DiscoveredPeer
 import com.example.link.LinkRole
 import com.example.link.WirelessLinkTransport
 import com.example.link.WirelessStorageMode
+import com.example.ui.components.AdaptiveModalSurface
 import com.example.ui.components.StudioDialogEnterAnimation
 import com.example.ui.components.StudioFilterChip
 import com.example.ui.components.StudioModalDialog
+import com.example.ui.components.StudioMotion
 import com.example.ui.components.StudioSwitchRow
-import com.example.ui.components.consumeDialogCardTaps
 import com.example.ui.components.studioTactile
 import com.example.viewmodel.RecordingViewModel
 import kotlinx.coroutines.launch
@@ -149,17 +150,13 @@ fun WirelessLinkPairingDialog(
         )
     ) {
         StudioDialogEnterAnimation {
-            Surface(
+            AdaptiveModalSurface(
+                targetMaxWidth = 540.dp,
+                maxHeightFraction = 0.88f,
                 shape = RoundedCornerShape(28.dp),
-                color = MaterialTheme.colorScheme.surface,
-                tonalElevation = 6.dp,
+                containerColor = MaterialTheme.colorScheme.surface,
                 border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f)),
-                modifier = Modifier
-                    .widthIn(max = 540.dp)
-                    .fillMaxWidth(0.94f)
-                    .heightIn(max = 740.dp)
-                    .consumeDialogCardTaps()
-                    .testTag("wireless_pairing_dialog")
+                modifier = Modifier.testTag("wireless_pairing_dialog")
             ) {
                 Column(modifier = Modifier.fillMaxWidth()) {
                     // Header
@@ -593,8 +590,8 @@ fun WirelessLinkPairingDialog(
 
                             AnimatedVisibility(
                                 visible = showManualIp,
-                                enter = expandVertically(tween(180)) + fadeIn(tween(150)),
-                                exit = shrinkVertically(tween(150)) + fadeOut(tween(120))
+                                enter = StudioMotion.verticalPanelEnter,
+                                exit = StudioMotion.verticalPanelExit
                             ) {
                                 Row(
                                     modifier = Modifier.fillMaxWidth(),

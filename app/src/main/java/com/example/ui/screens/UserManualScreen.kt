@@ -3,6 +3,7 @@ package com.example.ui.screens
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
@@ -58,7 +59,11 @@ import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.ui.components.DesktopAdaptiveState
+import com.example.ui.components.PlatformVerticalScrollbar
 import com.example.ui.components.PredictiveBackGestureHandler
+import com.example.ui.components.ResponsiveContentContainer
+import com.example.ui.components.StudioMotion
+import com.example.ui.components.StudioSidebarNavItem
 import com.example.ui.components.predictiveBackLayer
 import com.example.ui.components.rememberPredictiveBackVisualState
 import com.example.ui.components.rememberStudioInteraction
@@ -267,8 +272,12 @@ fun UserManualScreen(
             .predictiveBackLayer(manualBackState)
             .testTag("user_manual_screen")
     ) {
-        val isTwoPaneLayout = maxWidth >= 700.dp || (isDesktop && maxWidth >= 560.dp)
-        val sidebarWidth = if (maxWidth >= 940.dp) 276.dp else 242.dp
+        val isTwoPaneLayout = maxWidth >= 760.dp
+        val sidebarWidth by animateDpAsState(
+            targetValue = if (maxWidth >= 940.dp) 276.dp else 242.dp,
+            animationSpec = StudioMotion.mediumInTween(),
+            label = "manualSidebarWidth"
+        )
 
         Scaffold(
             topBar = {
@@ -372,102 +381,128 @@ fun UserManualScreen(
             containerColor = MaterialTheme.colorScheme.background
         ) { innerPadding ->
             if (isTwoPaneLayout) {
-                Row(
+                Box(
                     modifier = Modifier
                         .fillMaxSize()
-                        .padding(innerPadding)
+                        .padding(innerPadding),
+                    contentAlignment = Alignment.TopCenter
                 ) {
-                    val sidebarScroll = rememberScrollState()
-                    Column(
+                    Row(
                         modifier = Modifier
-                            .width(sidebarWidth)
-                            .fillMaxHeight()
-                            .verticalScroll(sidebarScroll)
-                            .padding(horizontal = 12.dp, vertical = 12.dp)
-                            .testTag("manual_desktop_sidebar"),
-                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                            .widthIn(max = 1120.dp)
+                            .fillMaxSize()
                     ) {
-                        var lastGroup = ""
-                        chapters.forEach { chapter ->
-                            if (chapter.groupLabel != lastGroup) {
-                                if (lastGroup.isNotEmpty()) {
-                                    Spacer(modifier = Modifier.height(8.dp))
-                                }
-                                Text(
-                                    text = chapter.groupLabel,
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
-                                )
-                                lastGroup = chapter.groupLabel
-                            }
-
-                            ManualSidebarItem(
-                                chapter = chapter,
-                                selected = activeDesktopChapter.id == chapter.id,
-                                onClick = { selectedDesktopChapterId = chapter.id }
-                            )
-                        }
-                        Spacer(modifier = Modifier.height(16.dp))
-                    }
-
-                    VerticalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f))
-
-                    Box(
-                        modifier = Modifier
-                            .weight(1f)
-                            .fillMaxHeight()
-                            .testTag("manual_desktop_reader_pane"),
-                        contentAlignment = Alignment.TopCenter
-                    ) {
-                        AnimatedContent(
-                            targetState = activeDesktopChapter.id,
-                            transitionSpec = {
-                                val initialIdx = chapters.indexOfFirst { it.id == initialState }
-                                val targetIdx = chapters.indexOfFirst { it.id == targetState }
-                                val forward = targetIdx >= initialIdx
-                                (androidx.compose.animation.slideInVertically(tween(210)) { fullH ->
-                                    if (forward) fullH / 18 else -fullH / 18
-                                } + fadeIn(tween(190))) togetherWith
-                                    (androidx.compose.animation.slideOutVertically(tween(150)) { fullH ->
-                                        if (forward) -fullH / 22 else fullH / 22
-                                    } + fadeOut(tween(130)))
-                            },
-                            label = "ManualChapterReaderTransition"
-                        ) { chapterId ->
-                            val chapterMeta = chapters.firstOrNull { it.id == chapterId } ?: chapters.first()
-                            val detailScroll = rememberScrollState()
+                        val sidebarScroll = rememberScrollState()
+                        Box(
+                            modifier = Modifier
+                                .width(sidebarWidth)
+                                .fillMaxHeight()
+                        ) {
                             Column(
                                 modifier = Modifier
                                     .fillMaxSize()
-                                    .verticalScroll(detailScroll)
-                                    .padding(horizontal = 24.dp, vertical = 18.dp),
-                                horizontalAlignment = Alignment.CenterHorizontally
+                                    .verticalScroll(sidebarScroll)
+                                    .padding(horizontal = 12.dp, vertical = 12.dp)
+                                    .testTag("manual_desktop_sidebar"),
+                                verticalArrangement = Arrangement.spacedBy(4.dp)
                             ) {
-                                Column(
-                                    modifier = Modifier
-                                        .widthIn(max = 780.dp)
-                                        .fillMaxWidth(),
-                                    verticalArrangement = Arrangement.spacedBy(14.dp)
-                                ) {
-                                    ManualReaderChapterHeaderCard(chapter = chapterMeta)
-
-                                    RenderManualChapterBody(
-                                        chapterId = chapterMeta.id,
-                                        isDesktop = isDesktop
-                                    )
-
-                                    val curIdx = chapters.indexOfFirst { it.id == chapterMeta.id }
-                                    if (chapters.size > 1 && curIdx >= 0) {
-                                        ManualChapterPrevNextBar(
-                                            prevChapter = chapters.getOrNull(curIdx - 1),
-                                            nextChapter = chapters.getOrNull(curIdx + 1),
-                                            onSelectChapter = { selectedDesktopChapterId = it.id }
+                                var lastGroup = ""
+                                chapters.forEach { chapter ->
+                                    if (chapter.groupLabel != lastGroup) {
+                                        if (lastGroup.isNotEmpty()) {
+                                            Spacer(modifier = Modifier.height(8.dp))
+                                        }
+                                        Text(
+                                            text = chapter.groupLabel,
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = MaterialTheme.colorScheme.primary,
+                                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
                                         )
+                                        lastGroup = chapter.groupLabel
                                     }
 
-                                    Spacer(modifier = Modifier.height(24.dp))
+                                    ManualSidebarItem(
+                                        chapter = chapter,
+                                        selected = activeDesktopChapter.id == chapter.id,
+                                        onClick = { selectedDesktopChapterId = chapter.id }
+                                    )
+                                }
+                                Spacer(modifier = Modifier.height(16.dp))
+                            }
+                            PlatformVerticalScrollbar(
+                                scrollState = sidebarScroll,
+                                modifier = Modifier
+                                    .align(Alignment.CenterEnd)
+                                    .fillMaxHeight()
+                            )
+                        }
+
+                        VerticalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f))
+
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .fillMaxHeight()
+                                .testTag("manual_desktop_reader_pane"),
+                            contentAlignment = Alignment.TopCenter
+                        ) {
+                            AnimatedContent(
+                                targetState = activeDesktopChapter.id,
+                                transitionSpec = {
+                                    val initialIdx = chapters.indexOfFirst { it.id == initialState }
+                                    val targetIdx = chapters.indexOfFirst { it.id == targetState }
+                                    val forward = targetIdx >= initialIdx
+                                    (androidx.compose.animation.slideInVertically(tween(210)) { fullH ->
+                                        if (forward) fullH / 18 else -fullH / 18
+                                    } + fadeIn(tween(190))) togetherWith
+                                        (androidx.compose.animation.slideOutVertically(tween(150)) { fullH ->
+                                            if (forward) -fullH / 22 else fullH / 22
+                                        } + fadeOut(tween(130)))
+                                },
+                                label = "ManualChapterReaderTransition"
+                            ) { chapterId ->
+                                val chapterMeta = chapters.firstOrNull { it.id == chapterId } ?: chapters.first()
+                                val detailScroll = rememberScrollState()
+                                Box(modifier = Modifier.fillMaxSize()) {
+                                    Column(
+                                        modifier = Modifier
+                                            .fillMaxSize()
+                                            .verticalScroll(detailScroll)
+                                            .padding(horizontal = 24.dp, vertical = 18.dp),
+                                        horizontalAlignment = Alignment.CenterHorizontally
+                                    ) {
+                                        Column(
+                                            modifier = Modifier
+                                                .widthIn(max = 780.dp)
+                                                .fillMaxWidth(),
+                                            verticalArrangement = Arrangement.spacedBy(14.dp)
+                                        ) {
+                                            ManualReaderChapterHeaderCard(chapter = chapterMeta)
+
+                                            RenderManualChapterBody(
+                                                chapterId = chapterMeta.id,
+                                                isDesktop = isDesktop
+                                            )
+
+                                            val curIdx = chapters.indexOfFirst { it.id == chapterMeta.id }
+                                            if (chapters.size > 1 && curIdx >= 0) {
+                                                ManualChapterPrevNextBar(
+                                                    prevChapter = chapters.getOrNull(curIdx - 1),
+                                                    nextChapter = chapters.getOrNull(curIdx + 1),
+                                                    onSelectChapter = { selectedDesktopChapterId = it.id }
+                                                )
+                                            }
+
+                                            Spacer(modifier = Modifier.height(24.dp))
+                                        }
+                                    }
+                                    PlatformVerticalScrollbar(
+                                        scrollState = detailScroll,
+                                        modifier = Modifier
+                                            .align(Alignment.CenterEnd)
+                                            .fillMaxHeight()
+                                    )
                                 }
                             }
                         }
@@ -478,39 +513,47 @@ fun UserManualScreen(
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
-                        .padding(innerPadding),
-                    contentAlignment = Alignment.TopCenter
+                        .padding(innerPadding)
                 ) {
-                    LazyColumn(
-                        state = listState,
-                        modifier = Modifier
-                            .widthIn(max = 760.dp)
-                            .fillMaxSize(),
-                        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 12.dp),
-                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ResponsiveContentContainer(
+                        maxWidth = 760.dp,
+                        modifier = Modifier.fillMaxSize()
                     ) {
-                        chapters.forEach { chapter ->
-                            item(key = "chapter_${chapter.id}") {
-                                val isExpanded = expandedChapterIds[chapter.id] == true
-                                ExpandableManualChapterCard(
-                                    chapter = chapter,
-                                    expanded = isExpanded,
-                                    onToggle = {
-                                        expandedChapterIds[chapter.id] = !isExpanded
+                        LazyColumn(
+                            state = listState,
+                            modifier = Modifier.fillMaxSize(),
+                            contentPadding = PaddingValues(horizontal = 14.dp, vertical = 12.dp),
+                            verticalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            chapters.forEach { chapter ->
+                                item(key = "chapter_${chapter.id}") {
+                                    val isExpanded = expandedChapterIds[chapter.id] == true
+                                    ExpandableManualChapterCard(
+                                        chapter = chapter,
+                                        expanded = isExpanded,
+                                        onToggle = {
+                                            expandedChapterIds[chapter.id] = !isExpanded
+                                        }
+                                    ) {
+                                        RenderManualChapterBody(
+                                            chapterId = chapter.id,
+                                            isDesktop = isDesktop
+                                        )
                                     }
-                                ) {
-                                    RenderManualChapterBody(
-                                        chapterId = chapter.id,
-                                        isDesktop = isDesktop
-                                    )
                                 }
                             }
-                        }
 
-                        item {
-                            Spacer(modifier = Modifier.height(24.dp))
+                            item {
+                                Spacer(modifier = Modifier.height(24.dp))
+                            }
                         }
                     }
+                    PlatformVerticalScrollbar(
+                        listState = listState,
+                        modifier = Modifier
+                            .align(Alignment.CenterEnd)
+                            .fillMaxHeight()
+                    )
                 }
             }
         }
@@ -524,64 +567,16 @@ private fun ManualSidebarItem(
     onClick: () -> Unit
 ) {
     val cs = MaterialTheme.colorScheme
-    val (hoverSrc, isHoveredState) = rememberStudioInteraction()
-    val isHovered by isHoveredState
-    val bgColor = when {
-        selected -> cs.secondaryContainer.copy(alpha = 0.85f)
-        isHovered -> cs.surfaceContainerHigh.copy(alpha = 0.65f)
-        else -> cs.background
-    }
-
-    Surface(
-        shape = RoundedCornerShape(14.dp),
-        color = bgColor,
-        border = if (selected) BorderStroke(1.dp, cs.primary.copy(alpha = 0.35f)) else null,
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(14.dp))
-            .hoverable(hoverSrc)
-            .pointerHoverIcon(PointerIcon.Hand)
-            .clickable(interactionSource = hoverSrc, indication = null, onClick = onClick)
-            .testTag("toc_item_${chapter.id}")
-    ) {
-        Row(
-            modifier = Modifier.padding(horizontal = 10.dp, vertical = 10.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(10.dp)
-        ) {
-            Surface(
-                shape = RoundedCornerShape(10.dp),
-                color = if (selected) cs.primary else cs.primaryContainer.copy(alpha = 0.6f),
-                modifier = Modifier.size(32.dp)
-            ) {
-                Box(contentAlignment = Alignment.Center) {
-                    Icon(
-                        imageVector = chapter.icon,
-                        contentDescription = null,
-                        tint = if (selected) cs.onPrimary else cs.primary,
-                        modifier = Modifier.size(17.dp)
-                    )
-                }
-            }
-            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
-                Text(
-                    text = "${chapter.number}、${chapter.title}",
-                    fontSize = 13.sp,
-                    fontWeight = if (selected) FontWeight.ExtraBold else FontWeight.SemiBold,
-                    color = if (selected) cs.onSecondaryContainer else cs.onSurface,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-                Text(
-                    text = chapter.subtitle,
-                    fontSize = 11.sp,
-                    color = cs.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-            }
-        }
-    }
+    StudioSidebarNavItem(
+        title = "${chapter.number}、${chapter.title}",
+        subtitle = chapter.subtitle,
+        icon = chapter.icon,
+        selected = selected,
+        onClick = onClick,
+        iconContainerColor = cs.primaryContainer.copy(alpha = 0.6f),
+        iconTint = cs.primary,
+        modifier = Modifier.testTag("toc_item_${chapter.id}")
+    )
 }
 
 @Composable
@@ -643,29 +638,47 @@ private fun ManualChapterPrevNextBar(
         modifier = Modifier
             .fillMaxWidth()
             .padding(top = 6.dp),
-        horizontalArrangement = Arrangement.SpaceBetween,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         if (prevChapter != null) {
             OutlinedButton(
                 onClick = { onSelectChapter(prevChapter) },
                 shape = RoundedCornerShape(12.dp),
-                modifier = Modifier.pointerHoverIcon(PointerIcon.Hand)
+                modifier = Modifier
+                    .weight(1f)
+                    .pointerHoverIcon(PointerIcon.Hand)
             ) {
-                Text("← 上一章：${prevChapter.title}", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                Text(
+                    text = "← 上一章：${prevChapter.title}",
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
             }
         } else {
-            Spacer(modifier = Modifier.width(1.dp))
+            Spacer(modifier = Modifier.weight(1f))
         }
 
         if (nextChapter != null) {
             FilledTonalButton(
                 onClick = { onSelectChapter(nextChapter) },
                 shape = RoundedCornerShape(12.dp),
-                modifier = Modifier.pointerHoverIcon(PointerIcon.Hand)
+                modifier = Modifier
+                    .weight(1f)
+                    .pointerHoverIcon(PointerIcon.Hand)
             ) {
-                Text("下一章：${nextChapter.title} →", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                Text(
+                    text = "下一章：${nextChapter.title} →",
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
             }
+        } else {
+            Spacer(modifier = Modifier.weight(1f))
         }
     }
 }

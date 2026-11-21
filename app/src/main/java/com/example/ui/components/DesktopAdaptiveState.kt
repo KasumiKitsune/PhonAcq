@@ -12,6 +12,7 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkHorizontally
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -23,6 +24,7 @@ import androidx.compose.foundation.interaction.collectIsHoveredAsState
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -36,6 +38,8 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.lazy.grid.LazyGridState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -93,6 +97,7 @@ import kotlin.math.roundToInt
 object DesktopAdaptiveState {
     var isDesktopPlatform by mutableStateOf(false)
     var isProjectSidebarCollapsed by mutableStateOf(false)
+    var hasCollapsibleProjectSidebar by mutableStateOf(false)
     var showShortcutCheatSheet by mutableStateOf(false)
 
     val shortcutSuspendTokens = mutableStateListOf<Any>()
@@ -101,6 +106,38 @@ object DesktopAdaptiveState {
         get() = shortcutSuspendTokens.isEmpty()
 
     var desktopTopBarSlot: (@Composable () -> Unit)? by mutableStateOf(null)
+
+    // Platform scrollbar slots: no-op on Android, populated with Compose Desktop VerticalScrollbar in DesktopMain.kt
+    var listScrollbarSlot: (@Composable BoxScope.(LazyListState, Modifier) -> Unit)? by mutableStateOf(null)
+    var gridScrollbarSlot: (@Composable BoxScope.(LazyGridState, Modifier) -> Unit)? by mutableStateOf(null)
+    var scrollScrollbarSlot: (@Composable BoxScope.(ScrollState, Modifier) -> Unit)? by mutableStateOf(null)
+}
+
+/**
+ * Renders a native Desktop vertical scrollbar when registered; no-op on Android touch devices.
+ */
+@Composable
+fun BoxScope.PlatformVerticalScrollbar(
+    listState: LazyListState,
+    modifier: Modifier = Modifier
+) {
+    DesktopAdaptiveState.listScrollbarSlot?.invoke(this, listState, modifier)
+}
+
+@Composable
+fun BoxScope.PlatformVerticalScrollbar(
+    gridState: LazyGridState,
+    modifier: Modifier = Modifier
+) {
+    DesktopAdaptiveState.gridScrollbarSlot?.invoke(this, gridState, modifier)
+}
+
+@Composable
+fun BoxScope.PlatformVerticalScrollbar(
+    scrollState: ScrollState,
+    modifier: Modifier = Modifier
+) {
+    DesktopAdaptiveState.scrollScrollbarSlot?.invoke(this, scrollState, modifier)
 }
 
 /**
@@ -631,15 +668,20 @@ fun StudioSwitchRow(
                     leadingIcon()
                 }
                 Column(modifier = Modifier.weight(1f)) {
+                    val titleColor by animateColorAsState(
+                        targetValue = when {
+                            !enabled -> colorScheme.onSurfaceVariant.copy(alpha = 0.65f)
+                            isHovered -> colorScheme.primary
+                            else -> colorScheme.onSurface
+                        },
+                        animationSpec = StudioMotion.microTween(),
+                        label = "StudioSwitchRowTitleColor"
+                    )
                     Text(
                         text = title,
                         fontSize = if (compact) 13.5.sp else 14.5.sp,
                         fontWeight = FontWeight.SemiBold,
-                        color = when {
-                            !enabled -> colorScheme.onSurfaceVariant.copy(alpha = 0.65f)
-                            isHovered -> colorScheme.primary
-                            else -> colorScheme.onSurface
-                        }
+                        color = titleColor
                     )
                     if (!subtitle.isNullOrBlank()) {
                         Spacer(modifier = Modifier.height(2.dp))
@@ -738,13 +780,23 @@ fun StudioRadioRow(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(10.dp)
         ) {
+            val radioRingColor by animateColorAsState(
+                targetValue = if (selected || isHovered) colorScheme.primary else colorScheme.outline,
+                animationSpec = StudioMotion.microTween(),
+                label = "StudioRadioRingColor"
+            )
+            val radioTextColor by animateColorAsState(
+                targetValue = if (selected) colorScheme.onSurface else colorScheme.onSurfaceVariant,
+                animationSpec = StudioMotion.microTween(),
+                label = "StudioRadioTextColor"
+            )
             Box(
                 contentAlignment = Alignment.Center,
                 modifier = Modifier
                     .size(20.dp)
                     .border(
                         width = if (selected) 2.dp else 1.5.dp,
-                        color = if (selected || isHovered) colorScheme.primary else colorScheme.outline,
+                        color = radioRingColor,
                         shape = CircleShape
                     )
             ) {
@@ -764,7 +816,7 @@ fun StudioRadioRow(
                 text = label,
                 fontSize = 13.sp,
                 fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
-                color = if (selected) colorScheme.onSurface else colorScheme.onSurfaceVariant
+                color = radioTextColor
             )
         }
     }
@@ -828,6 +880,15 @@ fun StudioCheckbox(
                 }
             )
     ) {
+        val boxBorderColor by animateColorAsState(
+            targetValue = when {
+                !enabled -> colorScheme.outlineVariant
+                checked || isHovered -> colorScheme.primary
+                else -> colorScheme.outline
+            },
+            animationSpec = StudioMotion.microTween(),
+            label = "StudioStandaloneCheckBorder"
+        )
         Box(
             contentAlignment = Alignment.Center,
             modifier = Modifier
@@ -840,11 +901,7 @@ fun StudioCheckbox(
                 .background(boxBg, RoundedCornerShape(6.dp))
                 .border(
                     width = 1.5.dp,
-                    color = when {
-                        !enabled -> colorScheme.outlineVariant
-                        checked || isHovered -> colorScheme.primary
-                        else -> colorScheme.outline
-                    },
+                    color = boxBorderColor,
                     shape = RoundedCornerShape(6.dp)
                 )
         ) {
@@ -937,16 +994,22 @@ fun StudioCheckboxRow(
                 enabled = enabled,
                 modifier = Modifier.size(20.dp)
             )
+            val checkRowLabelColor by animateColorAsState(
+                targetValue = when {
+                    !enabled -> colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                    checked -> colorScheme.onSurface
+                    isHovered -> colorScheme.primary
+                    else -> colorScheme.onSurfaceVariant
+                },
+                animationSpec = StudioMotion.microTween(),
+                label = "StudioCheckRowLabelColor"
+            )
             Text(
                 text = label,
                 fontSize = 13.sp,
                 lineHeight = 18.sp,
                 fontWeight = if (checked) FontWeight.SemiBold else FontWeight.Normal,
-                color = when {
-                    !enabled -> colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
-                    checked -> colorScheme.onSurface
-                    else -> colorScheme.onSurfaceVariant
-                }
+                color = checkRowLabelColor
             )
         }
     }
@@ -1065,15 +1128,20 @@ fun StudioSegmentedControl(
                                 }
                             )
                     ) {
-                        Text(
-                            text = label,
-                            fontSize = 12.sp,
-                            fontWeight = if (isSel) FontWeight.ExtraBold else FontWeight.SemiBold,
-                            color = when {
+                        val segLabelColor by animateColorAsState(
+                            targetValue = when {
                                 isSel -> colorScheme.onPrimaryContainer
                                 isHovered -> colorScheme.primary
                                 else -> colorScheme.onSurfaceVariant
                             },
+                            animationSpec = StudioMotion.microTween(),
+                            label = "StudioSegmentedLabelColor"
+                        )
+                        Text(
+                            text = label,
+                            fontSize = 12.sp,
+                            fontWeight = if (isSel) FontWeight.ExtraBold else FontWeight.SemiBold,
+                            color = segLabelColor,
                             maxLines = 1,
                             softWrap = false,
                             overflow = TextOverflow.Ellipsis

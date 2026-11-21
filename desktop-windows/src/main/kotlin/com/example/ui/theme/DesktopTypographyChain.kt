@@ -48,7 +48,7 @@ object DesktopTypographyChain {
             FontFamily(
                 Font(resource = "fonts/SarasaUiSC-Regular.ttf", weight = FontWeight.Light),
                 Font(resource = "fonts/SarasaUiSC-Regular.ttf", weight = FontWeight.Normal),
-                Font(resource = "fonts/SarasaUiSC-SemiBold.ttf", weight = FontWeight.Medium),
+                Font(resource = "fonts/SarasaUiSC-Regular.ttf", weight = FontWeight.Medium),
                 Font(resource = "fonts/SarasaUiSC-SemiBold.ttf", weight = FontWeight.SemiBold),
                 Font(resource = "fonts/SarasaUiSC-SemiBold.ttf", weight = FontWeight.Bold),
                 Font(resource = "fonts/SarasaUiSC-SemiBold.ttf", weight = FontWeight.ExtraBold)
@@ -296,10 +296,17 @@ object DesktopTypographyVerificationRunner {
 
         val normalWeight = normalRes.typeface?.fontStyle?.weight ?: -1
         val mediumWeight = mediumRes.typeface?.fontStyle?.weight ?: -1
+        val semiBoldRes = resolver.resolve(
+            fontFamily = DesktopTypographyChain.studioUiFontFamily,
+            fontWeight = FontWeight.SemiBold
+        ).value as FontLoadResult
+        val semiBoldWeight = semiBoldRes.typeface?.fontStyle?.weight ?: -1
         val boldWeight = boldRes.typeface?.fontStyle?.weight ?: -1
-        check(normalWeight == 400) { "Expected Sarasa Normal typeface weight 400, got $normalWeight" }
-        check(mediumWeight == 600 && boldWeight == 600) {
-            "Expected Sarasa Medium/Bold typeface weight 600 (SemiBold), got medium=$mediumWeight, bold=$boldWeight"
+        check(normalWeight == 400 && mediumWeight == 400) {
+            "Expected Sarasa Normal/Medium typeface weight 400, got normal=$normalWeight, medium=$mediumWeight"
+        }
+        check(semiBoldWeight == 600 && boldWeight == 600) {
+            "Expected Sarasa SemiBold/Bold typeface weight 600, got semiBold=$semiBoldWeight, bold=$boldWeight"
         }
         check(normalRes.aliases.size >= 4) {
             "Expected 4-layer alias chain on studioUiFontFamily, got ${normalRes.aliases}"

@@ -61,6 +61,8 @@ import com.example.i18n.S
 import com.example.i18n.withArgs
 import com.example.ui.components.DesktopAdaptiveState
 import com.example.ui.components.StudioFilterChip
+import com.example.ui.components.StudioMotion
+import com.example.ui.theme.LocalPhonAcqExtendedColors
 import java.util.Locale
 import kotlin.math.abs
 
@@ -121,9 +123,10 @@ internal fun EnhancedMacroVowelSpaceCard(
             .map { (k, list) -> Triple(k, list.first().groupLabel, list.size) }
             .sortedByDescending { it.third }
     }
-    val groupColorMap = remember(groupLegendEntries) {
+    val chartPalette = LocalPhonAcqExtendedColors.current.chartPalette
+    val groupColorMap = remember(groupLegendEntries, chartPalette) {
         groupLegendEntries.mapIndexed { idx, (k, _, _) ->
-            k to PHONOLOGY_PALETTE[idx % PHONOLOGY_PALETTE.size]
+            k to chartPalette[idx % chartPalette.size]
         }.toMap()
     }
 
@@ -235,6 +238,7 @@ internal fun EnhancedMacroVowelSpaceCard(
 
             Spacer(Modifier.height(14.dp))
 
+            val vowelPlotSurfaceColor = MaterialTheme.colorScheme.surface
             val boundaryColor = MaterialTheme.colorScheme.outlineVariant
             val textHintColor = MaterialTheme.colorScheme.onSurfaceVariant
             val onSurfaceColor = MaterialTheme.colorScheme.onSurface
@@ -382,7 +386,7 @@ internal fun EnhancedMacroVowelSpaceCard(
                     // 2. Draw 1-Sigma Confidence Ellipses when enabled (and glideFilter != 2)
                     if (aggregateEllipsesMode && glideFilter != 2) {
                         ellipses.forEach { el ->
-                            val col = groupColorMap[el.groupKey] ?: PHONOLOGY_PALETTE[0]
+                            val col = groupColorMap[el.groupKey] ?: chartPalette[0]
                             val isSolo = soloGroupKey == el.groupKey
                             val isDim = soloGroupKey != null && !isSolo
                             val fillAlpha = if (isDim) 0.03f else 0.14f
@@ -457,7 +461,7 @@ internal fun EnhancedMacroVowelSpaceCard(
                     // 3. Draw Individual Monophthongs & Diphthong/Triphthong Smooth Arrow Trajectories
                     val diphthongsShownPerGroup = HashMap<String, Int>()
                     filteredTokens.forEach { tok ->
-                        val col = groupColorMap[tok.groupKey] ?: PHONOLOGY_PALETTE[0]
+                        val col = groupColorMap[tok.groupKey] ?: chartPalette[0]
                         val isSolo = soloGroupKey == tok.groupKey
                         val isDim = soloGroupKey != null && !isSolo
                         val isSelected = selectedToken?.word?.id == tok.word.id &&
@@ -543,7 +547,7 @@ internal fun EnhancedMacroVowelSpaceCard(
                                         join = StrokeJoin.Round
                                     )
                                 )
-                                drawCircle(color = Color.White.copy(alpha = alpha), radius = 3.2.dp.toPx(), center = ptsScreen.first())
+                                drawCircle(color = vowelPlotSurfaceColor.copy(alpha = alpha), radius = 3.2.dp.toPx(), center = ptsScreen.first())
                                 drawCircle(
                                     color = col.copy(alpha = alpha),
                                     radius = 3.2.dp.toPx(),
@@ -647,11 +651,18 @@ internal fun EnhancedMacroVowelSpaceCard(
 
             // Selected Token Inspector Card + Single-Word Vowel Mode Override
             val sel = selectedToken
-            AnimatedVisibility(visible = sel != null) {
-                if (sel != null) {
-                    val isPlaying = playingWordId == sel.word.id
-                    val currentWordOverride = remember(sel.word.id, sel.syllableIndex, vowelOverrideRevision) {
-                        VowelGlideOverrideStore.getWordSyllableOverride(context, sel.word.id, sel.syllableIndex)
+            var cachedSel by remember { mutableStateOf<NormalizedVowelToken?>(null) }
+            if (sel != null) cachedSel = sel
+            AnimatedVisibility(
+                visible = sel != null,
+                enter = StudioMotion.verticalPanelEnter,
+                exit = StudioMotion.verticalPanelExit
+            ) {
+                val displaySel = sel ?: cachedSel
+                if (displaySel != null) {
+                    val isPlaying = playingWordId == displaySel.word.id
+                    val currentWordOverride = remember(displaySel.word.id, displaySel.syllableIndex, vowelOverrideRevision) {
+                        VowelGlideOverrideStore.getWordSyllableOverride(context, displaySel.word.id, displaySel.syllableIndex)
                     }
                     Surface(
                         shape = RoundedCornerShape(14.dp),
@@ -672,17 +683,17 @@ internal fun EnhancedMacroVowelSpaceCard(
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Column(modifier = Modifier.weight(1f).padding(end = 10.dp)) {
-                                    val titleStr = if (sel.wordSyllableCount > 1) {
+                                    val titleStr = if (displaySel.wordSyllableCount > 1) {
                                         S.acoustics.selectedSyllableDetailFormat.withArgs(
-                                            "word" to sel.word.text,
-                                            "index" to sel.syllableIndex + 1,
-                                            "syllable" to sel.syllableLabel,
-                                            "group" to sel.groupLabel
+                                            "word" to displaySel.word.text,
+                                            "index" to displaySel.syllableIndex + 1,
+                                            "syllable" to displaySel.syllableLabel,
+                                            "group" to displaySel.groupLabel
                                         )
                                     } else {
                                         S.acoustics.selectedWordOnlyDetailFormat.withArgs(
-                                            "word" to sel.word.text,
-                                            "group" to sel.groupLabel
+                                            "word" to displaySel.word.text,
+                                            "group" to displaySel.groupLabel
                                         )
                                     }
                                     Text(
@@ -692,13 +703,13 @@ internal fun EnhancedMacroVowelSpaceCard(
                                         color = MaterialTheme.colorScheme.onSurface
                                     )
                                     Text(
-                                        text = sel.trajectorySummary,
+                                        text = displaySel.trajectorySummary,
                                         fontSize = 11.5.sp,
                                         color = MaterialTheme.colorScheme.primary
                                     )
                                 }
                                 MacroStudioActionButton(
-                                    onClick = { onPlayWord(sel.word) },
+                                    onClick = { onPlayWord(displaySel.word) },
                                     isPrimary = isPlaying
                                 ) {
                                     Icon(
@@ -723,8 +734,8 @@ internal fun EnhancedMacroVowelSpaceCard(
                                 onSelectOverride = { nextType ->
                                     VowelGlideOverrideStore.setWordSyllableOverride(
                                         context = context,
-                                        wordId = sel.word.id,
-                                        syllableIndex = sel.syllableIndex,
+                                        wordId = displaySel.word.id,
+                                        syllableIndex = displaySel.syllableIndex,
                                         overrideType = nextType
                                     )
                                 }
@@ -748,7 +759,7 @@ internal fun EnhancedMacroVowelSpaceCard(
                     verticalArrangement = Arrangement.spacedBy(7.dp)
                 ) {
                     groupLegendEntries.forEach { (gKey, gLabel, count) ->
-                        val col = groupColorMap[gKey] ?: PHONOLOGY_PALETTE[0]
+                        val col = groupColorMap[gKey] ?: chartPalette[0]
                         val selected = soloGroupKey == gKey
                         val grpOverridden = remember(projectId, gKey, vowelOverrideRevision) {
                             VowelGlideOverrideStore.getGroupOverride(context, projectId, gKey)
@@ -772,9 +783,16 @@ internal fun EnhancedMacroVowelSpaceCard(
                 }
 
                 val activeSoloEntry = groupLegendEntries.find { it.first == soloGroupKey }
-                AnimatedVisibility(visible = activeSoloEntry != null) {
-                    if (activeSoloEntry != null) {
-                        val (gKey, gLabel, _) = activeSoloEntry
+                var cachedSoloEntry by remember { mutableStateOf<Triple<String, String, Int>?>(null) }
+                if (activeSoloEntry != null) cachedSoloEntry = activeSoloEntry
+                AnimatedVisibility(
+                    visible = activeSoloEntry != null,
+                    enter = StudioMotion.verticalPanelEnter,
+                    exit = StudioMotion.verticalPanelExit
+                ) {
+                    val displaySolo = activeSoloEntry ?: cachedSoloEntry
+                    if (displaySolo != null) {
+                        val (gKey, gLabel, _) = displaySolo
                         val currentGroupOverride = remember(projectId, gKey, vowelOverrideRevision) {
                             VowelGlideOverrideStore.getGroupOverride(context, projectId, gKey)
                         }

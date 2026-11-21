@@ -6,6 +6,8 @@ import android.content.Context
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
@@ -34,6 +36,8 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.input.pointer.PointerIcon
+import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontFamily
@@ -52,7 +56,12 @@ import com.example.data.Word
 import com.example.i18n.S
 import com.example.i18n.withArgs
 import com.example.ui.components.DesktopAdaptiveState
+import com.example.ui.components.PlatformVerticalScrollbar
+import com.example.ui.components.StudioAdaptiveSheet
 import com.example.ui.components.StudioFilterChip
+import com.example.ui.components.StudioMotion
+import com.example.ui.components.studioAnimateSize
+import com.example.ui.theme.LocalPhonAcqExtendedColors
 import com.example.utils.PraatCollectionExporter
 import com.example.utils.ZipUtility
 import com.example.viewmodel.RecordingViewModel
@@ -84,7 +93,6 @@ data class CrossSpeakerWordAnalysis(
     val analysis: AcousticAnalyzer.PhoneticAcousticResult
 )
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun PhoneticDetailsBottomSheet(
     word: Word,
@@ -92,23 +100,16 @@ fun PhoneticDetailsBottomSheet(
     viewModel: RecordingViewModel? = null,
     onDismiss: () -> Unit
 ) {
-    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-    val sheetScope = rememberCoroutineScope()
-    ModalBottomSheet(
+    StudioAdaptiveSheet(
+        visible = true,
         onDismissRequest = onDismiss,
-        sheetState = sheetState,
-        containerColor = MaterialTheme.colorScheme.surface,
-        dragHandle = { BottomSheetDefaults.DragHandle() }
-    ) {
+        maxWidth = 640.dp
+    ) { onRequestClose ->
         PhoneticDetailsContent(
             word = word,
             speaker = speaker,
             viewModel = viewModel,
-            onDismiss = {
-                sheetScope.launch { sheetState.hide() }.invokeOnCompletion {
-                    if (!sheetState.isVisible) onDismiss()
-                }
-            },
+            onDismiss = onRequestClose,
             isDockedPane = false
         )
     }
@@ -273,25 +274,34 @@ fun PhoneticDetailsContent(
     }
 
     val horizontalPad = if (isDockedPane) 16.dp else 20.dp
-    val analysis = analysisState
-    if (analysis == null) {
-        Box(
-            modifier = if (isDockedPane) {
-                Modifier.fillMaxSize()
-            } else {
-                Modifier
-                    .fillMaxWidth()
-                    .height(300.dp)
-            },
-            contentAlignment = Alignment.Center
-        ) {
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                CircularProgressIndicator()
-                Spacer(modifier = Modifier.height(12.dp))
-                Text(S.archive.analyzingFeatures, fontSize = 13.sp, color = MaterialTheme.colorScheme.outline)
+    val bodyScrollState = rememberScrollState()
+    val extendedColors = LocalPhonAcqExtendedColors.current
+    val chartPalette = extendedColors.chartPalette
+    AnimatedContent(
+        targetState = analysisState,
+        contentKey = { it != null },
+        transitionSpec = { StudioMotion.subtleFadeScale() },
+        label = "PhoneticDetailsAnalysisTransition",
+        modifier = if (isDockedPane) Modifier.fillMaxSize() else Modifier.fillMaxWidth()
+    ) { analysis ->
+        if (analysis == null) {
+            Box(
+                modifier = if (isDockedPane) {
+                    Modifier.fillMaxSize()
+                } else {
+                    Modifier
+                        .fillMaxWidth()
+                        .height(300.dp)
+                },
+                contentAlignment = Alignment.Center
+            ) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    CircularProgressIndicator()
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Text(S.archive.analyzingFeatures, fontSize = 13.sp, color = MaterialTheme.colorScheme.outline)
+                }
             }
-        }
-    } else {
+        } else {
         val isFlagged = word.qualityStatus != null && word.qualityStatus != "正常"
         Column(
             modifier = if (isDockedPane) {
@@ -372,11 +382,23 @@ fun PhoneticDetailsContent(
                         horizontalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
                         if (viewModel != null && word.isRecorded) {
+                            val qualityChipBg by animateColorAsState(
+                                targetValue = if (isFlagged) MaterialTheme.colorScheme.errorContainer else MaterialTheme.colorScheme.primaryContainer,
+                                animationSpec = StudioMotion.shortInTween(),
+                                label = "detailsQualityChipBg"
+                            )
+                            val qualityChipFg by animateColorAsState(
+                                targetValue = if (isFlagged) MaterialTheme.colorScheme.onErrorContainer else MaterialTheme.colorScheme.onPrimaryContainer,
+                                animationSpec = StudioMotion.shortInTween(),
+                                label = "detailsQualityChipFg"
+                            )
                             Surface(
-                                color = if (isFlagged) MaterialTheme.colorScheme.errorContainer else MaterialTheme.colorScheme.primaryContainer,
+                                color = qualityChipBg,
                                 shape = RoundedCornerShape(12.dp),
                                 modifier = Modifier
+                                    .studioAnimateSize()
                                     .clip(RoundedCornerShape(12.dp))
+                                    .pointerHoverIcon(PointerIcon.Hand)
                                     .clickable {
                                         viewModel.toggleManualQualityFlag(word)
                                         Toast.makeText(
@@ -396,7 +418,7 @@ fun PhoneticDetailsContent(
                                         imageVector = if (isFlagged) Icons.Default.Warning else Icons.Default.CheckCircle,
                                         contentDescription = null,
                                         modifier = Modifier.size(14.dp),
-                                        tint = if (isFlagged) MaterialTheme.colorScheme.onErrorContainer else MaterialTheme.colorScheme.onPrimaryContainer
+                                        tint = qualityChipFg
                                     )
                                     Text(
                                         text = if (isFlagged) {
@@ -410,7 +432,7 @@ fun PhoneticDetailsContent(
                                         fontWeight = FontWeight.Bold,
                                         maxLines = 1,
                                         softWrap = false,
-                                        color = if (isFlagged) MaterialTheme.colorScheme.onErrorContainer else MaterialTheme.colorScheme.onPrimaryContainer
+                                        color = qualityChipFg
                                     )
                                 }
                             }
@@ -486,18 +508,24 @@ fun PhoneticDetailsContent(
             }
 
             // Scrollable body (locked against accidental sheet-dismissal when inside ModalBottomSheet)
+            Box(
+                modifier = if (isDockedPane) {
+                    Modifier.weight(1f).fillMaxWidth()
+                } else {
+                    Modifier.fillMaxWidth()
+                }
+            ) {
             Column(
                 modifier = if (isDockedPane) {
                     Modifier
-                        .weight(1f)
-                        .fillMaxWidth()
-                        .verticalScroll(rememberScrollState())
+                        .fillMaxSize()
+                        .verticalScroll(bodyScrollState)
                         .padding(start = horizontalPad, end = horizontalPad, top = 14.dp, bottom = 24.dp)
                 } else {
                     Modifier
                         .fillMaxWidth()
                         .nestedScroll(contentScrollLock)
-                        .verticalScroll(rememberScrollState())
+                        .verticalScroll(bodyScrollState)
                         .padding(start = horizontalPad, end = horizontalPad, top = 14.dp, bottom = 36.dp)
                 }
             ) {
@@ -649,13 +677,14 @@ fun PhoneticDetailsContent(
                 val otherSpeakersEntries = remember(crossSpeakerList, speaker?.id) {
                     crossSpeakerList.filter { it.speaker.id != speaker?.id && it.analysis.isValidVoiced && it.analysis.contourPoints.isNotEmpty() }
                 }
-                val comparePalette = remember {
+                val comparePalette = remember(chartPalette) {
                     listOf(
-                        Color(0xFFE65100),
-                        Color(0xFF00897B),
-                        Color(0xFF8E24AA),
-                        Color(0xFFC62828),
-                        Color(0xFF2E7D32)
+                        chartPalette[1],
+                        chartPalette[5],
+                        chartPalette[3],
+                        chartPalette[6],
+                        chartPalette[2],
+                        chartPalette[4]
                     )
                 }
 
@@ -684,11 +713,24 @@ fun PhoneticDetailsContent(
                             ) {
                                 if (analysis.isValidVoiced) {
                                     if (analysis.isPitchCalibrated) {
+                                        val calibratedBg by animateColorAsState(
+                                            targetValue = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.7f),
+                                            animationSpec = StudioMotion.shortInTween(),
+                                            label = "calibratedPitchPillBg"
+                                        )
                                         Surface(
                                             shape = RoundedCornerShape(6.dp),
-                                            color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.7f),
+                                            color = calibratedBg,
                                             modifier = Modifier
+                                                .studioAnimateSize()
                                                 .clip(RoundedCornerShape(6.dp))
+                                                .then(
+                                                    if (viewModel != null && speaker != null) {
+                                                        Modifier.pointerHoverIcon(PointerIcon.Hand)
+                                                    } else {
+                                                        Modifier
+                                                    }
+                                                )
                                                 .clickable(enabled = viewModel != null && speaker != null) {
                                                     showManualPitchDialog = true
                                                 }
@@ -704,11 +746,31 @@ fun PhoneticDetailsContent(
                                             )
                                         }
                                     } else if (viewModel != null && speaker != null) {
+                                        val calibrateBtnBg by animateColorAsState(
+                                            targetValue = if (isCalibratingPitch) {
+                                                MaterialTheme.colorScheme.primaryContainer
+                                            } else {
+                                                MaterialTheme.colorScheme.tertiaryContainer
+                                            },
+                                            animationSpec = StudioMotion.shortInTween(),
+                                            label = "calibratePitchPillBg"
+                                        )
+                                        val calibrateBtnFg by animateColorAsState(
+                                            targetValue = if (isCalibratingPitch) {
+                                                MaterialTheme.colorScheme.onPrimaryContainer
+                                            } else {
+                                                MaterialTheme.colorScheme.onTertiaryContainer
+                                            },
+                                            animationSpec = StudioMotion.shortInTween(),
+                                            label = "calibratePitchPillFg"
+                                        )
                                         Surface(
                                             shape = RoundedCornerShape(6.dp),
-                                            color = MaterialTheme.colorScheme.tertiaryContainer,
+                                            color = calibrateBtnBg,
                                             modifier = Modifier
+                                                .studioAnimateSize()
                                                 .clip(RoundedCornerShape(6.dp))
+                                                .pointerHoverIcon(PointerIcon.Hand)
                                                 .clickable(enabled = !isCalibratingPitch) {
                                                     isCalibratingPitch = true
                                                     viewModel.estimatePitchRangeForSpeaker(speaker) { range ->
@@ -734,7 +796,7 @@ fun PhoneticDetailsContent(
                                                 text = if (isCalibratingPitch) S.archive.calibratingPitchBtn else S.archive.defaultPitchRangeCalibrateBtn,
                                                 fontSize = 10.sp,
                                                 fontWeight = FontWeight.Bold,
-                                                color = MaterialTheme.colorScheme.onTertiaryContainer,
+                                                color = calibrateBtnFg,
                                                 modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
                                             )
                                         }
@@ -742,7 +804,9 @@ fun PhoneticDetailsContent(
                                             shape = RoundedCornerShape(6.dp),
                                             color = MaterialTheme.colorScheme.surfaceContainerHigh,
                                             modifier = Modifier
+                                                .studioAnimateSize()
                                                 .clip(RoundedCornerShape(6.dp))
+                                                .pointerHoverIcon(PointerIcon.Hand)
                                                 .clickable { showManualPitchDialog = true }
                                         ) {
                                             Text(
@@ -832,13 +896,16 @@ fun PhoneticDetailsContent(
                         val plotSurfaceBg = MaterialTheme.colorScheme.surface
                         val gridLineColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)
                         val curveStrokeColor = MaterialTheme.colorScheme.primary
-                        val secondarySyllablePalette = listOf(
-                            MaterialTheme.colorScheme.primary,
-                            Color(0xFF1976D2),
-                            Color(0xFF2E7D32),
-                            Color(0xFFEF6C00),
-                            Color(0xFF8E24AA)
-                        )
+                        val secondarySyllablePalette = remember(curveStrokeColor, chartPalette) {
+                            listOf(
+                                curveStrokeColor,
+                                chartPalette[5],
+                                chartPalette[2],
+                                chartPalette[1],
+                                chartPalette[3],
+                                chartPalette[6]
+                            )
+                        }
 
                         // Compute time-proportional horizontal weights for multi-syllable words
                         val syllableWeights = remember(analysis.segmentCount, analysis.segments, analysis.syllableVoicedMs) {
@@ -1946,6 +2013,14 @@ fun PhoneticDetailsContent(
                     )
                 }
             }
+            PlatformVerticalScrollbar(
+                scrollState = bodyScrollState,
+                modifier = Modifier
+                    .align(Alignment.CenterEnd)
+                    .fillMaxHeight()
+            )
+            }
+        }
         }
     }
 }

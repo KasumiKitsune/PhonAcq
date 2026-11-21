@@ -14,6 +14,10 @@ import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -63,7 +67,10 @@ import androidx.core.content.ContextCompat
 import com.example.i18n.S
 import com.example.i18n.withArgs
 import com.example.ui.components.DesktopAdaptiveState
+import com.example.ui.components.PlatformVerticalScrollbar
 import com.example.ui.components.PredictiveBackGestureHandler
+import com.example.ui.components.ResponsiveContentContainer
+import com.example.ui.components.StudioMotion
 import com.example.ui.components.predictiveBackLayer
 import com.example.ui.components.rememberPredictiveBackVisualState
 import com.example.viewmodel.RecordingViewModel
@@ -576,11 +583,16 @@ fun SoundCheckScreen(
         ) {
             val isWideSoundCheck = maxWidth >= 820.dp
             if (isWideSoundCheck) {
+                val wideScrollState = rememberScrollState()
+                Box(
+                    modifier = Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.TopCenter
+                ) {
                 Column(
                     modifier = Modifier
                         .widthIn(max = 1120.dp)
                         .fillMaxSize()
-                        .verticalScroll(rememberScrollState())
+                        .verticalScroll(wideScrollState)
                         .padding(horizontal = 24.dp, vertical = 16.dp),
                     verticalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
@@ -666,14 +678,24 @@ fun SoundCheckScreen(
                     }
                     Spacer(Modifier.height(12.dp))
                 }
+                PlatformVerticalScrollbar(
+                    scrollState = wideScrollState,
+                    modifier = Modifier
+                        .align(Alignment.CenterEnd)
+                        .fillMaxHeight()
+                )
+                }
             } else {
+                val narrowScrollState = rememberScrollState()
+                Box(modifier = Modifier.fillMaxSize()) {
                 Column(
                     modifier = Modifier
                         .fillMaxSize()
-                        .verticalScroll(rememberScrollState())
-                        .padding(horizontal = 16.dp, vertical = 14.dp),
-                    verticalArrangement = Arrangement.spacedBy(14.dp)
+                        .verticalScroll(narrowScrollState)
+                        .padding(horizontal = 16.dp, vertical = 14.dp)
                 ) {
+                    ResponsiveContentContainer(maxWidth = 680.dp) {
+                    Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
                     if (!hasAudioPermission) {
                         PermissionRequiredBanner(
                             onRequestPermission = {
@@ -750,6 +772,15 @@ fun SoundCheckScreen(
                     }
 
                     Spacer(Modifier.height(12.dp))
+                    }
+                    }
+                }
+                PlatformVerticalScrollbar(
+                    scrollState = narrowScrollState,
+                    modifier = Modifier
+                        .align(Alignment.CenterEnd)
+                        .fillMaxHeight()
+                )
                 }
             }
         }
@@ -912,7 +943,11 @@ private fun MicHardwareInfoCard(
                 }
             }
 
-            if (micStatus.isBluetooth) {
+            AnimatedVisibility(
+                visible = micStatus.isBluetooth,
+                enter = StudioMotion.verticalPanelEnter,
+                exit = StudioMotion.verticalPanelExit
+            ) {
                 Surface(
                     shape = RoundedCornerShape(12.dp),
                     color = colorScheme.surface.copy(alpha = 0.85f)
@@ -982,13 +1017,18 @@ private fun RealTimeMonitorCard(
         else -> S.soundCheck.meterQuiet
     }
 
-    val liveZoneColor = when {
+    val targetLiveZoneColor = when {
         !hasPermission || !enabled -> colorScheme.outline
         isClippingNow -> colorScheme.error
         isSpeakingRange -> colorScheme.primary
         isSlightNoise -> colorScheme.tertiary
         else -> colorScheme.secondary
     }
+    val liveZoneColor by animateColorAsState(
+        targetValue = targetLiveZoneColor,
+        animationSpec = StudioMotion.shortInTween(),
+        label = "soundCheckLiveZoneColor"
+    )
 
     Surface(
         shape = RoundedCornerShape(22.dp),
@@ -1097,9 +1137,20 @@ private fun RealTimeMonitorCard(
                     color = liveZoneColor
                 )
 
-                val normProgress = ((liveDb + 60f) / 60f).coerceIn(0.02f, 1f)
+                val rawNormProgress = ((liveDb + 60f) / 60f).coerceIn(0.02f, 1f)
+                var prevTargetProgress by remember { mutableFloatStateOf(0.02f) }
+                val isRising = rawNormProgress >= prevTargetProgress
+                SideEffect { prevTargetProgress = rawNormProgress }
+                val smoothNormProgress by animateFloatAsState(
+                    targetValue = rawNormProgress,
+                    animationSpec = tween(
+                        durationMillis = if (isRising) 40 else 160,
+                        easing = FastOutSlowInEasing
+                    ),
+                    label = "soundCheckLiveDbBar"
+                )
                 LinearProgressIndicator(
-                    progress = { normProgress },
+                    progress = { smoothNormProgress },
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(9.dp)

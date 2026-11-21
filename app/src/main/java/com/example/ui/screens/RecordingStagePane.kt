@@ -2,6 +2,8 @@ package com.example.ui.screens
 
 import android.content.Intent
 import android.widget.Toast
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.Spring
@@ -15,6 +17,7 @@ import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.hoverable
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -104,10 +107,15 @@ import com.example.data.Word
 import com.example.i18n.S
 import com.example.i18n.withArgs
 import com.example.ui.components.DesktopAdaptiveState
+import com.example.ui.components.ResponsiveContentContainer
+import com.example.ui.components.StudioMotion
 import com.example.ui.components.SuspendDesktopShortcutsWhen
 import com.example.ui.components.ZoomableWordImage
 import com.example.ui.components.rememberStudioInteraction
+import com.example.ui.components.studioAnimateItem
+import com.example.ui.components.studioAnimateSize
 import com.example.ui.components.studioTactile
+import com.example.ui.theme.LocalPhonAcqExtendedColors
 import com.example.utils.WordImageManager
 import com.example.utils.rememberWordImageBitmap
 import com.example.viewmodel.RecordingViewModel
@@ -355,59 +363,172 @@ internal fun RecordingStagePane(
 
     BoxWithConstraints(modifier = modifier) {
         val isMobileLandscapeStage = maxHeight < 420.dp && maxWidth >= 480.dp
+        val needsVerticalScrollFallback = !isMobileLandscapeStage && maxHeight < 480.dp
+        val stageMaxWidth = if (participantCleanMode) 1040.dp else 860.dp
 
         if (isMobileLandscapeStage) {
             // Mobile Landscape (e.g. 800x360) 2-Column Studio Split: Left Prompt Stage + Right Controls & VU Monitor
-            Row(
-                modifier = Modifier.fillMaxSize(),
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                verticalAlignment = Alignment.CenterVertically
+            ResponsiveContentContainer(
+                maxWidth = stageMaxWidth,
+                modifier = Modifier.fillMaxSize()
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxSize(),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .weight(1.12f)
+                            .fillMaxHeight()
+                    ) {
+                        if (!isTablet && !participantCleanMode) {
+                            LazyRow(
+                                state = rowListState,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                contentPadding = PaddingValues(horizontal = 2.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(36.dp)
+                            ) {
+                                itemsIndexed(words, key = { _, w -> w.id }) { index, word ->
+                                    val isSelected = index == safeCurrentIndex
+                                    WordStripChip(
+                                        index = index,
+                                        word = word,
+                                        isSelected = isSelected,
+                                        enablePicturePrompts = enablePicturePrompts,
+                                        wavFile = null,
+                                        onClick = {
+                                            viewModel.selectWordBySequencePosition(index)
+                                        },
+                                        modifier = studioAnimateItem()
+                                    )
+                                }
+                            }
+                            Spacer(Modifier.height(6.dp))
+                        }
+                        renderPagerContent(
+                            Modifier
+                                .fillMaxWidth()
+                                .weight(1f)
+                        )
+                    }
+
+                    Column(
+                        modifier = Modifier
+                            .weight(0.88f)
+                            .fillMaxHeight(),
+                        verticalArrangement = Arrangement.SpaceBetween,
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        if (!isTablet && !participantCleanMode) {
+                            HandheldSessionToolbar(
+                                activeSpeaker = activeSpeaker,
+                                recordedCount = recordedCount,
+                                totalCount = totalProjectWords,
+                                unrecordedCount = unrecordedCount,
+                                flaggedCount = flaggedCount,
+                                isShuffleEnabled = isShuffleEnabled,
+                                onlyPendingWords = onlyPendingWords,
+                                stackRows = true,
+                                onTriggerSpeakerDialog = onTriggerSpeakerDialog,
+                                onShuffle = {
+                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                    val nextState = !isShuffleEnabled
+                                    viewModel.toggleShuffle()
+                                    Toast.makeText(
+                                        context,
+                                        if (nextState) S.recording.shuffleEnabledToast else S.recording.shuffleRestoredToast,
+                                        Toast.LENGTH_SHORT
+                                    ).show()
+                                },
+                                onToggleOnlyPending = {
+                                    val enabledNow = viewModel.toggleOnlyPendingWords()
+                                    Toast.makeText(
+                                        context,
+                                        if (enabledNow) S.recording.onlyPendingEnabledToast else S.recording.showAllWordsToast,
+                                        Toast.LENGTH_SHORT
+                                    ).show()
+                                },
+                                onJumpNextUnrecorded = { viewModel.jumpToNextUnrecorded() },
+                                onJumpNextFlagged = { viewModel.jumpToNextFlaggedWord() },
+                                onRequestClearAll = onRequestClearAll,
+                                onOpenArchive = onOpenArchive
+                            )
+                        } else {
+                            Spacer(Modifier.height(2.dp))
+                        }
+
+                        LiveStudioMonitorSection(
+                            viewModel = viewModel,
+                            currentWord = currentWord,
+                            activeProject = activeProject,
+                            participantCleanMode = participantCleanMode,
+                            isCompact = true,
+                            takeCount = currentWordTakeCount,
+                            onOpenTakeSwitcher = { wordForTakeSwitcher = currentWord }
+                        )
+
+                        RecordingTransportBar(
+                            isRecording = isRecording,
+                            isPushToTalk = isPushToTalk,
+                            canGoPrev = safeCurrentIndex > 0,
+                            canGoNext = safeCurrentIndex < words.size - 1,
+                            isCompact = true,
+                            onPrev = {
+                                viewModel.prevWord()
+                            },
+                            onNext = {
+                                viewModel.nextWord()
+                            },
+                            onToggleRecord = {
+                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                if (!isRecording && confirmOverwrite && currentWord.isRecorded) {
+                                    onRequestOverwriteConfirm()
+                                } else {
+                                    viewModel.toggleRecording()
+                                }
+                            },
+                            onStartRecord = {
+                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                if (confirmOverwrite && currentWord.isRecorded) {
+                                    onRequestOverwriteConfirm()
+                                } else {
+                                    viewModel.triggerStartRecording()
+                                }
+                            },
+                            onStopRecord = {
+                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                viewModel.triggerStopRecording()
+                            },
+                            onStopFromHoldRelease = {
+                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                viewModel.triggerStopRecordingFromHoldRelease()
+                            }
+                        )
+                    }
+                }
+            }
+        } else {
+            ResponsiveContentContainer(
+                maxWidth = stageMaxWidth,
+                modifier = Modifier.fillMaxSize()
             ) {
                 Column(
                     modifier = Modifier
-                        .weight(1.12f)
-                        .fillMaxHeight()
-                ) {
-                    if (!isTablet && !participantCleanMode) {
-                        LazyRow(
-                            state = rowListState,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp),
-                            contentPadding = PaddingValues(horizontal = 2.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(36.dp)
-                        ) {
-                            itemsIndexed(words, key = { idx, w -> "${idx}_${w.id}" }) { index, word ->
-                                val isSelected = index == safeCurrentIndex
-                                WordStripChip(
-                                    index = index,
-                                    word = word,
-                                    isSelected = isSelected,
-                                    enablePicturePrompts = enablePicturePrompts,
-                                    wavFile = null,
-                                    onClick = {
-                                        viewModel.selectWordBySequencePosition(index)
-                                    }
-                                )
+                        .fillMaxSize()
+                        .then(
+                            if (needsVerticalScrollFallback) {
+                                Modifier.verticalScroll(rememberScrollState())
+                            } else {
+                                Modifier
                             }
-                        }
-                        Spacer(Modifier.height(6.dp))
-                    }
-                    renderPagerContent(
-                        Modifier
-                            .fillMaxWidth()
-                            .weight(1f)
-                    )
-                }
-
-                Column(
-                    modifier = Modifier
-                        .weight(0.88f)
-                        .fillMaxHeight(),
-                    verticalArrangement = Arrangement.SpaceBetween,
+                        ),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
+                    // 1. Handheld Top Speaker Bar & Quick Jump Strip
                     if (!isTablet && !participantCleanMode) {
                         HandheldSessionToolbar(
                             activeSpeaker = activeSpeaker,
@@ -417,7 +538,6 @@ internal fun RecordingStagePane(
                             flaggedCount = flaggedCount,
                             isShuffleEnabled = isShuffleEnabled,
                             onlyPendingWords = onlyPendingWords,
-                            stackRows = true,
                             onTriggerSpeakerDialog = onTriggerSpeakerDialog,
                             onShuffle = {
                                 haptic.performHapticFeedback(HapticFeedbackType.LongPress)
@@ -442,26 +562,72 @@ internal fun RecordingStagePane(
                             onRequestClearAll = onRequestClearAll,
                             onOpenArchive = onOpenArchive
                         )
-                    } else {
-                        Spacer(Modifier.height(2.dp))
+
+                        Spacer(Modifier.height(8.dp))
+
+                        LazyRow(
+                            state = rowListState,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            contentPadding = PaddingValues(horizontal = 2.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(40.dp)
+                        ) {
+                            itemsIndexed(words, key = { _, w -> w.id }) { index, word ->
+                                val isSelected = index == safeCurrentIndex
+                                WordStripChip(
+                                    index = index,
+                                    word = word,
+                                    isSelected = isSelected,
+                                    enablePicturePrompts = enablePicturePrompts,
+                                    wavFile = null,
+                                    onClick = {
+                                        viewModel.selectWordBySequencePosition(index)
+                                    },
+                                    modifier = studioAnimateItem()
+                                )
+                            }
+                        }
+
+                        Spacer(Modifier.height(8.dp))
                     }
 
+                    // 2. Central Prompt Lightbox Stage Card (HorizontalPager)
+                    renderPagerContent(
+                        if (needsVerticalScrollFallback) {
+                            Modifier
+                                .fillMaxWidth()
+                                .height(216.dp)
+                        } else {
+                            Modifier
+                                .fillMaxWidth()
+                                .weight(1f)
+                        }
+                    )
+
+                    Spacer(Modifier.height(if (isCompactStageHeight || needsVerticalScrollFallback) 8.dp else 12.dp))
+
+                    // 3. Isolated Live Studio Monitor (VU dBFS Meter + Timer + Multi-Take Badge + Waveform + VAD Progress)
                     LiveStudioMonitorSection(
                         viewModel = viewModel,
                         currentWord = currentWord,
                         activeProject = activeProject,
                         participantCleanMode = participantCleanMode,
-                        isCompact = true,
+                        isCompact = isCompactStageHeight || needsVerticalScrollFallback,
                         takeCount = currentWordTakeCount,
                         onOpenTakeSwitcher = { wordForTakeSwitcher = currentWord }
                     )
 
+                    Spacer(Modifier.height(if (isCompactStageHeight || needsVerticalScrollFallback) 8.dp else 12.dp))
+
+                    // 4. Primary Transport & Recording Controls
                     RecordingTransportBar(
                         isRecording = isRecording,
                         isPushToTalk = isPushToTalk,
                         canGoPrev = safeCurrentIndex > 0,
                         canGoNext = safeCurrentIndex < words.size - 1,
-                        isCompact = true,
+                        isCompact = isCompactStageHeight || needsVerticalScrollFallback,
                         onPrev = {
                             viewModel.prevWord()
                         },
@@ -494,136 +660,6 @@ internal fun RecordingStagePane(
                         }
                     )
                 }
-            }
-        } else {
-            Column(
-                modifier = Modifier.fillMaxSize(),
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
-                // 1. Handheld Top Speaker Bar & Quick Jump Strip
-                if (!isTablet && !participantCleanMode) {
-                    HandheldSessionToolbar(
-                        activeSpeaker = activeSpeaker,
-                        recordedCount = recordedCount,
-                        totalCount = totalProjectWords,
-                        unrecordedCount = unrecordedCount,
-                        flaggedCount = flaggedCount,
-                        isShuffleEnabled = isShuffleEnabled,
-                        onlyPendingWords = onlyPendingWords,
-                        onTriggerSpeakerDialog = onTriggerSpeakerDialog,
-                        onShuffle = {
-                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                            val nextState = !isShuffleEnabled
-                            viewModel.toggleShuffle()
-                            Toast.makeText(
-                                context,
-                                if (nextState) S.recording.shuffleEnabledToast else S.recording.shuffleRestoredToast,
-                                Toast.LENGTH_SHORT
-                            ).show()
-                        },
-                        onToggleOnlyPending = {
-                            val enabledNow = viewModel.toggleOnlyPendingWords()
-                            Toast.makeText(
-                                context,
-                                if (enabledNow) S.recording.onlyPendingEnabledToast else S.recording.showAllWordsToast,
-                                Toast.LENGTH_SHORT
-                            ).show()
-                        },
-                        onJumpNextUnrecorded = { viewModel.jumpToNextUnrecorded() },
-                        onJumpNextFlagged = { viewModel.jumpToNextFlaggedWord() },
-                        onRequestClearAll = onRequestClearAll,
-                        onOpenArchive = onOpenArchive
-                    )
-
-                    Spacer(Modifier.height(8.dp))
-
-                    LazyRow(
-                        state = rowListState,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        contentPadding = PaddingValues(horizontal = 2.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(40.dp)
-                    ) {
-                        itemsIndexed(words, key = { idx, w -> "${idx}_${w.id}" }) { index, word ->
-                            val isSelected = index == safeCurrentIndex
-                            WordStripChip(
-                                index = index,
-                                word = word,
-                                isSelected = isSelected,
-                                enablePicturePrompts = enablePicturePrompts,
-                                wavFile = null,
-                                onClick = {
-                                    viewModel.selectWordBySequencePosition(index)
-                                }
-                            )
-                        }
-                    }
-
-                    Spacer(Modifier.height(8.dp))
-                }
-
-                // 2. Central Prompt Lightbox Stage Card (HorizontalPager)
-                renderPagerContent(
-                    Modifier
-                        .fillMaxWidth()
-                        .weight(1f)
-                )
-
-                Spacer(Modifier.height(if (isCompactStageHeight) 8.dp else 12.dp))
-
-                // 3. Isolated Live Studio Monitor (VU dBFS Meter + Timer + Multi-Take Badge + Waveform + VAD Progress)
-                LiveStudioMonitorSection(
-                    viewModel = viewModel,
-                    currentWord = currentWord,
-                    activeProject = activeProject,
-                    participantCleanMode = participantCleanMode,
-                    isCompact = isCompactStageHeight,
-                    takeCount = currentWordTakeCount,
-                    onOpenTakeSwitcher = { wordForTakeSwitcher = currentWord }
-                )
-
-                Spacer(Modifier.height(if (isCompactStageHeight) 8.dp else 12.dp))
-
-                // 4. Primary Transport & Recording Controls
-                RecordingTransportBar(
-                    isRecording = isRecording,
-                    isPushToTalk = isPushToTalk,
-                    canGoPrev = safeCurrentIndex > 0,
-                    canGoNext = safeCurrentIndex < words.size - 1,
-                    isCompact = isCompactStageHeight,
-                    onPrev = {
-                        viewModel.prevWord()
-                    },
-                    onNext = {
-                        viewModel.nextWord()
-                    },
-                    onToggleRecord = {
-                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                        if (!isRecording && confirmOverwrite && currentWord.isRecorded) {
-                            onRequestOverwriteConfirm()
-                        } else {
-                            viewModel.toggleRecording()
-                        }
-                    },
-                    onStartRecord = {
-                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                        if (confirmOverwrite && currentWord.isRecorded) {
-                            onRequestOverwriteConfirm()
-                        } else {
-                            viewModel.triggerStartRecording()
-                        }
-                    },
-                    onStopRecord = {
-                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                        viewModel.triggerStopRecording()
-                    },
-                    onStopFromHoldRelease = {
-                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                        viewModel.triggerStopRecordingFromHoldRelease()
-                    }
-                )
             }
         }
     }
@@ -771,6 +807,7 @@ internal fun HandheldSessionToolbar(
                 color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.7f),
                 modifier = pillMod
                     .clip(RoundedCornerShape(12.dp))
+                    .pointerHoverIcon(PointerIcon.Hand)
                     .clickable { onTriggerSpeakerDialog() }
                     .testTag("speaker_card_trigger")
             ) {
@@ -827,6 +864,7 @@ internal fun HandheldSessionToolbar(
                         color = MaterialTheme.colorScheme.primaryContainer,
                         modifier = Modifier
                             .clip(RoundedCornerShape(10.dp))
+                            .pointerHoverIcon(PointerIcon.Hand)
                             .clickable(onClick = onJumpNextUnrecorded)
                             .testTag("jump_unrecorded_button")
                     ) {
@@ -857,6 +895,7 @@ internal fun HandheldSessionToolbar(
                         color = MaterialTheme.colorScheme.primaryContainer,
                         modifier = Modifier
                             .clip(RoundedCornerShape(10.dp))
+                            .pointerHoverIcon(PointerIcon.Hand)
                             .clickable(onClick = onOpenArchive)
                             .testTag("all_recorded_export_chip")
                     ) {
@@ -888,6 +927,7 @@ internal fun HandheldSessionToolbar(
                         color = MaterialTheme.colorScheme.errorContainer,
                         modifier = Modifier
                             .clip(RoundedCornerShape(10.dp))
+                            .pointerHoverIcon(PointerIcon.Hand)
                             .clickable(onClick = onJumpNextFlagged)
                             .testTag("jump_flagged_button")
                     ) {
@@ -923,6 +963,7 @@ internal fun HandheldSessionToolbar(
                         },
                         modifier = Modifier
                             .clip(RoundedCornerShape(10.dp))
+                            .pointerHoverIcon(PointerIcon.Hand)
                             .clickable(onClick = onToggleOnlyPending)
                             .testTag("only_pending_filter_button")
                     ) {
@@ -950,6 +991,7 @@ internal fun HandheldSessionToolbar(
                     },
                     modifier = Modifier
                         .clip(RoundedCornerShape(10.dp))
+                        .pointerHoverIcon(PointerIcon.Hand)
                         .clickable(onClick = onShuffle)
                         .testTag("shuffle_button")
                 ) {
@@ -1047,55 +1089,62 @@ internal fun WordStripChip(
     isSelected: Boolean,
     enablePicturePrompts: Boolean = false,
     @Suppress("UNUSED_PARAMETER") wavFile: File?,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
 ) {
     val (hoverSrc, isHoveredState) = rememberStudioInteraction()
     val isHovered by isHoveredState
     val isRecorded = word.isRecorded
     val isFlagged = isRecorded && word.qualityStatus != null && word.qualityStatus != "正常"
-    val containerColor = when {
-        isSelected -> MaterialTheme.colorScheme.primaryContainer
-        isFlagged -> lerp(
-            MaterialTheme.colorScheme.surface,
-            MaterialTheme.colorScheme.errorContainer,
-            if (isHovered) 0.90f else 0.72f
-        )
-        isRecorded -> lerp(
-            MaterialTheme.colorScheme.surface,
-            MaterialTheme.colorScheme.secondaryContainer,
-            if (isHovered) 0.90f else 0.72f
-        )
-        isHovered -> lerp(
-            MaterialTheme.colorScheme.surfaceContainerLow,
-            MaterialTheme.colorScheme.primaryContainer,
-            0.45f
-        )
-        else -> MaterialTheme.colorScheme.surfaceContainerLow
-    }
-    val borderColor = when {
-        isSelected -> MaterialTheme.colorScheme.primary
-        isHovered -> MaterialTheme.colorScheme.primary
-        else -> Color.Transparent
-    }
-    val contentColor = when {
-        isSelected -> MaterialTheme.colorScheme.onPrimaryContainer
-        isFlagged -> MaterialTheme.colorScheme.onErrorContainer
-        isRecorded -> MaterialTheme.colorScheme.onSecondaryContainer
-        isHovered -> MaterialTheme.colorScheme.primary
-        else -> MaterialTheme.colorScheme.onSurface
-    }
+    val extendedColors = LocalPhonAcqExtendedColors.current
+
+    val containerColor by animateColorAsState(
+        targetValue = when {
+            isSelected -> MaterialTheme.colorScheme.primaryContainer
+            isFlagged -> lerp(
+                MaterialTheme.colorScheme.surface,
+                MaterialTheme.colorScheme.errorContainer,
+                if (isHovered) 0.90f else 0.72f
+            )
+            isHovered -> lerp(
+                MaterialTheme.colorScheme.surface,
+                MaterialTheme.colorScheme.primaryContainer,
+                0.42f
+            )
+            isRecorded -> MaterialTheme.colorScheme.surface
+            else -> MaterialTheme.colorScheme.surfaceContainerLow
+        },
+        animationSpec = StudioMotion.microTween(),
+        label = "WordStripChipBg"
+    )
+    val borderColor by animateColorAsState(
+        targetValue = when {
+            isSelected -> MaterialTheme.colorScheme.primary
+            isHovered -> MaterialTheme.colorScheme.primary.copy(alpha = 0.65f)
+            isRecorded -> MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.7f)
+            else -> Color.Transparent
+        },
+        animationSpec = StudioMotion.microTween(),
+        label = "WordStripChipBorder"
+    )
+    val contentColor by animateColorAsState(
+        targetValue = when {
+            isSelected -> MaterialTheme.colorScheme.onPrimaryContainer
+            isFlagged -> MaterialTheme.colorScheme.onErrorContainer
+            isHovered -> MaterialTheme.colorScheme.primary
+            else -> MaterialTheme.colorScheme.onSurface
+        },
+        animationSpec = StudioMotion.microTween(),
+        label = "WordStripChipText"
+    )
 
     Surface(
         shape = RoundedCornerShape(20.dp),
         color = containerColor,
         shadowElevation = 0.dp,
         tonalElevation = 0.dp,
-        border = if (isSelected || isHovered) {
-            BorderStroke(if (isSelected) 1.5.dp else 1.2.dp, borderColor)
-        } else {
-            null
-        },
-        modifier = Modifier
+        border = BorderStroke(if (isSelected) 1.5.dp else 1.dp, borderColor),
+        modifier = modifier
             .height(38.dp)
             .clip(RoundedCornerShape(20.dp))
             .hoverable(hoverSrc)
@@ -1140,7 +1189,7 @@ internal fun WordStripChip(
                     imageVector = if (isFlagged) Icons.Default.Warning else Icons.Default.CheckCircle,
                     contentDescription = null,
                     modifier = Modifier.size(14.dp),
-                    tint = if (isFlagged) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
+                    tint = if (isFlagged) MaterialTheme.colorScheme.error else extendedColors.success
                 )
             }
         }
@@ -1190,21 +1239,27 @@ internal fun PromptStageLightboxCard(
     // Safety fallback: never hide text on unpictured words in a mixed wordlist
     val effectiveHideWordText = hasImage && participantCleanMode && hideTextInCleanMode
 
+    val cardBorderColor by animateColorAsState(
+        targetValue = when {
+            isFlagged -> MaterialTheme.colorScheme.error.copy(alpha = 0.48f)
+            isRecorded -> MaterialTheme.colorScheme.primary.copy(alpha = 0.36f)
+            else -> MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.75f)
+        },
+        animationSpec = StudioMotion.microTween(),
+        label = "PromptCardBorderColor"
+    )
+
     Card(
         modifier = Modifier.fillMaxSize(),
-        shape = RoundedCornerShape(24.dp),
+        shape = RoundedCornerShape(20.dp),
         colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceContainerLow
+            containerColor = MaterialTheme.colorScheme.surface
         ),
         border = BorderStroke(
             width = 1.dp,
-            color = when {
-                isFlagged -> MaterialTheme.colorScheme.error.copy(alpha = 0.45f)
-                isRecorded -> MaterialTheme.colorScheme.primary.copy(alpha = 0.35f)
-                else -> MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
-            }
+            color = cardBorderColor
         ),
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
     ) {
         BoxWithConstraints(
             modifier = Modifier
@@ -1419,7 +1474,9 @@ internal fun PromptStageLightboxCard(
                                         .clip(RoundedCornerShape(12.dp))
                                         .then(
                                             if (!participantCleanMode) {
-                                                Modifier.clickable(onClick = onEditRemarkClick)
+                                                Modifier
+                                                    .pointerHoverIcon(PointerIcon.Hand)
+                                                    .clickable(onClick = onEditRemarkClick)
                                             } else {
                                                 Modifier
                                             }
@@ -1465,6 +1522,7 @@ internal fun PromptStageLightboxCard(
                                     color = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.85f),
                                     modifier = Modifier
                                         .clip(RoundedCornerShape(12.dp))
+                                        .pointerHoverIcon(PointerIcon.Hand)
                                         .clickable(onClick = onEditRemarkClick)
                                         .then(
                                             if (!showRemarkPill) Modifier.testTag("active_word_remark")
@@ -1503,6 +1561,7 @@ internal fun PromptStageLightboxCard(
                                     color = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.55f),
                                     modifier = Modifier
                                         .clip(RoundedCornerShape(10.dp))
+                                        .pointerHoverIcon(PointerIcon.Hand)
                                         .clickable(onClick = onEditRemarkClick)
                                         .testTag("quick_add_remark_button")
                                 ) {
@@ -1536,6 +1595,7 @@ internal fun PromptStageLightboxCard(
                             color = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.55f),
                             modifier = Modifier
                                 .clip(RoundedCornerShape(10.dp))
+                                .pointerHoverIcon(PointerIcon.Hand)
                                 .clickable(onClick = onEditRemarkClick)
                                 .testTag("quick_add_remark_button")
                         ) {
@@ -1563,12 +1623,18 @@ internal fun PromptStageLightboxCard(
                     }
                 }
 
-                // Bottom Quick Actions inside Stage Card when Recorded (never squishes circular buttons on 360dp!)
-                if (isRecorded && !participantCleanMode) {
+                // Bottom Quick Actions inside Stage Card when Recorded (smooth vertical expand/shrink)
+                AnimatedVisibility(
+                    visible = isRecorded && !participantCleanMode,
+                    enter = StudioMotion.verticalPanelEnter,
+                    exit = StudioMotion.verticalPanelExit
+                ) {
                     val iconBtnSize = if (isNarrowCardActions) 40.dp else 44.dp
                     val isDesktop = DesktopAdaptiveState.isDesktopPlatform
                     Row(
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 4.dp),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
@@ -1586,6 +1652,7 @@ internal fun PromptStageLightboxCard(
                                 onClick = onToggleQualityFlag,
                                 modifier = Modifier
                                     .size(iconBtnSize)
+                                    .pointerHoverIcon(PointerIcon.Hand)
                                     .testTag("toggle_manual_flag_button"),
                                 colors = IconButtonDefaults.filledTonalIconButtonColors(
                                     containerColor = if (isFlagged) {
@@ -1611,6 +1678,7 @@ internal fun PromptStageLightboxCard(
                                     onClick = onInspectAcoustics,
                                     modifier = Modifier
                                         .size(iconBtnSize)
+                                        .pointerHoverIcon(PointerIcon.Hand)
                                         .testTag("inspect_acoustics_button"),
                                     colors = IconButtonDefaults.filledTonalIconButtonColors(
                                         containerColor = MaterialTheme.colorScheme.secondaryContainer
@@ -1627,6 +1695,7 @@ internal fun PromptStageLightboxCard(
                                 onClick = onShareClick,
                                 modifier = Modifier
                                     .size(iconBtnSize)
+                                    .pointerHoverIcon(PointerIcon.Hand)
                                     .testTag("share_recording_button"),
                                 colors = IconButtonDefaults.filledTonalIconButtonColors(
                                     containerColor = MaterialTheme.colorScheme.surfaceContainerHighest
@@ -1642,6 +1711,7 @@ internal fun PromptStageLightboxCard(
                                 onClick = onDeleteClick,
                                 modifier = Modifier
                                     .size(iconBtnSize)
+                                    .pointerHoverIcon(PointerIcon.Hand)
                                     .testTag("delete_this_recording_button"),
                                 colors = IconButtonDefaults.filledTonalIconButtonColors(
                                     containerColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.75f),
@@ -1656,8 +1726,6 @@ internal fun PromptStageLightboxCard(
                             }
                         }
                     }
-                } else {
-                    Spacer(Modifier.height(2.dp))
                 }
             }
         }
@@ -1704,7 +1772,11 @@ private fun AuditionPlayProgressButton(
         )
         val fillOverlayColor = colorScheme.primary.copy(alpha = 0.28f)
         val fillEdgeColor = colorScheme.primary.copy(alpha = 0.75f)
-        val contentTint = if (isPlayingAudio) colorScheme.onPrimaryContainer else colorScheme.onSecondaryContainer
+        val contentTint by animateColorAsState(
+            targetValue = if (isPlayingAudio) colorScheme.onPrimaryContainer else colorScheme.onSecondaryContainer,
+            animationSpec = StudioMotion.microTween(),
+            label = "desktopAuditionPillTint"
+        )
 
         Surface(
             shape = CircleShape,
@@ -1714,6 +1786,7 @@ private fun AuditionPlayProgressButton(
             tonalElevation = 0.dp,
             modifier = Modifier
                 .height(buttonSize)
+                .studioAnimateSize()
                 .studioTactile(interactionSrc, pressScale = 0.96f)
                 .clip(CircleShape)
                 .hoverable(interactionSrc)
@@ -1746,29 +1819,35 @@ private fun AuditionPlayProgressButton(
                     }
                     .padding(horizontal = if (isNarrow) 14.dp else 16.dp)
             ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(if (isNarrow) 5.dp else 6.dp)
-                ) {
-                    Icon(
-                        imageVector = if (isPlayingAudio) Icons.Default.Stop else Icons.Default.PlayArrow,
-                        contentDescription = if (isPlayingAudio) S.recording.stopPlaybackDesc else S.recording.playCurrentWordDesc,
-                        tint = if (isPlayingAudio) colorScheme.primary else contentTint,
-                        modifier = Modifier.size(18.dp)
-                    )
-                    Text(
-                        text = when {
-                            isPlayingAudio && isNarrow -> S.common.stop
-                            isPlayingAudio -> S.recording.stopListening
-                            isNarrow -> S.common.playback
-                            else -> S.recording.startListening
-                        },
-                        color = contentTint,
-                        maxLines = 1,
-                        softWrap = false,
-                        fontWeight = FontWeight.SemiBold,
-                        style = MaterialTheme.typography.labelLarge
-                    )
+                AnimatedContent(
+                    targetState = isPlayingAudio to isNarrow,
+                    transitionSpec = { StudioMotion.subtleFadeScale() },
+                    label = "AuditionPlayButtonContent"
+                ) { (playing, narrow) ->
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(if (narrow) 5.dp else 6.dp)
+                    ) {
+                        Icon(
+                            imageVector = if (playing) Icons.Default.Stop else Icons.Default.PlayArrow,
+                            contentDescription = if (playing) S.recording.stopPlaybackDesc else S.recording.playCurrentWordDesc,
+                            tint = if (playing) colorScheme.primary else contentTint,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Text(
+                            text = when {
+                                playing && narrow -> S.common.stop
+                                playing -> S.recording.stopListening
+                                narrow -> S.common.playback
+                                else -> S.recording.startListening
+                            },
+                            color = contentTint,
+                            maxLines = 1,
+                            softWrap = false,
+                            fontWeight = FontWeight.SemiBold,
+                            style = MaterialTheme.typography.labelLarge
+                        )
+                    }
                 }
             }
         }
@@ -1856,70 +1935,91 @@ internal fun QualityStatusBadge(
     simpleMode: Boolean = false,
     onClick: (() -> Unit)? = null
 ) {
-    if (!isRecorded) {
-        Surface(
-            shape = RoundedCornerShape(50),
-            color = MaterialTheme.colorScheme.surfaceContainerHighest
-        ) {
-            Text(
-                text = S.recording.pendingRecordBadge,
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1,
-                softWrap = false,
-                modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)
-            )
-        }
-        return
-    }
-
+    val extendedColors = LocalPhonAcqExtendedColors.current
     val isNormal = quality == null || quality == "正常"
-    val label = S.quality.displayStatus(quality, simpleMode = simpleMode)
-    val (containerColor, contentColor) = when {
-        isNormal -> MaterialTheme.colorScheme.primaryContainer to MaterialTheme.colorScheme.onPrimaryContainer
-        quality == "人工标重录" || quality == "需重录" ->
+    val (targetContainer, targetContent) = when {
+        !isRecorded ->
+            MaterialTheme.colorScheme.surfaceContainerHighest to MaterialTheme.colorScheme.onSurfaceVariant
+        isNormal ->
+            extendedColors.successContainer to extendedColors.onSuccessContainer
+        quality == "人工标重录" || quality == "需重录" ||
+            quality == "削波/过载" || quality == "过载/破音" ||
+            quality == "开头截断" || quality == "收尾截断" ->
             MaterialTheme.colorScheme.errorContainer to MaterialTheme.colorScheme.onErrorContainer
-        quality == "削波/过载" || quality == "过载/破音" ->
-            MaterialTheme.colorScheme.errorContainer to MaterialTheme.colorScheme.onErrorContainer
-        quality == "音量过低" || quality == "声音偏小" ->
-            MaterialTheme.colorScheme.tertiaryContainer to MaterialTheme.colorScheme.onTertiaryContainer
+        quality == "音量过低" || quality == "声音偏小" || quality == "底噪偏高" ->
+            extendedColors.warningContainer to extendedColors.onWarningContainer
         quality == "嘎裂声" ->
             MaterialTheme.colorScheme.secondaryContainer to MaterialTheme.colorScheme.onSecondaryContainer
-        quality == "开头截断" || quality == "收尾截断" ->
-            MaterialTheme.colorScheme.errorContainer to MaterialTheme.colorScheme.onErrorContainer
-        quality == "底噪偏高" ->
-            MaterialTheme.colorScheme.tertiaryContainer to MaterialTheme.colorScheme.onTertiaryContainer
         else ->
             MaterialTheme.colorScheme.errorContainer to MaterialTheme.colorScheme.onErrorContainer
     }
+
+    val containerColor by animateColorAsState(
+        targetValue = targetContainer,
+        animationSpec = StudioMotion.microTween(),
+        label = "QualityBadgeBg"
+    )
+    val contentColor by animateColorAsState(
+        targetValue = targetContent,
+        animationSpec = StudioMotion.microTween(),
+        label = "QualityBadgeFg"
+    )
 
     Surface(
         shape = RoundedCornerShape(50),
         color = containerColor,
         modifier = Modifier
+            .studioAnimateSize()
             .clip(RoundedCornerShape(50))
-            .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
-            .testTag("quality_status_badge")
+            .then(
+                if (isRecorded && onClick != null) {
+                    Modifier
+                        .pointerHoverIcon(PointerIcon.Hand)
+                        .clickable(onClick = onClick)
+                } else {
+                    Modifier
+                }
+            )
+            .then(if (isRecorded) Modifier.testTag("quality_status_badge") else Modifier)
     ) {
-        Row(
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(4.dp)
-        ) {
-            Icon(
-                imageVector = if (isNormal) Icons.Default.Check else Icons.Default.Warning,
-                contentDescription = null,
-                modifier = Modifier.size(14.dp),
-                tint = contentColor
-            )
-            Text(
-                text = label,
-                style = MaterialTheme.typography.labelMedium,
-                fontWeight = FontWeight.SemiBold,
-                color = contentColor,
-                maxLines = 1,
-                softWrap = false
-            )
+        AnimatedContent(
+            targetState = Triple(isRecorded, quality, simpleMode),
+            transitionSpec = { StudioMotion.subtleFadeScale() },
+            label = "QualityBadgeContent"
+        ) { (rec, qual, simple) ->
+            if (!rec) {
+                Text(
+                    text = S.recording.pendingRecordBadge,
+                    style = MaterialTheme.typography.labelMedium,
+                    color = contentColor,
+                    maxLines = 1,
+                    softWrap = false,
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)
+                )
+            } else {
+                val normal = qual == null || qual == "正常"
+                val label = S.quality.displayStatus(qual, simpleMode = simple)
+                Row(
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    Icon(
+                        imageVector = if (normal) Icons.Default.Check else Icons.Default.Warning,
+                        contentDescription = null,
+                        modifier = Modifier.size(14.dp),
+                        tint = contentColor
+                    )
+                    Text(
+                        text = label,
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        color = contentColor,
+                        maxLines = 1,
+                        softWrap = false
+                    )
+                }
+            }
         }
     }
 }

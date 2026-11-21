@@ -10,7 +10,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.VolumeUp
-import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material3.*
@@ -24,6 +23,8 @@ import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Fill
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.input.pointer.PointerIcon
+import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -34,6 +35,9 @@ import com.example.data.Word
 import com.example.i18n.S
 import com.example.i18n.withArgs
 import com.example.ui.components.StudioFilterChip
+import com.example.ui.components.StudioMotion
+import com.example.ui.components.studioRotateOn
+import com.example.ui.theme.LocalPhonAcqExtendedColors
 import java.util.Locale
 
 @OptIn(ExperimentalLayoutApi::class)
@@ -59,6 +63,7 @@ internal fun EnhancedMacroToneSystemCard(
 
     val totalOutliers = remember(activeClusters) { activeClusters.sumOf { it.outlierCount } }
     val checkedCatCount = remember(activeClusters) { activeClusters.count { it.isCheckedCategory } }
+    val chartPalette = LocalPhonAcqExtendedColors.current.chartPalette
 
     Card(
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
@@ -201,7 +206,7 @@ internal fun EnhancedMacroToneSystemCard(
                         fun normY(p: Float): Float = ((1f - p) * h * 0.86f + h * 0.07f).coerceIn(2f, h - 2f)
 
                         activeClusters.forEachIndexed { idx, cat ->
-                            val baseCol = PHONOLOGY_PALETTE[idx % PHONOLOGY_PALETTE.size]
+                            val baseCol = chartPalette[idx % chartPalette.size]
                             val isDimmed = highlightedClusterId != null && highlightedClusterId != cat.clusterId
                             val strokeAlpha = if (isDimmed) 0.16f else 1.0f
                             val ribbonAlpha = if (isDimmed) 0.03f else 0.14f
@@ -290,7 +295,7 @@ internal fun EnhancedMacroToneSystemCard(
                     }
                     if (onlyShowOutliers && visibleMembers.isEmpty()) return@forEachIndexed
 
-                    val col = PHONOLOGY_PALETTE[idx % PHONOLOGY_PALETTE.size]
+                    val col = chartPalette[idx % chartPalette.size]
                     val isExpanded = expandedClusterId == cat.clusterId || onlyShowOutliers
                     val isHighlighted = highlightedClusterId == cat.clusterId
 
@@ -304,6 +309,7 @@ internal fun EnhancedMacroToneSystemCard(
                         modifier = Modifier
                             .fillMaxWidth()
                             .clip(RoundedCornerShape(12.dp))
+                            .pointerHoverIcon(PointerIcon.Hand)
                             .clickable {
                                 expandedClusterId = if (expandedClusterId == cat.clusterId) null else cat.clusterId
                                 highlightedClusterId = if (highlightedClusterId == cat.clusterId) null else cat.clusterId
@@ -387,15 +393,21 @@ internal fun EnhancedMacroToneSystemCard(
                                         color = MaterialTheme.colorScheme.primary
                                     )
                                     Icon(
-                                        imageVector = if (isExpanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                                        imageVector = Icons.Default.ExpandMore,
                                         contentDescription = null,
                                         tint = MaterialTheme.colorScheme.outline,
-                                        modifier = Modifier.size(18.dp)
+                                        modifier = Modifier
+                                            .size(18.dp)
+                                            .studioRotateOn(isExpanded)
                                     )
                                 }
                             }
 
-                            AnimatedVisibility(visible = isExpanded) {
+                            AnimatedVisibility(
+                                visible = isExpanded,
+                                enter = StudioMotion.verticalPanelEnter,
+                                exit = StudioMotion.verticalPanelExit
+                            ) {
                                 Column(
                                     modifier = Modifier
                                         .fillMaxWidth()
@@ -503,7 +515,7 @@ internal fun EnhancedMacroToneSystemCard(
 
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     report.polysyllabicTonePatterns.forEachIndexed { pIdx, pat ->
-                        val pCol = PHONOLOGY_PALETTE[(pIdx + 2) % PHONOLOGY_PALETTE.size]
+                        val pCol = chartPalette[(pIdx + 2) % chartPalette.size]
                         val isExp = expandedPolyKey == pat.patternKey
                         Surface(
                             shape = RoundedCornerShape(12.dp),
@@ -515,6 +527,7 @@ internal fun EnhancedMacroToneSystemCard(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .clip(RoundedCornerShape(12.dp))
+                                .pointerHoverIcon(PointerIcon.Hand)
                                 .clickable { expandedPolyKey = if (isExp) null else pat.patternKey }
                         ) {
                             Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 9.dp)) {
@@ -639,14 +652,20 @@ internal fun EnhancedMacroToneSystemCard(
                                         }
                                     }
                                     Icon(
-                                        imageVector = if (isExp) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                                        imageVector = Icons.Default.ExpandMore,
                                         contentDescription = null,
                                         tint = MaterialTheme.colorScheme.outline,
-                                        modifier = Modifier.size(18.dp)
+                                        modifier = Modifier
+                                            .size(18.dp)
+                                            .studioRotateOn(isExp)
                                     )
                                 }
 
-                                AnimatedVisibility(visible = isExp) {
+                                AnimatedVisibility(
+                                    visible = isExp,
+                                    enter = StudioMotion.verticalPanelEnter,
+                                    exit = StudioMotion.verticalPanelExit
+                                ) {
                                     Column(
                                         modifier = Modifier
                                             .fillMaxWidth()

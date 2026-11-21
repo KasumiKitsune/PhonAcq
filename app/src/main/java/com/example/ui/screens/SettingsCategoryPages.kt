@@ -16,10 +16,12 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.LocalIndication
+import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.hoverable
 import androidx.compose.foundation.interaction.collectIsPressedAsState
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -56,12 +58,16 @@ import com.example.ui.components.KeycapBadge
 import com.example.ui.components.consumeDialogCardTaps
 import com.example.ui.components.PredictiveBackGestureHandler
 import com.example.ui.components.StudioFilterChip
+import com.example.ui.components.StudioMotion
 import com.example.ui.components.StudioRadioRow
 import com.example.ui.components.StudioSwitchRow
 import com.example.ui.components.TextGridSettingsSection
 import com.example.ui.components.predictiveBackLayer
 import com.example.ui.components.rememberPredictiveBackVisualState
 import com.example.ui.components.rememberStudioInteraction
+import com.example.ui.components.studioRotateOn
+import com.example.ui.components.studioTactile
+import com.example.ui.theme.PhonAcqThemePalette
 import com.example.utils.TextGridFormatConfig
 import com.example.utils.TextGridPreset
 import com.example.viewmodel.RecordingViewModel
@@ -347,6 +353,7 @@ internal fun RecordingControlCategoryContent(
                 modifier = Modifier
                     .fillMaxWidth()
                     .clip(RoundedCornerShape(10.dp))
+                    .pointerHoverIcon(PointerIcon.Hand)
                     .clickable { showFineSwitchDetails = !showFineSwitchDetails }
                     .padding(vertical = 4.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -359,10 +366,12 @@ internal fun RecordingControlCategoryContent(
                     color = MaterialTheme.colorScheme.primary
                 )
                 Icon(
-                    imageVector = if (showFineSwitchDetails) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                    imageVector = Icons.Default.ExpandMore,
                     contentDescription = null,
                     tint = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(18.dp)
+                    modifier = Modifier
+                        .size(18.dp)
+                        .studioRotateOn(showFineSwitchDetails)
                 )
             }
         }
@@ -1468,8 +1477,17 @@ internal fun ExportStorageCategoryContent(
 internal fun AppearanceCategoryContent(
     viewModel: RecordingViewModel,
     themeMode: String,
+    themePaletteId: String = PhonAcqThemePalette.STUDIO_BLUE.id,
     dynamicColor: Boolean
 ) {
+    val systemDark = isSystemInDarkTheme()
+    val previewDark = when (themeMode) {
+        "LIGHT" -> false
+        "DARK" -> true
+        else -> systemDark
+    }
+    val useBuiltInPaletteSelected = DesktopAdaptiveState.isDesktopPlatform || !dynamicColor
+
     SettingsGroupCard(title = S.settings.cardThemeTitle) {
         FlowRow(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -1489,6 +1507,46 @@ internal fun AppearanceCategoryContent(
             }
         }
 
+        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(
+                    text = S.settings.themePaletteTitle,
+                    fontSize = 14.5.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                Text(
+                    text = S.settings.themePaletteSubtitle,
+                    fontSize = 12.sp,
+                    lineHeight = 16.5.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                PhonAcqThemePalette.entries.forEach { palette ->
+                    val isSelected = useBuiltInPaletteSelected && themePaletteId == palette.id
+                    ThemePaletteSwatchCard(
+                        palette = palette,
+                        label = S.settings.displayThemePalette(palette.id),
+                        previewDark = previewDark,
+                        selected = isSelected,
+                        onClick = {
+                            if (!DesktopAdaptiveState.isDesktopPlatform && dynamicColor) {
+                                viewModel.setDynamicColorEnabled(false)
+                            }
+                            viewModel.setThemePaletteId(palette.id)
+                        }
+                    )
+                }
+            }
+        }
+
         if (!DesktopAdaptiveState.isDesktopPlatform) {
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
 
@@ -1498,6 +1556,138 @@ internal fun AppearanceCategoryContent(
                 checked = dynamicColor,
                 onCheckedChange = { viewModel.setDynamicColorEnabled(it) }
             )
+        }
+    }
+}
+
+@Composable
+private fun ThemePaletteSwatchCard(
+    palette: PhonAcqThemePalette,
+    label: String,
+    previewDark: Boolean,
+    selected: Boolean,
+    onClick: () -> Unit
+) {
+    val cs = MaterialTheme.colorScheme
+    val (swatchPrimary, swatchContainer, swatchTertiary) = remember(palette, previewDark) {
+        palette.previewSwatches(previewDark)
+    }
+    val (interactionSource, isHoveredState) = rememberStudioInteraction()
+    val isHovered by isHoveredState
+
+    val cardBg by animateColorAsState(
+        targetValue = when {
+            selected -> lerp(cs.surface, cs.primaryContainer, if (isHovered) 0.65f else 0.48f)
+            isHovered -> lerp(cs.surface, cs.primaryContainer, 0.25f)
+            else -> cs.surface
+        },
+        animationSpec = StudioMotion.microTween(),
+        label = "PaletteCardBg"
+    )
+    val cardBorder by animateColorAsState(
+        targetValue = when {
+            selected -> cs.primary
+            isHovered -> cs.primary.copy(alpha = 0.55f)
+            else -> cs.outlineVariant.copy(alpha = 0.75f)
+        },
+        animationSpec = StudioMotion.microTween(),
+        label = "PaletteCardBorder"
+    )
+    val labelColor by animateColorAsState(
+        targetValue = when {
+            selected -> cs.onPrimaryContainer
+            isHovered -> cs.primary
+            else -> cs.onSurface
+        },
+        animationSpec = StudioMotion.microTween(),
+        label = "PaletteCardLabel"
+    )
+
+    Surface(
+        shape = RoundedCornerShape(14.dp),
+        color = cardBg,
+        border = BorderStroke(if (selected) 1.5.dp else 1.dp, cardBorder),
+        shadowElevation = 0.dp,
+        tonalElevation = 0.dp,
+        modifier = Modifier
+            .width(104.dp)
+            .height(72.dp)
+            .studioTactile(interactionSource, pressScale = 0.96f)
+            .clip(RoundedCornerShape(14.dp))
+            .hoverable(interactionSource)
+            .pointerHoverIcon(PointerIcon.Hand)
+            .clickable(
+                interactionSource = interactionSource,
+                indication = null,
+                onClick = onClick
+            )
+            .testTag("settings_palette_${palette.id.lowercase()}")
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = 10.dp, vertical = 9.dp)
+        ) {
+            if (selected) {
+                Box(
+                    contentAlignment = Alignment.Center,
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .size(18.dp)
+                        .clip(CircleShape)
+                        .background(cs.primary)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Check,
+                        contentDescription = S.settings.currentCheckDesc,
+                        tint = cs.onPrimary,
+                        modifier = Modifier.size(12.dp)
+                    )
+                }
+            }
+
+            Column(
+                modifier = Modifier.fillMaxSize(),
+                verticalArrangement = Arrangement.SpaceBetween,
+                horizontalAlignment = Alignment.Start
+            ) {
+                // Tri-swatch preview dots (primary / secondaryContainer / tertiary)
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy((-4).dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(22.dp)
+                            .clip(CircleShape)
+                            .background(swatchPrimary)
+                            .border(1.5.dp, cs.surface, CircleShape)
+                    )
+                    Box(
+                        modifier = Modifier
+                            .size(18.dp)
+                            .clip(CircleShape)
+                            .background(swatchContainer)
+                            .border(1.5.dp, cs.surface, CircleShape)
+                    )
+                    Box(
+                        modifier = Modifier
+                            .size(15.dp)
+                            .clip(CircleShape)
+                            .background(swatchTertiary)
+                            .border(1.5.dp, cs.surface, CircleShape)
+                    )
+                }
+
+                Text(
+                    text = label,
+                    fontSize = 12.5.sp,
+                    fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
+                    color = labelColor,
+                    maxLines = 1,
+                    softWrap = false
+                )
+            }
         }
     }
 }
