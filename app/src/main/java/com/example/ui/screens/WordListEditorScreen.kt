@@ -12,14 +12,24 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
+import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.hoverable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -39,21 +49,26 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.input.pointer.PointerIcon
 import androidx.compose.ui.input.pointer.pointerHoverIcon
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.zIndex
 import androidx.core.content.FileProvider
 import com.example.data.EditableWordDraft
 import com.example.data.ParsedWord
@@ -1593,43 +1608,297 @@ fun WordListEditorScreen(
                                             }
                                         }
                                     }
+                                    val onDragMoveItem = remember {
+                                        { fromIdx: Int, toIdx: Int, adoptGroup: String? ->
+                                            if (fromIdx in draftItems.indices && toIdx in draftItems.indices && fromIdx != toIdx) {
+                                                val moved = draftItems.removeAt(fromIdx)
+                                                val updated = if (adoptGroup != null && moved.groupName != adoptGroup) {
+                                                    moved.copy(groupName = adoptGroup)
+                                                } else {
+                                                    moved
+                                                }
+                                                draftItems.add(toIdx, updated)
+                                                hasUnsavedChanges = true
+                                            }
+                                        }
+                                    }
                                     val totalDraftCount = draftItems.size
                                     val currentProjectId = targetProject?.id ?: 0L
-                                    val wordListState = rememberLazyListState()
+                                    val showGroupPinHeaders = remember(filteredIndexedItems, selectedGroupFilter) {
+                                        selectedGroupFilter == "ALL" &&
+                                            filteredIndexedItems.any { it.second.groupName.isNotBlank() }
+                                    }
+                                    val gridEntries: List<WordEditorGridEntry> = remember(filteredIndexedItems, showGroupPinHeaders) {
+                                        if (!showGroupPinHeaders) {
+                                            filteredIndexedItems.map { (realIdx, item) ->
+                                                WordEditorGridEntry.WordCell(
+                                                    realIndex = realIdx,
+                                                    item = item,
+                                                    showInlineGroupBadge = item.groupName.isNotBlank() && selectedGroupFilter == "ALL"
+                                                )
+                                            }
+                                        } else {
+                                            buildList<WordEditorGridEntry> {
+                                                var cursor = 0
+                                                var sectionSeq = 0
+                                                while (cursor < filteredIndexedItems.size) {
+                                                    val grp = filteredIndexedItems[cursor].second.groupName
+                                                    var end = cursor + 1
+                                                    while (end < filteredIndexedItems.size &&
+                                                        filteredIndexedItems[end].second.groupName == grp
+                                                    ) {
+                                                        end++
+                                                    }
+                                                    add(
+                                                        WordEditorGridEntry.GroupHeader(
+                                                            sectionIndex = sectionSeq++,
+                                                            groupName = grp,
+                                                            itemCount = end - cursor
+                                                        )
+                                                    )
+                                                    for (i in cursor until end) {
+                                                        val (realIdx, item) = filteredIndexedItems[i]
+                                                        add(
+                                                            WordEditorGridEntry.WordCell(
+                                                                realIndex = realIdx,
+                                                                item = item,
+                                                                showInlineGroupBadge = false
+                                                            )
+                                                        )
+                                                    }
+                                                    cursor = end
+                                                }
+                                            }
+                                        }
+                                    }
 
-                                    Box(modifier = Modifier.fillMaxSize()) {
-                                        LazyColumn(
-                                            state = wordListState,
+                                    val wordGridState = rememberLazyGridState()
+                                    val gridDensity = LocalDensity.current
+                                    var draggingLocalKey by remember { mutableStateOf<String?>(null) }
+                                    var dragStartItemOffset by remember { mutableStateOf(IntOffset.Zero) }
+                                    var accumulatedDragDelta by remember { mutableStateOf(Offset.Zero) }
+                                    var activeDragPointerY by remember { mutableFloatStateOf(0f) }
+                                    var lastSwapLayoutInfo by remember { mutableStateOf<Any?>(null) }
+
+                                    val latestGridEntries by rememberUpdatedState(gridEntries)
+                                    val latestAllowCrossGroupAdopt by rememberUpdatedState(selectedGroupFilter == "ALL" && showGroupPinHeaders)
+
+                                    // Edge auto-scroll while dragging near viewport top/bottom
+                                    LaunchedEffect(draggingLocalKey) {
+                                        if (draggingLocalKey == null) return@LaunchedEffect
+                                        val edgePx = with(gridDensity) { 48.dp.toPx() }
+                                        val maxStepPx = with(gridDensity) { 14.dp.toPx() }
+                                        while (draggingLocalKey != null) {
+                                            val layout = wordGridState.layoutInfo
+                                            val vpTop = layout.viewportStartOffset.toFloat()
+                                            val vpBottom = layout.viewportEndOffset.toFloat()
+                                            val y = activeDragPointerY
+                                            val delta = when {
+                                                y < vpTop + edgePx && wordGridState.canScrollBackward -> {
+                                                    val ratio = ((vpTop + edgePx - y) / edgePx).coerceIn(0f, 1f)
+                                                    -maxStepPx * ratio
+                                                }
+                                                y > vpBottom - edgePx && wordGridState.canScrollForward -> {
+                                                    val ratio = ((y - (vpBottom - edgePx)) / edgePx).coerceIn(0f, 1f)
+                                                    maxStepPx * ratio
+                                                }
+                                                else -> 0f
+                                            }
+                                            if (delta != 0f) {
+                                                wordGridState.scrollBy(delta)
+                                            }
+                                            delay(16L)
+                                        }
+                                    }
+
+                                    BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+                                        val columns = when {
+                                            enablePicturePrompts -> when {
+                                                maxWidth >= 780.dp -> 3
+                                                maxWidth >= 520.dp -> 2
+                                                else -> 1
+                                            }
+                                            else -> when {
+                                                maxWidth >= 700.dp -> 3
+                                                maxWidth >= 460.dp -> 2
+                                                else -> 1
+                                            }
+                                        }
+                                        val isMultiColumn = columns >= 2
+                                        val dragEnabled = filteredIndexedItems.size >= 2
+
+                                        LazyVerticalGrid(
+                                            columns = GridCells.Fixed(columns),
+                                            state = wordGridState,
                                             modifier = Modifier.fillMaxSize(),
                                             contentPadding = PaddingValues(
                                                 top = 6.dp,
-                                                bottom = 6.dp,
+                                                bottom = 12.dp,
                                                 end = if (DesktopAdaptiveState.isDesktopPlatform) 11.dp else 0.dp
                                             ),
-                                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                            verticalArrangement = Arrangement.spacedBy(8.dp)
                                         ) {
-                                            itemsIndexed(
-                                                items = filteredIndexedItems,
-                                                key = { _, pair -> pair.second.localKey },
-                                                contentType = { _, _ -> "word_editor_draft_row" }
-                                            ) { _, (realIndex, item) ->
-                                                WordEditorDraftRow(
-                                                    realIndex = realIndex,
-                                                    totalCount = totalDraftCount,
-                                                    item = item,
-                                                    projectId = currentProjectId,
-                                                    enablePicturePrompts = enablePicturePrompts,
-                                                    onEdit = onEditRow,
-                                                    onClickImageSlot = onClickImageSlotRow,
-                                                    onMoveUp = onMoveUpRow,
-                                                    onMoveDown = onMoveDownRow,
-                                                    onDelete = onDeleteRow,
-                                                    modifier = studioAnimateItem()
-                                                )
+                                            items(
+                                                items = gridEntries,
+                                                key = { it.key },
+                                                span = { entry ->
+                                                    when (entry) {
+                                                        is WordEditorGridEntry.GroupHeader -> GridItemSpan(maxLineSpan)
+                                                        is WordEditorGridEntry.WordCell -> GridItemSpan(1)
+                                                    }
+                                                },
+                                                contentType = { entry ->
+                                                    when (entry) {
+                                                        is WordEditorGridEntry.GroupHeader -> "word_editor_group_header"
+                                                        is WordEditorGridEntry.WordCell -> "word_editor_draft_card"
+                                                    }
+                                                }
+                                            ) { entry ->
+                                                when (entry) {
+                                                    is WordEditorGridEntry.GroupHeader -> {
+                                                        WordEditorGroupPinDivider(
+                                                            groupName = entry.groupName,
+                                                            itemCount = entry.itemCount,
+                                                            isFirstSection = entry.sectionIndex == 0,
+                                                            modifier = studioAnimateItem()
+                                                        )
+                                                    }
+
+                                                    is WordEditorGridEntry.WordCell -> {
+                                                        val isDragging = draggingLocalKey == entry.item.localKey
+                                                        val liftScale by animateFloatAsState(
+                                                            targetValue = if (isDragging) 1.035f else 1f,
+                                                            animationSpec = StudioMotion.tactileSpring(),
+                                                            label = "WordDragLift_${entry.item.localKey}"
+                                                        )
+                                                        val cellDragModifier = if (dragEnabled) {
+                                                            Modifier.pointerInput(entry.item.localKey, DesktopAdaptiveState.isDesktopPlatform) {
+                                                                val handleDragStart: () -> Unit = {
+                                                                    draggingLocalKey = entry.item.localKey
+                                                                    accumulatedDragDelta = Offset.Zero
+                                                                    lastSwapLayoutInfo = null
+                                                                    val info = wordGridState.layoutInfo.visibleItemsInfo
+                                                                        .firstOrNull { it.key == entry.key }
+                                                                    if (info != null) {
+                                                                        dragStartItemOffset = info.offset
+                                                                        activeDragPointerY = info.offset.y + info.size.height / 2f
+                                                                    } else {
+                                                                        dragStartItemOffset = IntOffset.Zero
+                                                                    }
+                                                                }
+                                                                val handleDragDelta: (Offset) -> Unit = { delta ->
+                                                                    accumulatedDragDelta += delta
+                                                                    val layout = wordGridState.layoutInfo
+                                                                    val visible = layout.visibleItemsInfo
+                                                                    val draggedInfo = visible.firstOrNull { it.key == entry.key }
+                                                                    if (draggedInfo != null) {
+                                                                        val desiredX = dragStartItemOffset.x + accumulatedDragDelta.x
+                                                                        val desiredY = dragStartItemOffset.y + accumulatedDragDelta.y
+                                                                        val centerX = desiredX + draggedInfo.size.width / 2f
+                                                                        val centerY = desiredY + draggedInfo.size.height / 2f
+                                                                        activeDragPointerY = centerY
+                                                                        if (layout !== lastSwapLayoutInfo) {
+                                                                            val targetInfo = visible.firstOrNull { info ->
+                                                                                info.key != entry.key &&
+                                                                                    (info.key as? String)?.startsWith("word_") == true &&
+                                                                                    centerX >= info.offset.x &&
+                                                                                    centerX <= info.offset.x + info.size.width &&
+                                                                                    centerY >= info.offset.y &&
+                                                                                    centerY <= info.offset.y + info.size.height
+                                                                            }
+                                                                            if (targetInfo != null) {
+                                                                                val currentEntries = latestGridEntries
+                                                                                val fromCell = currentEntries.firstOrNull {
+                                                                                    it is WordEditorGridEntry.WordCell && it.key == entry.key
+                                                                                } as? WordEditorGridEntry.WordCell
+                                                                                val toCell = currentEntries.firstOrNull {
+                                                                                    it is WordEditorGridEntry.WordCell && it.key == targetInfo.key
+                                                                                } as? WordEditorGridEntry.WordCell
+                                                                                if (fromCell != null && toCell != null && fromCell.realIndex != toCell.realIndex) {
+                                                                                    val adoptGrp = if (latestAllowCrossGroupAdopt) {
+                                                                                        toCell.item.groupName
+                                                                                    } else {
+                                                                                        null
+                                                                                    }
+                                                                                    lastSwapLayoutInfo = layout
+                                                                                    onDragMoveItem(fromCell.realIndex, toCell.realIndex, adoptGrp)
+                                                                                }
+                                                                            }
+                                                                        }
+                                                                    }
+                                                                }
+                                                                val handleDragEnd: () -> Unit = {
+                                                                    draggingLocalKey = null
+                                                                    accumulatedDragDelta = Offset.Zero
+                                                                    lastSwapLayoutInfo = null
+                                                                }
+                                                                if (DesktopAdaptiveState.isDesktopPlatform) {
+                                                                    detectDragGestures(
+                                                                        onDragStart = { handleDragStart() },
+                                                                        onDrag = { change, amount ->
+                                                                            change.consume()
+                                                                            handleDragDelta(amount)
+                                                                        },
+                                                                        onDragEnd = handleDragEnd,
+                                                                        onDragCancel = handleDragEnd
+                                                                    )
+                                                                } else {
+                                                                    detectDragGesturesAfterLongPress(
+                                                                        onDragStart = { handleDragStart() },
+                                                                        onDrag = { change, amount ->
+                                                                            change.consume()
+                                                                            handleDragDelta(amount)
+                                                                        },
+                                                                        onDragEnd = handleDragEnd,
+                                                                        onDragCancel = handleDragEnd
+                                                                    )
+                                                                }
+                                                            }
+                                                        } else {
+                                                            Modifier
+                                                        }
+
+                                                        WordEditorDraftRow(
+                                                            realIndex = entry.realIndex,
+                                                            totalCount = totalDraftCount,
+                                                            item = entry.item,
+                                                            projectId = currentProjectId,
+                                                            enablePicturePrompts = enablePicturePrompts,
+                                                            compactGridCard = isMultiColumn,
+                                                            showInlineGroupBadge = entry.showInlineGroupBadge,
+                                                            isDragging = isDragging,
+                                                            dragEnabled = dragEnabled,
+                                                            onEdit = onEditRow,
+                                                            onClickImageSlot = onClickImageSlotRow,
+                                                            onMoveUp = onMoveUpRow,
+                                                            onMoveDown = onMoveDownRow,
+                                                            onDelete = onDeleteRow,
+                                                            modifier = (if (!isDragging) studioAnimateItem() else Modifier)
+                                                                .zIndex(if (isDragging) 10f else 0f)
+                                                                .then(cellDragModifier)
+                                                                .graphicsLayer {
+                                                                    if (isDragging) {
+                                                                        val curOffset = wordGridState.layoutInfo.visibleItemsInfo
+                                                                            .firstOrNull { it.key == entry.key }?.offset
+                                                                        if (curOffset != null) {
+                                                                            translationX = dragStartItemOffset.x + accumulatedDragDelta.x - curOffset.x
+                                                                            translationY = dragStartItemOffset.y + accumulatedDragDelta.y - curOffset.y
+                                                                        } else {
+                                                                            translationX = accumulatedDragDelta.x
+                                                                            translationY = accumulatedDragDelta.y
+                                                                        }
+                                                                    }
+                                                                    scaleX = liftScale
+                                                                    scaleY = liftScale
+                                                                }
+                                                        )
+                                                    }
+                                                }
                                             }
                                         }
                                         PlatformVerticalScrollbar(
-                                            listState = wordListState,
+                                            gridState = wordGridState,
                                             modifier = Modifier.align(Alignment.CenterEnd)
                                         )
                                     }
@@ -2241,7 +2510,6 @@ fun WordListEditorScreen(
             },
             text = {
                 Column(
-                    modifier = Modifier.verticalScroll(rememberScrollState()),
                     verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
                     OutlinedTextField(
@@ -2765,6 +3033,124 @@ fun WordListEditorScreen(
     }
 }
 
+private sealed class WordEditorGridEntry {
+    abstract val key: String
+
+    data class GroupHeader(
+        val sectionIndex: Int,
+        val groupName: String,
+        val itemCount: Int
+    ) : WordEditorGridEntry() {
+        override val key: String = "grp_hdr_${sectionIndex}_$groupName"
+    }
+
+    data class WordCell(
+        val realIndex: Int,
+        val item: WordEditorUiItem,
+        val showInlineGroupBadge: Boolean
+    ) : WordEditorGridEntry() {
+        override val key: String = "word_${item.localKey}"
+    }
+}
+
+/**
+ * Pushpin-style full-span group divider (`● 组名 (N) ——————`) that forces a clean line break
+ * between word groups in multi-column desktop grids and provides clear section anchors on mobile.
+ */
+@Composable
+private fun WordEditorGroupPinDivider(
+    groupName: String,
+    itemCount: Int,
+    isFirstSection: Boolean,
+    modifier: Modifier = Modifier
+) {
+    val cs = MaterialTheme.colorScheme
+    val displayTitle = groupName.ifBlank { S.recording.ungroupedHeader.trim('【', '】', '[', ']', ' ') }
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(
+                top = if (isFirstSection) 2.dp else 10.dp,
+                bottom = 2.dp,
+                start = 2.dp,
+                end = 2.dp
+            ),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(7.dp)
+    ) {
+        // Pushpin dot with subtle halo ring
+        Box(
+            contentAlignment = Alignment.Center,
+            modifier = Modifier.size(16.dp)
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(14.dp)
+                    .clip(CircleShape)
+                    .background(
+                        if (groupName.isNotBlank()) cs.primaryContainer else cs.surfaceContainerHighest
+                    )
+            )
+            Box(
+                modifier = Modifier
+                    .size(6.dp)
+                    .clip(CircleShape)
+                    .background(
+                        if (groupName.isNotBlank()) cs.primary else cs.onSurfaceVariant
+                    )
+            )
+        }
+
+        Text(
+            text = displayTitle,
+            fontSize = 12.sp,
+            fontWeight = FontWeight.Bold,
+            color = if (groupName.isNotBlank()) cs.onSurface else cs.onSurfaceVariant,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+
+        Surface(
+            shape = RoundedCornerShape(6.dp),
+            color = cs.surfaceContainerHigh
+        ) {
+            Text(
+                text = itemCount.toString(),
+                fontSize = 10.sp,
+                fontWeight = FontWeight.Bold,
+                fontFamily = FontFamily.Monospace,
+                color = cs.onSurfaceVariant,
+                maxLines = 1,
+                softWrap = false,
+                modifier = Modifier.padding(horizontal = 5.5.dp, vertical = 1.dp)
+            )
+        }
+
+        HorizontalDivider(
+            modifier = Modifier.weight(1f),
+            thickness = 1.dp,
+            color = cs.outlineVariant.copy(alpha = 0.6f)
+        )
+    }
+}
+
+@Composable
+private fun WordEditorDragGrip(
+    tint: Color,
+    modifier: Modifier = Modifier
+) {
+    Canvas(modifier = modifier.size(width = 10.dp, height = 16.dp)) {
+        val r = 1.3.dp.toPx()
+        val cols = listOf(size.width * 0.28f, size.width * 0.72f)
+        val rows = listOf(size.height * 0.20f, size.height * 0.50f, size.height * 0.80f)
+        for (y in rows) {
+            for (x in cols) {
+                drawCircle(color = tint, radius = r, center = Offset(x, y))
+            }
+        }
+    }
+}
+
 @Composable
 private fun WordEditorDraftRow(
     realIndex: Int,
@@ -2772,6 +3158,10 @@ private fun WordEditorDraftRow(
     item: WordEditorUiItem,
     projectId: Long,
     enablePicturePrompts: Boolean,
+    compactGridCard: Boolean = false,
+    showInlineGroupBadge: Boolean = true,
+    isDragging: Boolean = false,
+    dragEnabled: Boolean = true,
     onEdit: (Int) -> Unit,
     onClickImageSlot: (Int) -> Unit,
     onMoveUp: (Int) -> Unit,
@@ -2780,37 +3170,89 @@ private fun WordEditorDraftRow(
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
+    val cs = MaterialTheme.colorScheme
+    val (cardInteraction, cardHoveredState) = rememberStudioInteraction()
+    val cardHovered by cardHoveredState
+
+    val cardBg by animateColorAsState(
+        targetValue = when {
+            isDragging -> lerp(cs.surface, cs.primaryContainer, 0.42f)
+            cardHovered -> lerp(cs.surface, cs.primaryContainer, 0.16f)
+            else -> cs.surface
+        },
+        animationSpec = StudioMotion.microTween(),
+        label = "WordCardBg_${item.localKey}"
+    )
+    val cardBorder by animateColorAsState(
+        targetValue = when {
+            isDragging -> cs.primary
+            cardHovered -> cs.primary.copy(alpha = 0.42f)
+            else -> cs.outlineVariant.copy(alpha = 0.55f)
+        },
+        animationSpec = StudioMotion.microTween(),
+        label = "WordCardBorder_${item.localKey}"
+    )
+    val gripTint by animateColorAsState(
+        targetValue = when {
+            isDragging -> cs.primary
+            cardHovered -> cs.onSurfaceVariant.copy(alpha = 0.78f)
+            else -> cs.onSurfaceVariant.copy(alpha = 0.36f)
+        },
+        animationSpec = StudioMotion.microTween(),
+        label = "WordGripTint_${item.localKey}"
+    )
+
     Surface(
-        shape = RoundedCornerShape(14.dp),
-        color = MaterialTheme.colorScheme.surfaceContainerLow,
+        shape = RoundedCornerShape(13.dp),
+        color = cardBg,
+        border = BorderStroke(if (isDragging) 1.5.dp else 1.dp, cardBorder),
+        shadowElevation = if (isDragging) 6.dp else 0.dp,
+        tonalElevation = 0.dp,
         modifier = modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(14.dp))
-            .clickable { onEdit(realIndex) }
+            .clip(RoundedCornerShape(13.dp))
+            .hoverable(cardInteraction)
+            .pointerHoverIcon(PointerIcon.Hand)
+            .clickable(
+                interactionSource = cardInteraction,
+                indication = null
+            ) {
+                if (!isDragging) onEdit(realIndex)
+            }
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 12.dp, vertical = 10.dp),
+                .padding(
+                    start = if (compactGridCard) 8.dp else 10.dp,
+                    end = if (compactGridCard) 6.dp else 8.dp,
+                    top = if (compactGridCard) 9.dp else 10.dp,
+                    bottom = if (compactGridCard) 9.dp else 10.dp
+                ),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                horizontalArrangement = Arrangement.spacedBy(if (compactGridCard) 7.dp else 9.dp),
                 modifier = Modifier.weight(1f)
             ) {
+                if (dragEnabled) {
+                    WordEditorDragGrip(tint = gripTint)
+                }
+
                 Surface(
-                    shape = CircleShape,
-                    color = MaterialTheme.colorScheme.primaryContainer,
-                    modifier = Modifier.size(28.dp)
+                    shape = RoundedCornerShape(8.dp),
+                    color = if (isDragging) cs.primary else cs.primaryContainer,
+                    modifier = Modifier.size(if (compactGridCard) 24.dp else 26.dp)
                 ) {
                     Box(contentAlignment = Alignment.Center) {
                         Text(
                             text = "${realIndex + 1}",
-                            fontSize = 11.sp,
+                            fontSize = if (compactGridCard) 10.5.sp else 11.sp,
                             fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onPrimaryContainer
+                            fontFamily = FontFamily.Monospace,
+                            color = if (isDragging) cs.onPrimary else cs.onPrimaryContainer
                         )
                     }
                 }
@@ -2822,24 +3264,26 @@ private fun WordEditorDraftRow(
                         } else null
                     }
                     val thumbBitmap by rememberWordImageBitmap(imgFile, maxEdgePx = 256)
+                    val imgSize = if (compactGridCard) 40.dp else 46.dp
                     Surface(
-                        shape = RoundedCornerShape(10.dp),
+                        shape = RoundedCornerShape(9.dp),
                         color = if (thumbBitmap != null) {
-                            MaterialTheme.colorScheme.surfaceContainerHighest
+                            cs.surfaceContainerHighest
                         } else {
-                            MaterialTheme.colorScheme.surface
+                            cs.surfaceContainerLow
                         },
                         border = BorderStroke(
                             1.dp,
                             if (thumbBitmap != null) {
-                                MaterialTheme.colorScheme.primary.copy(alpha = 0.45f)
+                                cs.primary.copy(alpha = 0.45f)
                             } else {
-                                MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.8f)
+                                cs.outlineVariant.copy(alpha = 0.8f)
                             }
                         ),
                         modifier = Modifier
-                            .size(48.dp)
-                            .clip(RoundedCornerShape(10.dp))
+                            .size(imgSize)
+                            .clip(RoundedCornerShape(9.dp))
+                            .pointerHoverIcon(PointerIcon.Hand)
                             .clickable { onClickImageSlot(realIndex) }
                             .testTag("word_row_image_slot_$realIndex")
                     ) {
@@ -2859,16 +3303,18 @@ private fun WordEditorDraftRow(
                                 Icon(
                                     imageVector = Icons.Default.AddPhotoAlternate,
                                     contentDescription = S.wordEditor.addWordImageDesc.withArgs("word" to item.text),
-                                    tint = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.size(16.dp)
+                                    tint = cs.primary,
+                                    modifier = Modifier.size(15.dp)
                                 )
-                                Text(
-                                    text = S.wordEditor.imageButtonShort,
-                                    fontSize = 9.sp,
-                                    fontWeight = FontWeight.SemiBold,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    maxLines = 1
-                                )
+                                if (!compactGridCard) {
+                                    Text(
+                                        text = S.wordEditor.imageButtonShort,
+                                        fontSize = 9.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = cs.onSurfaceVariant,
+                                        maxLines = 1
+                                    )
+                                }
                             }
                         }
                     }
@@ -2877,60 +3323,60 @@ private fun WordEditorDraftRow(
                 Column(
                     modifier = Modifier
                         .weight(1f)
-                        .padding(end = 6.dp),
-                    verticalArrangement = Arrangement.spacedBy(3.dp)
+                        .padding(end = 4.dp),
+                    verticalArrangement = Arrangement.spacedBy(2.dp)
                 ) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        horizontalArrangement = Arrangement.spacedBy(5.dp)
                     ) {
                         Text(
                             text = item.text,
-                            fontSize = 16.sp,
+                            fontSize = if (compactGridCard) 15.sp else 16.sp,
                             fontWeight = FontWeight.ExtraBold,
-                            color = MaterialTheme.colorScheme.onSurface,
+                            color = cs.onSurface,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                             modifier = Modifier.weight(1f, fill = false)
                         )
-                        if (item.existingWordId != null) {
+                        if (item.existingWordId != null && !compactGridCard) {
                             Text(
                                 text = S.wordEditor.originalWordLabel,
                                 fontSize = 10.sp,
-                                color = MaterialTheme.colorScheme.outline,
+                                color = cs.outline,
                                 maxLines = 1,
                                 softWrap = false
                             )
                         }
                     }
-                    if (item.groupName.isNotBlank() || item.remark.isNotBlank()) {
+                    if ((showInlineGroupBadge && item.groupName.isNotBlank()) || item.remark.isNotBlank()) {
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            horizontalArrangement = Arrangement.spacedBy(5.dp)
                         ) {
-                            if (item.groupName.isNotBlank()) {
+                            if (showInlineGroupBadge && item.groupName.isNotBlank()) {
                                 Surface(
-                                    shape = RoundedCornerShape(6.dp),
-                                    color = MaterialTheme.colorScheme.secondaryContainer
+                                    shape = RoundedCornerShape(5.dp),
+                                    color = cs.secondaryContainer
                                 ) {
                                     Text(
                                         text = item.groupName,
                                         fontSize = 10.sp,
                                         fontWeight = FontWeight.Bold,
-                                        color = MaterialTheme.colorScheme.onSecondaryContainer,
+                                        color = cs.onSecondaryContainer,
                                         maxLines = 1,
                                         overflow = TextOverflow.Ellipsis,
                                         modifier = Modifier
-                                            .widthIn(max = 96.dp)
-                                            .padding(horizontal = 6.dp, vertical = 2.dp)
+                                            .widthIn(max = 88.dp)
+                                            .padding(horizontal = 5.dp, vertical = 1.5.dp)
                                     )
                                 }
                             }
                             if (item.remark.isNotBlank()) {
                                 Text(
                                     text = item.remark,
-                                    fontSize = 12.sp,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    fontSize = 11.5.sp,
+                                    color = cs.onSurfaceVariant,
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis,
                                     modifier = Modifier.weight(1f, fill = false)
@@ -2942,37 +3388,58 @@ private fun WordEditorDraftRow(
             }
 
             Row(verticalAlignment = Alignment.CenterVertically) {
-                IconButton(
-                    onClick = { onMoveUp(realIndex) },
-                    enabled = realIndex > 0,
-                    modifier = Modifier.size(36.dp)
-                ) {
-                    Icon(
-                        Icons.Default.KeyboardArrowUp,
-                        contentDescription = S.wordEditor.moveUpDesc,
-                        modifier = Modifier.size(20.dp)
-                    )
+                if (!compactGridCard) {
+                    IconButton(
+                        onClick = { onMoveUp(realIndex) },
+                        enabled = realIndex > 0,
+                        modifier = Modifier
+                            .size(32.dp)
+                            .pointerHoverIcon(if (realIndex > 0) PointerIcon.Hand else PointerIcon.Default)
+                    ) {
+                        Icon(
+                            Icons.Default.KeyboardArrowUp,
+                            contentDescription = S.wordEditor.moveUpDesc,
+                            modifier = Modifier.size(19.dp)
+                        )
+                    }
+                    IconButton(
+                        onClick = { onMoveDown(realIndex) },
+                        enabled = realIndex < totalCount - 1,
+                        modifier = Modifier
+                            .size(32.dp)
+                            .pointerHoverIcon(if (realIndex < totalCount - 1) PointerIcon.Hand else PointerIcon.Default)
+                    ) {
+                        Icon(
+                            Icons.Default.KeyboardArrowDown,
+                            contentDescription = S.wordEditor.moveDownDesc,
+                            modifier = Modifier.size(19.dp)
+                        )
+                    }
                 }
-                IconButton(
-                    onClick = { onMoveDown(realIndex) },
-                    enabled = realIndex < totalCount - 1,
-                    modifier = Modifier.size(36.dp)
-                ) {
-                    Icon(
-                        Icons.Default.KeyboardArrowDown,
-                        contentDescription = S.wordEditor.moveDownDesc,
-                        modifier = Modifier.size(20.dp)
-                    )
-                }
+                val (delInteraction, delHoveredState) = rememberStudioInteraction()
+                val delHovered by delHoveredState
+                val delTint by animateColorAsState(
+                    targetValue = when {
+                        delHovered -> cs.error
+                        compactGridCard && !cardHovered -> cs.onSurfaceVariant.copy(alpha = 0.45f)
+                        else -> cs.error.copy(alpha = 0.82f)
+                    },
+                    animationSpec = StudioMotion.microTween(),
+                    label = "WordDelTint_${item.localKey}"
+                )
                 IconButton(
                     onClick = { onDelete(realIndex) },
-                    modifier = Modifier.size(36.dp)
+                    interactionSource = delInteraction,
+                    modifier = Modifier
+                        .size(if (compactGridCard) 30.dp else 32.dp)
+                        .hoverable(delInteraction)
+                        .pointerHoverIcon(PointerIcon.Hand)
                 ) {
                     Icon(
                         Icons.Default.DeleteOutline,
                         contentDescription = S.wordEditor.deleteRowDesc,
-                        tint = MaterialTheme.colorScheme.error,
-                        modifier = Modifier.size(19.dp)
+                        tint = delTint,
+                        modifier = Modifier.size(if (compactGridCard) 17.dp else 18.dp)
                     )
                 }
             }

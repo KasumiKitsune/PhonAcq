@@ -473,9 +473,6 @@ internal fun MultiTakeSwitcherDialog(
         },
         text = {
             Column(
-                modifier = Modifier
-                    .heightIn(max = 320.dp)
-                    .verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 Text(
