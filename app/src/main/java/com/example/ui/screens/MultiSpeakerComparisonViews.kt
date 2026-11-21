@@ -59,6 +59,7 @@ import com.example.data.Word
 import com.example.i18n.S
 import com.example.ui.components.DesktopAdaptiveState
 import com.example.ui.components.StudioFilterChip
+import com.example.ui.components.StudioHorizontalScrollStrip
 import com.example.ui.components.StudioMotion
 import com.example.ui.theme.LocalPhonAcqExtendedColors
 import com.example.viewmodel.RecordingViewModel
@@ -94,76 +95,82 @@ fun MacroActiveSpeakerSwitcherStrip(
     val isDesktop = DesktopAdaptiveState.isDesktopPlatform
     val cs = MaterialTheme.colorScheme
     val chartPalette = LocalPhonAcqExtendedColors.current.chartPalette
-    Row(
-        modifier = modifier
-            .fillMaxWidth()
-            .horizontalScroll(rememberScrollState()),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-        verticalAlignment = Alignment.CenterVertically
+    val switcherScroll = rememberScrollState()
+    StudioHorizontalScrollStrip(
+        state = switcherScroll,
+        modifier = modifier.fillMaxWidth()
     ) {
-        Text(
-            text = "切换发音人",
-            fontSize = 11.5.sp,
-            fontWeight = FontWeight.SemiBold,
-            color = cs.onSurfaceVariant
-        )
-        speakerPairs.forEachIndexed { idx, (spk, wList) ->
-            val recCnt = remember(wList) { wList.count { it.isRecorded && !it.recordingFile.isNullOrEmpty() } }
-            val isSelected = spk.id == selectedSpeakerId
-            val accent = cohortColor(chartPalette, idx)
-            val interactionSource = remember { MutableInteractionSource() }
-            val isHovered = if (isDesktop) interactionSource.collectIsHoveredAsState().value else false
-            val chipBg by animateColorAsState(
-                targetValue = when {
-                    isSelected -> lerp(cs.surface, accent, 0.16f)
-                    isHovered -> lerp(cs.surface, accent, 0.08f)
-                    else -> cs.surface
-                },
-                animationSpec = tween(140),
-                label = "MacroSpeakerChipBg"
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .horizontalScroll(switcherScroll),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = "切换发音人",
+                fontSize = 11.5.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = cs.onSurfaceVariant
             )
-            Surface(
-                shape = RoundedCornerShape(10.dp),
-                color = chipBg,
-                border = BorderStroke(
-                    width = if (isSelected) 1.4.dp else 1.dp,
-                    color = when {
-                        isSelected -> accent
-                        isHovered -> accent.copy(alpha = 0.65f)
-                        else -> cs.outlineVariant.copy(alpha = 0.50f)
-                    }
-                ),
-                shadowElevation = 0.dp,
-                tonalElevation = 0.dp,
-                modifier = Modifier
-                    .clip(RoundedCornerShape(10.dp))
-                    .hoverable(interactionSource)
-                    .then(if (isDesktop) Modifier.pointerHoverIcon(PointerIcon.Hand) else Modifier)
-                    .clickable(
-                        interactionSource = interactionSource,
-                        indication = null,
-                        onClick = { onSelectSpeaker(spk, wList) }
-                    )
-                    .testTag("macro_quick_speaker_${spk.id}")
-            ) {
-                Row(
-                    modifier = Modifier.padding(horizontal = 11.dp, vertical = 5.5.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+            speakerPairs.forEachIndexed { idx, (spk, wList) ->
+                val recCnt = remember(wList) { wList.count { it.isRecorded && !it.recordingFile.isNullOrEmpty() } }
+                val isSelected = spk.id == selectedSpeakerId
+                val accent = cohortColor(chartPalette, idx)
+                val interactionSource = remember { MutableInteractionSource() }
+                val isHovered = if (isDesktop) interactionSource.collectIsHoveredAsState().value else false
+                val chipBg by animateColorAsState(
+                    targetValue = when {
+                        isSelected -> lerp(cs.surface, accent, 0.16f)
+                        isHovered -> lerp(cs.surface, accent, 0.08f)
+                        else -> cs.surface
+                    },
+                    animationSpec = tween(140),
+                    label = "MacroSpeakerChipBg"
+                )
+                Surface(
+                    shape = RoundedCornerShape(10.dp),
+                    color = chipBg,
+                    border = BorderStroke(
+                        width = if (isSelected) 1.4.dp else 1.dp,
+                        color = when {
+                            isSelected -> accent
+                            isHovered -> accent.copy(alpha = 0.65f)
+                            else -> cs.outlineVariant.copy(alpha = 0.50f)
+                        }
+                    ),
+                    shadowElevation = 0.dp,
+                    tonalElevation = 0.dp,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(10.dp))
+                        .hoverable(interactionSource)
+                        .then(if (isDesktop) Modifier.pointerHoverIcon(PointerIcon.Hand) else Modifier)
+                        .clickable(
+                            interactionSource = interactionSource,
+                            indication = null,
+                            onClick = { onSelectSpeaker(spk, wList) }
+                        )
+                        .testTag("macro_quick_speaker_${spk.id}")
                 ) {
-                    Box(
-                        modifier = Modifier
-                            .size(7.dp)
-                            .background(accent, CircleShape)
-                    )
-                    Text(
-                        text = "${spk.name} ($recCnt)",
-                        fontSize = 11.5.sp,
-                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                        color = if (isSelected) accent else cs.onSurface,
-                        maxLines = 1,
-                        softWrap = false
-                    )
+                    Row(
+                        modifier = Modifier.padding(horizontal = 11.dp, vertical = 5.5.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(7.dp)
+                                .background(accent, CircleShape)
+                        )
+                        Text(
+                            text = "${spk.name} ($recCnt)",
+                            fontSize = 11.5.sp,
+                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                            color = if (isSelected) accent else cs.onSurface,
+                            maxLines = 1,
+                            softWrap = false
+                        )
+                    }
                 }
             }
         }
@@ -1408,51 +1415,57 @@ fun MultiSpeakerVowelWorkbenchCard(
             // Rime / Vowel Category Focus Bar (Eliminates single-color soup!)
             if (aligned.alignedVowelCategories.isNotEmpty()) {
                 Spacer(Modifier.height(8.dp))
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .horizontalScroll(rememberScrollState()),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    verticalAlignment = Alignment.CenterVertically
+                val vowelFocusScroll = rememberScrollState()
+                StudioHorizontalScrollStrip(
+                    state = vowelFocusScroll,
+                    modifier = Modifier.fillMaxWidth()
                 ) {
-                    Text(
-                        text = "音类聚焦:",
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    StudioFilterChip(
-                        selected = focusedGroupKey == null,
-                        onClick = { onFocusGroupKeyChange(null) },
-                        labelText = "全局格局包络"
-                    )
-                    aligned.alignedVowelCategories.forEach { vCat ->
-                        val grpOverridden = remember(projectId, vCat.groupKey, vowelOverrideRevision) {
-                            VowelGlideOverrideStore.getGroupOverride(context, projectId, vCat.groupKey)
-                        }
-                        val tag = buildString {
-                            append(vCat.groupLabel)
-                            if (grpOverridden != null) {
-                                append(
-                                    when (grpOverridden) {
-                                        VowelGlideType.MONOPHTHONG -> " · 定单"
-                                        VowelGlideType.DIPHTHONG -> " · 定复"
-                                        VowelGlideType.TRIPHTHONG -> " · 定三"
-                                    }
-                                )
-                            } else if (vCat.hasGlideTypeSplit) {
-                                append(" ⚡单复")
-                            } else if (vCat.maxCentroidShiftZ >= 0.75f) {
-                                append(String.format(Locale.US, " Δ%.1f", vCat.maxCentroidShiftZ))
-                            }
-                        }
-                        StudioFilterChip(
-                            selected = focusedGroupKey == vCat.groupKey,
-                            onClick = {
-                                onFocusGroupKeyChange(if (focusedGroupKey == vCat.groupKey) null else vCat.groupKey)
-                            },
-                            labelText = tag
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(vowelFocusScroll),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "音类聚焦:",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
+                        StudioFilterChip(
+                            selected = focusedGroupKey == null,
+                            onClick = { onFocusGroupKeyChange(null) },
+                            labelText = "全局格局包络"
+                        )
+                        aligned.alignedVowelCategories.forEach { vCat ->
+                            val grpOverridden = remember(projectId, vCat.groupKey, vowelOverrideRevision) {
+                                VowelGlideOverrideStore.getGroupOverride(context, projectId, vCat.groupKey)
+                            }
+                            val tag = buildString {
+                                append(vCat.groupLabel)
+                                if (grpOverridden != null) {
+                                    append(
+                                        when (grpOverridden) {
+                                            VowelGlideType.MONOPHTHONG -> " · 定单"
+                                            VowelGlideType.DIPHTHONG -> " · 定复"
+                                            VowelGlideType.TRIPHTHONG -> " · 定三"
+                                        }
+                                    )
+                                } else if (vCat.hasGlideTypeSplit) {
+                                    append(" ⚡单复")
+                                } else if (vCat.maxCentroidShiftZ >= 0.75f) {
+                                    append(String.format(Locale.US, " Δ%.1f", vCat.maxCentroidShiftZ))
+                                }
+                            }
+                            StudioFilterChip(
+                                selected = focusedGroupKey == vCat.groupKey,
+                                onClick = {
+                                    onFocusGroupKeyChange(if (focusedGroupKey == vCat.groupKey) null else vCat.groupKey)
+                                },
+                                labelText = tag
+                            )
+                        }
                     }
                 }
 

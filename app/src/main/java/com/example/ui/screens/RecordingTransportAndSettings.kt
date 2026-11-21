@@ -127,6 +127,7 @@ import com.example.i18n.withArgs
 import com.example.ui.components.DesktopAdaptiveState
 import com.example.ui.components.PlatformVerticalScrollbar
 import com.example.ui.components.StudioFilterChip
+import com.example.ui.components.StudioHorizontalScrollStrip
 import com.example.ui.components.StudioMotion
 import com.example.ui.components.StudioSwitchRow
 import com.example.ui.components.rememberStudioInteraction
@@ -871,33 +872,39 @@ internal fun TabletWordSidebar(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Row(
-                    modifier = Modifier
-                        .weight(1f)
-                        .horizontalScroll(rememberScrollState()),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    verticalAlignment = Alignment.CenterVertically
+                val sidebarFilterScroll = rememberScrollState()
+                StudioHorizontalScrollStrip(
+                    state = sidebarFilterScroll,
+                    modifier = Modifier.weight(1f)
                 ) {
-                    if ((unrecordedCount + flaggedCount > 0 && recordedCount > 0) || onlyPendingWords) {
-                        StudioFilterChip(
-                            selected = onlyPendingWords,
-                            onClick = onToggleOnlyPending,
-                            labelText = S.recording.onlyPendingFilterChip
-                        )
-                    }
-                    StudioFilterChip(
-                        selected = false,
-                        onClick = onJumpNextUnrecorded,
-                        enabled = unrecordedCount > 0,
-                        labelText = S.recording.unrecordedFilterChip.withArgs("count" to unrecordedCount)
-                    )
-                    if (flaggedCount > 0) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(sidebarFilterScroll),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        if ((unrecordedCount + flaggedCount > 0 && recordedCount > 0) || onlyPendingWords) {
+                            StudioFilterChip(
+                                selected = onlyPendingWords,
+                                onClick = onToggleOnlyPending,
+                                labelText = S.recording.onlyPendingFilterChip
+                            )
+                        }
                         StudioFilterChip(
                             selected = false,
-                            onClick = onJumpNextFlagged,
-                            labelText = S.recording.flaggedFilterChip.withArgs("count" to flaggedCount),
-                            isErrorVariant = true
+                            onClick = onJumpNextUnrecorded,
+                            enabled = unrecordedCount > 0,
+                            labelText = S.recording.unrecordedFilterChip.withArgs("count" to unrecordedCount)
                         )
+                        if (flaggedCount > 0) {
+                            StudioFilterChip(
+                                selected = false,
+                                onClick = onJumpNextFlagged,
+                                labelText = S.recording.flaggedFilterChip.withArgs("count" to flaggedCount),
+                                isErrorVariant = true
+                            )
+                        }
                     }
                 }
                 Row(verticalAlignment = Alignment.CenterVertically) {

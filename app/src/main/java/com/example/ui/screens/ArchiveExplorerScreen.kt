@@ -65,6 +65,7 @@ import com.example.ui.components.DesktopAdaptiveState
 import com.example.ui.components.PlatformVerticalScrollbar
 import com.example.ui.components.ResponsiveContentContainer
 import com.example.ui.components.StudioFilterChip
+import com.example.ui.components.StudioHorizontalScrollStrip
 import com.example.ui.components.StudioMotion
 import com.example.ui.components.rememberStudioInteraction
 import com.example.ui.components.studioAnimateItem
@@ -1439,64 +1440,70 @@ fun ArchiveExplorerScreen(
                                                 add("多人已录${sep}(${multiComparableWordCount})")
                                             }
                                         }
-                                        Row(
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .horizontalScroll(rememberScrollState()),
-                                            horizontalArrangement = Arrangement.spacedBy(if (isCompactFilters) 6.dp else 8.dp),
-                                            verticalAlignment = Alignment.CenterVertically
+                                        val archiveFilterScroll = rememberScrollState()
+                                        StudioHorizontalScrollStrip(
+                                            state = archiveFilterScroll,
+                                            modifier = Modifier.fillMaxWidth()
                                         ) {
-                                            filterLabels.forEachIndexed { index, label ->
-                                                StudioFilterChip(
-                                                    selected = selectedFilter == index,
-                                                    onClick = { selectedFilter = index },
-                                                    labelText = label,
-                                                    horizontalPadding = if (isCompactFilters) 8.dp else 11.dp,
-                                                    isErrorVariant = index == 3
-                                                )
-                                            }
-                                            if (availableWordGroups.isNotEmpty()) {
-                                                var showGroupMenu by remember { mutableStateOf(false) }
-                                                Box {
+                                            Row(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .horizontalScroll(archiveFilterScroll),
+                                                horizontalArrangement = Arrangement.spacedBy(if (isCompactFilters) 6.dp else 8.dp),
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                filterLabels.forEachIndexed { index, label ->
                                                     StudioFilterChip(
-                                                        selected = selectedGroupFilter != null,
-                                                        onClick = { showGroupMenu = true },
-                                                        labelText = selectedGroupFilter?.let { "$it ▾" } ?: "全部分组 ▾",
+                                                        selected = selectedFilter == index,
+                                                        onClick = { selectedFilter = index },
+                                                        labelText = label,
                                                         horizontalPadding = if (isCompactFilters) 8.dp else 11.dp,
-                                                        modifier = Modifier.testTag("archive_group_filter_chip")
+                                                        isErrorVariant = index == 3
                                                     )
-                                                    DropdownMenu(
-                                                        expanded = showGroupMenu,
-                                                        onDismissRequest = { showGroupMenu = false },
-                                                        shape = RoundedCornerShape(14.dp)
-                                                    ) {
-                                                        DropdownMenuItem(
-                                                            text = { Text("全部分组 (${words.size})") },
-                                                            onClick = {
-                                                                selectedGroupFilter = null
-                                                                showGroupMenu = false
-                                                            }
+                                                }
+                                                if (availableWordGroups.isNotEmpty()) {
+                                                    var showGroupMenu by remember { mutableStateOf(false) }
+                                                    Box {
+                                                        StudioFilterChip(
+                                                            selected = selectedGroupFilter != null,
+                                                            onClick = { showGroupMenu = true },
+                                                            labelText = selectedGroupFilter?.let { "$it ▾" } ?: "全部分组 ▾",
+                                                            horizontalPadding = if (isCompactFilters) 8.dp else 11.dp,
+                                                            modifier = Modifier.testTag("archive_group_filter_chip")
                                                         )
-                                                        availableWordGroups.forEach { (grp, count) ->
+                                                        DropdownMenu(
+                                                            expanded = showGroupMenu,
+                                                            onDismissRequest = { showGroupMenu = false },
+                                                            shape = RoundedCornerShape(14.dp)
+                                                        ) {
                                                             DropdownMenuItem(
-                                                                text = { Text("$grp ($count)") },
+                                                                text = { Text("全部分组 (${words.size})") },
                                                                 onClick = {
-                                                                    selectedGroupFilter = grp
+                                                                    selectedGroupFilter = null
                                                                     showGroupMenu = false
                                                                 }
                                                             )
+                                                            availableWordGroups.forEach { (grp, count) ->
+                                                                DropdownMenuItem(
+                                                                    text = { Text("$grp ($count)") },
+                                                                    onClick = {
+                                                                        selectedGroupFilter = grp
+                                                                        showGroupMenu = false
+                                                                    }
+                                                                )
+                                                            }
                                                         }
                                                     }
                                                 }
-                                            }
-                                            if (hasAnyNotes) {
-                                                StudioFilterChip(
-                                                    selected = onlyWithNotesFilter,
-                                                    onClick = { onlyWithNotesFilter = !onlyWithNotesFilter },
-                                                    labelText = "有笔记",
-                                                    horizontalPadding = if (isCompactFilters) 8.dp else 11.dp,
-                                                    modifier = Modifier.testTag("archive_notes_filter_chip")
-                                                )
+                                                if (hasAnyNotes) {
+                                                    StudioFilterChip(
+                                                        selected = onlyWithNotesFilter,
+                                                        onClick = { onlyWithNotesFilter = !onlyWithNotesFilter },
+                                                        labelText = "有笔记",
+                                                        horizontalPadding = if (isCompactFilters) 8.dp else 11.dp,
+                                                        modifier = Modifier.testTag("archive_notes_filter_chip")
+                                                    )
+                                                }
                                             }
                                         }
                                     }

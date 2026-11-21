@@ -79,6 +79,7 @@ import com.example.ui.components.ResponsiveContentContainer
 import com.example.ui.components.StudioAdaptiveSheet
 import com.example.ui.components.StudioDialogEnterAnimation
 import com.example.ui.components.StudioFilterChip
+import com.example.ui.components.StudioHorizontalScrollStrip
 import com.example.ui.components.StudioRecordTriggerButton
 import com.example.ui.components.studioTactile
 import com.example.utils.rememberWordImageBitmap
@@ -737,88 +738,94 @@ private fun ControllerTopBar(
             Spacer(modifier = Modifier.height(6.dp))
 
             // Single-row horizontally scrollable action strip: no orphan second-row wrapping!
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .horizontalScroll(rememberScrollState()),
-                horizontalArrangement = Arrangement.spacedBy(7.dp),
-                verticalAlignment = Alignment.CenterVertically
+            val controllerActionScroll = rememberScrollState()
+            StudioHorizontalScrollStrip(
+                state = controllerActionScroll,
+                modifier = Modifier.fillMaxWidth()
             ) {
-                StudioFilterChip(
-                    selected = snapshot.projectId > 0L,
-                    onClick = onOpenProjectSwitcher,
-                    labelText = if (snapshot.projectId > 0L) S.wireless.chipProjectPrefix.withArgs("name" to snapshot.projectName) else S.wireless.chipSelectProject,
-                    showCheckmark = false,
-                    leadingIcon = {
-                        Icon(Icons.Default.FolderOpen, contentDescription = null, modifier = Modifier.size(15.dp))
-                    },
-                    modifier = Modifier.testTag("controller_switch_project_chip")
-                )
-
-                StudioFilterChip(
-                    selected = false,
-                    onClick = onOpenSpeakerSwitcher,
-                    labelText = S.wireless.chipSpeakerPrefix.withArgs("name" to snapshot.speakerName),
-                    showCheckmark = false,
-                    leadingIcon = {
-                        Icon(Icons.Default.Person, contentDescription = null, modifier = Modifier.size(15.dp))
-                    },
-                    modifier = Modifier.testTag("controller_switch_speaker_chip")
-                )
-
-                if (snapshot.projectId > 0L) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(controllerActionScroll),
+                    horizontalArrangement = Arrangement.spacedBy(7.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
                     StudioFilterChip(
-                        selected = snapshot.isShuffleEnabled,
-                        onClick = onToggleShuffle,
-                        labelText = if (snapshot.isShuffleEnabled) S.recording.shuffledLabel else S.recording.shuffleLabel,
+                        selected = snapshot.projectId > 0L,
+                        onClick = onOpenProjectSwitcher,
+                        labelText = if (snapshot.projectId > 0L) S.wireless.chipProjectPrefix.withArgs("name" to snapshot.projectName) else S.wireless.chipSelectProject,
                         showCheckmark = false,
                         leadingIcon = {
-                            Icon(Icons.Default.Shuffle, contentDescription = null, modifier = Modifier.size(15.dp))
+                            Icon(Icons.Default.FolderOpen, contentDescription = null, modifier = Modifier.size(15.dp))
                         },
-                        modifier = Modifier.testTag("controller_shuffle_chip")
+                        modifier = Modifier.testTag("controller_switch_project_chip")
+                    )
+
+                    StudioFilterChip(
+                        selected = false,
+                        onClick = onOpenSpeakerSwitcher,
+                        labelText = S.wireless.chipSpeakerPrefix.withArgs("name" to snapshot.speakerName),
+                        showCheckmark = false,
+                        leadingIcon = {
+                            Icon(Icons.Default.Person, contentDescription = null, modifier = Modifier.size(15.dp))
+                        },
+                        modifier = Modifier.testTag("controller_switch_speaker_chip")
+                    )
+
+                    if (snapshot.projectId > 0L) {
+                        StudioFilterChip(
+                            selected = snapshot.isShuffleEnabled,
+                            onClick = onToggleShuffle,
+                            labelText = if (snapshot.isShuffleEnabled) S.recording.shuffledLabel else S.recording.shuffleLabel,
+                            showCheckmark = false,
+                            leadingIcon = {
+                                Icon(Icons.Default.Shuffle, contentDescription = null, modifier = Modifier.size(15.dp))
+                            },
+                            modifier = Modifier.testTag("controller_shuffle_chip")
+                        )
+                    }
+
+                    StudioFilterChip(
+                        selected = activeMicOwner == ActiveMicOwner.CONTROLLER_MIC,
+                        onClick = onToggleMicOwner,
+                        labelText = if (activeMicOwner == ActiveMicOwner.CONTROLLER_MIC) {
+                            S.wireless.chipLocalMicController
+                        } else {
+                            S.wireless.chipPeerMicPrompt
+                        },
+                        showCheckmark = false,
+                        leadingIcon = {
+                            Icon(
+                                imageVector = if (activeMicOwner == ActiveMicOwner.CONTROLLER_MIC) Icons.Default.Mic else Icons.Default.MicOff,
+                                contentDescription = null,
+                                modifier = Modifier.size(15.dp)
+                            )
+                        },
+                        modifier = Modifier.testTag("controller_mic_switch_chip")
+                    )
+
+                    StudioFilterChip(
+                        selected = isMonitoring,
+                        onClick = onToggleEarMonitor,
+                        labelText = if (isMonitoring) S.wireless.chipMonitorOn else S.wireless.chipMonitorOff,
+                        showCheckmark = false,
+                        leadingIcon = {
+                            Icon(Icons.Default.Headphones, contentDescription = null, modifier = Modifier.size(15.dp))
+                        },
+                        modifier = Modifier.testTag("controller_ear_monitor_chip")
+                    )
+
+                    StudioFilterChip(
+                        selected = isIntermission,
+                        onClick = onToggleIntermission,
+                        labelText = if (isIntermission) S.wireless.chipResumePrompt else S.wireless.chipIntermission,
+                        showCheckmark = false,
+                        leadingIcon = {
+                            Icon(Icons.Default.LocalCafe, contentDescription = null, modifier = Modifier.size(15.dp))
+                        },
+                        modifier = Modifier.testTag("controller_intermission_button")
                     )
                 }
-
-                StudioFilterChip(
-                    selected = activeMicOwner == ActiveMicOwner.CONTROLLER_MIC,
-                    onClick = onToggleMicOwner,
-                    labelText = if (activeMicOwner == ActiveMicOwner.CONTROLLER_MIC) {
-                        S.wireless.chipLocalMicController
-                    } else {
-                        S.wireless.chipPeerMicPrompt
-                    },
-                    showCheckmark = false,
-                    leadingIcon = {
-                        Icon(
-                            imageVector = if (activeMicOwner == ActiveMicOwner.CONTROLLER_MIC) Icons.Default.Mic else Icons.Default.MicOff,
-                            contentDescription = null,
-                            modifier = Modifier.size(15.dp)
-                        )
-                    },
-                    modifier = Modifier.testTag("controller_mic_switch_chip")
-                )
-
-                StudioFilterChip(
-                    selected = isMonitoring,
-                    onClick = onToggleEarMonitor,
-                    labelText = if (isMonitoring) S.wireless.chipMonitorOn else S.wireless.chipMonitorOff,
-                    showCheckmark = false,
-                    leadingIcon = {
-                        Icon(Icons.Default.Headphones, contentDescription = null, modifier = Modifier.size(15.dp))
-                    },
-                    modifier = Modifier.testTag("controller_ear_monitor_chip")
-                )
-
-                StudioFilterChip(
-                    selected = isIntermission,
-                    onClick = onToggleIntermission,
-                    labelText = if (isIntermission) S.wireless.chipResumePrompt else S.wireless.chipIntermission,
-                    showCheckmark = false,
-                    leadingIcon = {
-                        Icon(Icons.Default.LocalCafe, contentDescription = null, modifier = Modifier.size(15.dp))
-                    },
-                    modifier = Modifier.testTag("controller_intermission_button")
-                )
             }
         }
     }
@@ -2419,18 +2426,24 @@ private fun ControllerShorthandPane(
                 .testTag("controller_note_input")
         )
 
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .horizontalScroll(rememberScrollState()),
-            horizontalArrangement = Arrangement.spacedBy(6.dp)
+        val shorthandTabScroll = rememberScrollState()
+        StudioHorizontalScrollStrip(
+            state = shorthandTabScroll,
+            modifier = Modifier.fillMaxWidth()
         ) {
-            tabTitles.forEachIndexed { idx, tabLabel ->
-                StudioFilterChip(
-                    selected = selectedSymbolTab == idx,
-                    onClick = { selectedSymbolTab = idx },
-                    labelText = tabLabel
-                )
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(shorthandTabScroll),
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                tabTitles.forEachIndexed { idx, tabLabel ->
+                    StudioFilterChip(
+                        selected = selectedSymbolTab == idx,
+                        onClick = { selectedSymbolTab = idx },
+                        labelText = tabLabel
+                    )
+                }
             }
         }
 

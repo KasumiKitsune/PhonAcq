@@ -114,6 +114,7 @@ import com.example.ui.components.PredictiveBackGestureHandler
 import com.example.ui.components.ResponsiveContentContainer
 import com.example.ui.components.StudioDialogEnterAnimation
 import com.example.ui.components.StudioFilterChip
+import com.example.ui.components.StudioHorizontalScrollStrip
 import com.example.ui.components.StudioModalDialog
 import com.example.ui.components.StudioMotion
 import com.example.ui.components.StudioSegmentedControl
@@ -776,37 +777,43 @@ fun SmartImportWorkspaceScreen(
                                                 fontWeight = FontWeight.ExtraBold,
                                                 color = cs.onSurface
                                             )
-                                            Row(
-                                                modifier = Modifier
-                                                    .fillMaxWidth()
-                                                    .horizontalScroll(rememberScrollState()),
-                                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                            val previewFilterScroll = rememberScrollState()
+                                            StudioHorizontalScrollStrip(
+                                                state = previewFilterScroll,
+                                                modifier = Modifier.fillMaxWidth()
                                             ) {
-                                                StudioFilterChip(
-                                                    selected = previewFilter == PairingPreviewFilter.ALL,
-                                                    onClick = { previewFilter = PairingPreviewFilter.ALL },
-                                                    labelText = SSmartImport.filterAll.withArgs("count" to plan.audioPairings.size)
-                                                )
-                                                StudioFilterChip(
-                                                    selected = previewFilter == PairingPreviewFilter.MATCHED,
-                                                    onClick = { previewFilter = PairingPreviewFilter.MATCHED },
-                                                    labelText = SSmartImport.filterMatched.withArgs("count" to matchedCount)
-                                                )
-                                                if (plan.autoCreatedWordCount > 0 || autoCreateWordsForUnmatchedAudio) {
-                                                    val autoRows = plan.audioPairings.count { it.matchKind == PairingMatchKind.AUTO_NEW_WORD }
+                                                Row(
+                                                    modifier = Modifier
+                                                        .fillMaxWidth()
+                                                        .horizontalScroll(previewFilterScroll),
+                                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                                ) {
                                                     StudioFilterChip(
-                                                        selected = previewFilter == PairingPreviewFilter.AUTO_NEW,
-                                                        onClick = { previewFilter = PairingPreviewFilter.AUTO_NEW },
-                                                        labelText = SSmartImport.filterAutoNew.withArgs("count" to autoRows)
+                                                        selected = previewFilter == PairingPreviewFilter.ALL,
+                                                        onClick = { previewFilter = PairingPreviewFilter.ALL },
+                                                        labelText = SSmartImport.filterAll.withArgs("count" to plan.audioPairings.size)
                                                     )
-                                                }
-                                                if (plan.unassignedAudioCount > 0) {
                                                     StudioFilterChip(
-                                                        selected = previewFilter == PairingPreviewFilter.UNASSIGNED,
-                                                        onClick = { previewFilter = PairingPreviewFilter.UNASSIGNED },
-                                                        isErrorVariant = true,
-                                                        labelText = SSmartImport.filterUnassigned.withArgs("count" to plan.unassignedAudioCount)
+                                                        selected = previewFilter == PairingPreviewFilter.MATCHED,
+                                                        onClick = { previewFilter = PairingPreviewFilter.MATCHED },
+                                                        labelText = SSmartImport.filterMatched.withArgs("count" to matchedCount)
                                                     )
+                                                    if (plan.autoCreatedWordCount > 0 || autoCreateWordsForUnmatchedAudio) {
+                                                        val autoRows = plan.audioPairings.count { it.matchKind == PairingMatchKind.AUTO_NEW_WORD }
+                                                        StudioFilterChip(
+                                                            selected = previewFilter == PairingPreviewFilter.AUTO_NEW,
+                                                            onClick = { previewFilter = PairingPreviewFilter.AUTO_NEW },
+                                                            labelText = SSmartImport.filterAutoNew.withArgs("count" to autoRows)
+                                                        )
+                                                    }
+                                                    if (plan.unassignedAudioCount > 0) {
+                                                        StudioFilterChip(
+                                                            selected = previewFilter == PairingPreviewFilter.UNASSIGNED,
+                                                            onClick = { previewFilter = PairingPreviewFilter.UNASSIGNED },
+                                                            isErrorVariant = true,
+                                                            labelText = SSmartImport.filterUnassigned.withArgs("count" to plan.unassignedAudioCount)
+                                                        )
+                                                    }
                                                 }
                                             }
                                         }
@@ -1261,49 +1268,55 @@ private fun StagedCategorySummaryRow(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceBetween
     ) {
-        Row(
-            modifier = Modifier
-                .weight(1f)
-                .horizontalScroll(rememberScrollState()),
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
-            verticalAlignment = Alignment.CenterVertically
+        val stagedSummaryScroll = rememberScrollState()
+        StudioHorizontalScrollStrip(
+            state = stagedSummaryScroll,
+            modifier = Modifier.weight(1f)
         ) {
-            Text(
-                text = SSmartImport.stagedPoolTitle,
-                fontSize = 12.sp,
-                fontWeight = FontWeight.Bold,
-                color = cs.onSurfaceVariant
-            )
-            if (archiveCount > 0) {
-                SummaryCountPill(
-                    text = SSmartImport.badgeArchiveCount.withArgs("count" to archiveCount),
-                    bg = cs.tertiaryContainer,
-                    fg = cs.onTertiaryContainer
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(stagedSummaryScroll),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = SSmartImport.stagedPoolTitle,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = cs.onSurfaceVariant
                 )
-            }
-            if (wordlistCount > 0) {
-                SummaryCountPill(
-                    text = SSmartImport.badgeWordlistCount.withArgs(
-                        "count" to wordlistCount,
-                        "words" to totalParsedWords
-                    ),
-                    bg = cs.primaryContainer,
-                    fg = cs.onPrimaryContainer
-                )
-            }
-            if (audioCount > 0) {
-                SummaryCountPill(
-                    text = SSmartImport.badgeAudioCount.withArgs("count" to audioCount),
-                    bg = cs.secondaryContainer,
-                    fg = cs.onSecondaryContainer
-                )
-            }
-            if (imageCount > 0) {
-                SummaryCountPill(
-                    text = SSmartImport.badgeImageCount.withArgs("count" to imageCount),
-                    bg = cs.surfaceContainerHighest,
-                    fg = cs.onSurfaceVariant
-                )
+                if (archiveCount > 0) {
+                    SummaryCountPill(
+                        text = SSmartImport.badgeArchiveCount.withArgs("count" to archiveCount),
+                        bg = cs.tertiaryContainer,
+                        fg = cs.onTertiaryContainer
+                    )
+                }
+                if (wordlistCount > 0) {
+                    SummaryCountPill(
+                        text = SSmartImport.badgeWordlistCount.withArgs(
+                            "count" to wordlistCount,
+                            "words" to totalParsedWords
+                        ),
+                        bg = cs.primaryContainer,
+                        fg = cs.onPrimaryContainer
+                    )
+                }
+                if (audioCount > 0) {
+                    SummaryCountPill(
+                        text = SSmartImport.badgeAudioCount.withArgs("count" to audioCount),
+                        bg = cs.secondaryContainer,
+                        fg = cs.onSecondaryContainer
+                    )
+                }
+                if (imageCount > 0) {
+                    SummaryCountPill(
+                        text = SSmartImport.badgeImageCount.withArgs("count" to imageCount),
+                        bg = cs.surfaceContainerHighest,
+                        fg = cs.onSurfaceVariant
+                    )
+                }
             }
         }
         if (onClearAll != null) {
@@ -1591,24 +1604,30 @@ private fun TargetDestinationSection(
                                 fontWeight = FontWeight.Bold,
                                 color = cs.onSurfaceVariant
                             )
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .horizontalScroll(rememberScrollState()),
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            val mergePolicyScroll = rememberScrollState()
+                            StudioHorizontalScrollStrip(
+                                state = mergePolicyScroll,
+                                modifier = Modifier.fillMaxWidth()
                             ) {
-                                StudioFilterChip(
-                                    selected = mergeAudioPolicy == MergeAudioPolicy.SAVE_AS_NEW_TAKE,
-                                    onClick = { onMergeAudioPolicyChanged(MergeAudioPolicy.SAVE_AS_NEW_TAKE) },
-                                    enabled = enabled,
-                                    labelText = SSmartImport.mergePolicyNewTake
-                                )
-                                StudioFilterChip(
-                                    selected = mergeAudioPolicy == MergeAudioPolicy.ONLY_FILL_UNRECORDED,
-                                    onClick = { onMergeAudioPolicyChanged(MergeAudioPolicy.ONLY_FILL_UNRECORDED) },
-                                    enabled = enabled,
-                                    labelText = SSmartImport.mergePolicyOnlyEmpty
-                                )
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .horizontalScroll(mergePolicyScroll),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    StudioFilterChip(
+                                        selected = mergeAudioPolicy == MergeAudioPolicy.SAVE_AS_NEW_TAKE,
+                                        onClick = { onMergeAudioPolicyChanged(MergeAudioPolicy.SAVE_AS_NEW_TAKE) },
+                                        enabled = enabled,
+                                        labelText = SSmartImport.mergePolicyNewTake
+                                    )
+                                    StudioFilterChip(
+                                        selected = mergeAudioPolicy == MergeAudioPolicy.ONLY_FILL_UNRECORDED,
+                                        onClick = { onMergeAudioPolicyChanged(MergeAudioPolicy.ONLY_FILL_UNRECORDED) },
+                                        enabled = enabled,
+                                        labelText = SSmartImport.mergePolicyOnlyEmpty
+                                    )
+                                }
                             }
                         }
                     }

@@ -62,6 +62,7 @@ import androidx.compose.ui.window.DialogProperties
 import com.example.i18n.S
 import com.example.i18n.SSmartImport
 import com.example.ui.components.StudioDialogEnterAnimation
+import com.example.ui.components.StudioHorizontalScrollStrip
 import com.example.ui.components.StudioModalDialog
 import com.example.ui.components.consumeDialogCardTaps
 
@@ -188,15 +189,21 @@ fun ImportFormatGuideDialog(
                             ) {
                                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                                     // Supported Extension Pills Row
-                                    Row(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .horizontalScroll(rememberScrollState()),
-                                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                        verticalAlignment = Alignment.CenterVertically
+                                    val extPillsScroll = rememberScrollState()
+                                    StudioHorizontalScrollStrip(
+                                        state = extPillsScroll,
+                                        modifier = Modifier.fillMaxWidth()
                                     ) {
-                                        listOf(".wav", ".mp3", ".m4a", ".flac", ".ogg", ".aiff", ".png / .jpg").forEach { ext ->
-                                            FormatExtensionPill(text = ext)
+                                        Row(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .horizontalScroll(extPillsScroll),
+                                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            listOf(".wav", ".mp3", ".m4a", ".flac", ".ogg", ".aiff", ".png / .jpg").forEach { ext ->
+                                                FormatExtensionPill(text = ext)
+                                            }
                                         }
                                     }
 
@@ -791,14 +798,20 @@ private fun AudioNamingRuleVisualCard(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            Row(
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .horizontalScroll(rememberScrollState()),
-                                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                verticalAlignment = Alignment.CenterVertically
+                            val sampleFilesScroll = rememberScrollState()
+                            StudioHorizontalScrollStrip(
+                                state = sampleFilesScroll,
+                                modifier = Modifier.weight(1f)
                             ) {
-                                sampleFiles.forEach { fn -> SampleAudioFileChip(fn) }
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .horizontalScroll(sampleFilesScroll),
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    sampleFiles.forEach { fn -> SampleAudioFileChip(fn) }
+                                }
                             }
                             Icon(
                                 imageVector = Icons.AutoMirrored.Filled.ArrowForward,
@@ -826,38 +839,50 @@ private fun AudioNamingRuleVisualCard(
                         }
                     } else {
                         Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .horizontalScroll(rememberScrollState()),
-                                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                verticalAlignment = Alignment.CenterVertically
+                            val narrowFilesScroll = rememberScrollState()
+                            StudioHorizontalScrollStrip(
+                                state = narrowFilesScroll,
+                                modifier = Modifier.fillMaxWidth()
                             ) {
-                                sampleFiles.forEach { fn -> SampleAudioFileChip(fn) }
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .horizontalScroll(narrowFilesScroll),
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    sampleFiles.forEach { fn -> SampleAudioFileChip(fn) }
+                                }
                             }
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .horizontalScroll(rememberScrollState()),
-                                horizontalArrangement = Arrangement.spacedBy(5.dp),
-                                verticalAlignment = Alignment.CenterVertically
+                            val narrowPillsScroll = rememberScrollState()
+                            StudioHorizontalScrollStrip(
+                                state = narrowPillsScroll,
+                                modifier = Modifier.fillMaxWidth()
                             ) {
-                                Icon(
-                                    imageVector = Icons.AutoMirrored.Filled.ArrowForward,
-                                    contentDescription = null,
-                                    tint = cs.primary,
-                                    modifier = Modifier.size(13.dp)
-                                )
-                                parsedPills.forEach { pill ->
-                                    Surface(shape = RoundedCornerShape(6.dp), color = pill.bg) {
-                                        Text(
-                                            text = pill.label,
-                                            fontSize = 10.5.sp,
-                                            fontWeight = FontWeight.Bold,
-                                            color = pill.fg,
-                                            maxLines = 1,
-                                            modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.5.dp)
-                                        )
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .horizontalScroll(narrowPillsScroll),
+                                    horizontalArrangement = Arrangement.spacedBy(5.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.AutoMirrored.Filled.ArrowForward,
+                                        contentDescription = null,
+                                        tint = cs.primary,
+                                        modifier = Modifier.size(13.dp)
+                                    )
+                                    parsedPills.forEach { pill ->
+                                        Surface(shape = RoundedCornerShape(6.dp), color = pill.bg) {
+                                            Text(
+                                                text = pill.label,
+                                                fontSize = 10.5.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                color = pill.fg,
+                                                maxLines = 1,
+                                                modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.5.dp)
+                                            )
+                                        }
                                     }
                                 }
                             }

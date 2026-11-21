@@ -108,6 +108,8 @@ import com.example.i18n.S
 import com.example.i18n.withArgs
 import com.example.ui.components.DesktopAdaptiveState
 import com.example.ui.components.ResponsiveContentContainer
+import com.example.ui.components.StudioHorizontalLazyStrip
+import com.example.ui.components.StudioHorizontalScrollStrip
 import com.example.ui.components.StudioMotion
 import com.example.ui.components.SuspendDesktopShortcutsWhen
 import com.example.ui.components.ZoomableWordImage
@@ -383,28 +385,33 @@ internal fun RecordingStagePane(
                             .fillMaxHeight()
                     ) {
                         if (!isTablet && !participantCleanMode) {
-                            LazyRow(
+                            StudioHorizontalLazyStrip(
                                 state = rowListState,
-                                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                contentPadding = PaddingValues(horizontal = 2.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .height(36.dp)
+                                modifier = Modifier.fillMaxWidth()
                             ) {
-                                itemsIndexed(words, key = { _, w -> w.id }) { index, word ->
-                                    val isSelected = index == safeCurrentIndex
-                                    WordStripChip(
-                                        index = index,
-                                        word = word,
-                                        isSelected = isSelected,
-                                        enablePicturePrompts = enablePicturePrompts,
-                                        wavFile = null,
-                                        onClick = {
-                                            viewModel.selectWordBySequencePosition(index)
-                                        },
-                                        modifier = studioAnimateItem()
-                                    )
+                                LazyRow(
+                                    state = rowListState,
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                    contentPadding = PaddingValues(horizontal = 2.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(36.dp)
+                                ) {
+                                    itemsIndexed(words, key = { _, w -> w.id }) { index, word ->
+                                        val isSelected = index == safeCurrentIndex
+                                        WordStripChip(
+                                            index = index,
+                                            word = word,
+                                            isSelected = isSelected,
+                                            enablePicturePrompts = enablePicturePrompts,
+                                            wavFile = null,
+                                            onClick = {
+                                                viewModel.selectWordBySequencePosition(index)
+                                            },
+                                            modifier = studioAnimateItem()
+                                        )
+                                    }
                                 }
                             }
                             Spacer(Modifier.height(6.dp))
@@ -565,28 +572,33 @@ internal fun RecordingStagePane(
 
                         Spacer(Modifier.height(8.dp))
 
-                        LazyRow(
+                        StudioHorizontalLazyStrip(
                             state = rowListState,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            contentPadding = PaddingValues(horizontal = 2.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(40.dp)
+                            modifier = Modifier.fillMaxWidth()
                         ) {
-                            itemsIndexed(words, key = { _, w -> w.id }) { index, word ->
-                                val isSelected = index == safeCurrentIndex
-                                WordStripChip(
-                                    index = index,
-                                    word = word,
-                                    isSelected = isSelected,
-                                    enablePicturePrompts = enablePicturePrompts,
-                                    wavFile = null,
-                                    onClick = {
-                                        viewModel.selectWordBySequencePosition(index)
-                                    },
-                                    modifier = studioAnimateItem()
-                                )
+                            LazyRow(
+                                state = rowListState,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                contentPadding = PaddingValues(horizontal = 2.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(40.dp)
+                            ) {
+                                itemsIndexed(words, key = { _, w -> w.id }) { index, word ->
+                                    val isSelected = index == safeCurrentIndex
+                                    WordStripChip(
+                                        index = index,
+                                        word = word,
+                                        isSelected = isSelected,
+                                        enablePicturePrompts = enablePicturePrompts,
+                                        wavFile = null,
+                                        onClick = {
+                                            viewModel.selectWordBySequencePosition(index)
+                                        },
+                                        modifier = studioAnimateItem()
+                                    )
+                                }
                             }
                         }
 
@@ -1054,7 +1066,13 @@ internal fun HandheldSessionToolbar(
                     gapSize = 0.dp,
                     drawStopIndicator = {}
                 )
-                quickActionButtons(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()))
+                val quickActionsScroll = rememberScrollState()
+                StudioHorizontalScrollStrip(
+                    state = quickActionsScroll,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    quickActionButtons(Modifier.fillMaxWidth().horizontalScroll(quickActionsScroll))
+                }
             } else {
                 Row(
                     modifier = Modifier.fillMaxWidth(),

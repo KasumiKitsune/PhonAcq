@@ -11,10 +11,12 @@ import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.hoverable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
@@ -36,13 +38,13 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.drawWithContent
-import androidx.compose.ui.graphics.BlendMode
-import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.input.pointer.PointerIcon
+import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
@@ -66,12 +68,14 @@ import com.example.ui.components.PlatformVerticalScrollbar
 import com.example.ui.components.PredictiveBackGestureHandler
 import com.example.ui.components.ResponsiveContentContainer
 import com.example.ui.components.StudioFilterChip
+import com.example.ui.components.StudioHorizontalLazyStrip
 import com.example.ui.components.StudioMotion
 import com.example.ui.components.StudioSegmentedControl
-import com.example.ui.components.StudioSwitchRow
+import com.example.ui.components.StudioSwitch
 import com.example.ui.components.ZoomableWordImage
 import com.example.ui.components.predictiveBackLayer
 import com.example.ui.components.rememberPredictiveBackVisualState
+import com.example.ui.components.rememberStudioInteraction
 import com.example.ui.components.studioAnimateItem
 import com.example.ui.components.studioRotateOn
 import com.example.utils.SpreadsheetWordImporter
@@ -813,48 +817,55 @@ fun WordListEditorScreen(
             @Composable
             fun ProjectSelectorAndMetaSection(alwaysExpanded: Boolean) {
                 // 1. Target Project Selector (Switch between New Word List and Existing Projects)
-                LazyRow(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalAlignment = Alignment.CenterVertically,
+                val targetProjectStripState = rememberLazyListState()
+                StudioHorizontalLazyStrip(
+                    state = targetProjectStripState,
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(vertical = 4.dp)
                 ) {
-                    item {
-                        StudioFilterChip(
-                            selected = targetProject == null,
-                            onClick = {
-                                if (targetProject != null) {
-                                    if (hasUnsavedChanges || rawTxtDirty) {
-                                        pendingSwitchTargetProject = true to null
-                                    } else {
-                                        loadTargetProject(null)
+                    LazyRow(
+                        state = targetProjectStripState,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        item {
+                            StudioFilterChip(
+                                selected = targetProject == null,
+                                onClick = {
+                                    if (targetProject != null) {
+                                        if (hasUnsavedChanges || rawTxtDirty) {
+                                            pendingSwitchTargetProject = true to null
+                                        } else {
+                                            loadTargetProject(null)
+                                        }
                                     }
+                                },
+                                labelText = S.wordEditor.newWordListBadge,
+                                leadingIcon = {
+                                    Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
                                 }
-                            },
-                            labelText = S.wordEditor.newWordListBadge,
-                            leadingIcon = {
-                                Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
-                            }
-                        )
-                    }
-                    items(allProjects, key = { it.id }) { proj ->
-                        StudioFilterChip(
-                            selected = targetProject?.id == proj.id,
-                            onClick = {
-                                if (targetProject?.id != proj.id) {
-                                    if (hasUnsavedChanges || rawTxtDirty) {
-                                        pendingSwitchTargetProject = true to proj
-                                    } else {
-                                        loadTargetProject(proj)
+                            )
+                        }
+                        items(allProjects, key = { it.id }) { proj ->
+                            StudioFilterChip(
+                                selected = targetProject?.id == proj.id,
+                                onClick = {
+                                    if (targetProject?.id != proj.id) {
+                                        if (hasUnsavedChanges || rawTxtDirty) {
+                                            pendingSwitchTargetProject = true to proj
+                                        } else {
+                                            loadTargetProject(proj)
+                                        }
                                     }
+                                },
+                                labelText = proj.name,
+                                leadingIcon = {
+                                    Icon(Icons.Default.EditNote, contentDescription = null, modifier = Modifier.size(16.dp))
                                 }
-                            },
-                            labelText = proj.name,
-                            leadingIcon = {
-                                Icon(Icons.Default.EditNote, contentDescription = null, modifier = Modifier.size(16.dp))
-                            }
-                        )
+                            )
+                        }
                     }
                 }
 
@@ -975,62 +986,159 @@ fun WordListEditorScreen(
                                     modifier = Modifier.fillMaxWidth()
                                 )
 
-                                StudioSwitchRow(
-                                    title = S.wordEditor.pictureCardToggleTitle,
-                                    subtitle = S.wordEditor.pictureCardToggleSubtitle,
-                                    checked = enablePicturePrompts,
-                                    onCheckedChange = {
-                                        enablePicturePrompts = it
-                                        hasUnsavedChanges = true
-                                    },
-                                    elevatedSurface = true,
-                                    compact = !alwaysExpanded,
-                                    leadingIcon = {
-                                        Icon(
-                                            imageVector = Icons.Default.PhotoLibrary,
-                                            contentDescription = null,
-                                            tint = if (enablePicturePrompts) {
-                                                MaterialTheme.colorScheme.primary
-                                            } else {
-                                                MaterialTheme.colorScheme.onSurfaceVariant
-                                            },
-                                            modifier = Modifier.size(20.dp)
-                                        )
-                                    },
-                                    rowTestTag = "editor_enable_picture_prompts_row",
-                                    switchTestTag = "editor_enable_picture_prompts_switch"
-                                )
+                                run {
+                                    val cs = MaterialTheme.colorScheme
+                                    val (picRowInteraction, isPicRowHoveredState) = rememberStudioInteraction()
+                                    val isPicRowHovered by isPicRowHoveredState
+                                    val picRowBg by animateColorAsState(
+                                        targetValue = when {
+                                            enablePicturePrompts -> lerp(
+                                                cs.surface,
+                                                cs.primaryContainer,
+                                                if (isPicRowHovered) 0.52f else 0.36f
+                                            )
+                                            isPicRowHovered -> lerp(cs.surface, cs.primaryContainer, 0.28f)
+                                            else -> cs.surface
+                                        },
+                                        animationSpec = StudioMotion.microTween(),
+                                        label = "EditorPictureToggleRowBg"
+                                    )
+                                    val picRowBorder by animateColorAsState(
+                                        targetValue = when {
+                                            enablePicturePrompts -> cs.primary.copy(alpha = if (isPicRowHovered) 0.65f else 0.46f)
+                                            isPicRowHovered -> cs.primary.copy(alpha = 0.38f)
+                                            else -> cs.outlineVariant.copy(alpha = 0.65f)
+                                        },
+                                        animationSpec = StudioMotion.microTween(),
+                                        label = "EditorPictureToggleRowBorder"
+                                    )
+                                    val picRowTitleColor by animateColorAsState(
+                                        targetValue = if (isPicRowHovered) cs.primary else cs.onSurface,
+                                        animationSpec = StudioMotion.microTween(),
+                                        label = "EditorPictureToggleTitleColor"
+                                    )
+                                    Surface(
+                                        shape = RoundedCornerShape(12.dp),
+                                        color = picRowBg,
+                                        border = BorderStroke(1.dp, picRowBorder),
+                                        shadowElevation = 0.dp,
+                                        tonalElevation = 0.dp,
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .heightIn(min = 42.dp)
+                                            .clip(RoundedCornerShape(12.dp))
+                                            .hoverable(picRowInteraction)
+                                            .then(if (DesktopAdaptiveState.isDesktopPlatform) Modifier.pointerHoverIcon(PointerIcon.Hand) else Modifier)
+                                            .clickable(
+                                                interactionSource = picRowInteraction,
+                                                indication = null
+                                            ) {
+                                                enablePicturePrompts = !enablePicturePrompts
+                                                hasUnsavedChanges = true
+                                            }
+                                            .testTag("editor_enable_picture_prompts_row")
+                                    ) {
+                                        Row(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(horizontal = 10.dp, vertical = 4.dp),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.SpaceBetween
+                                        ) {
+                                            Row(
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                                modifier = Modifier
+                                                    .weight(1f)
+                                                    .padding(end = 6.dp)
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Default.PhotoLibrary,
+                                                    contentDescription = null,
+                                                    tint = if (enablePicturePrompts) cs.primary else cs.onSurfaceVariant,
+                                                    modifier = Modifier.size(17.dp)
+                                                )
+                                                Text(
+                                                    text = S.wordEditor.pictureCardToggleTitle,
+                                                    fontSize = 13.sp,
+                                                    fontWeight = FontWeight.SemiBold,
+                                                    color = picRowTitleColor,
+                                                    maxLines = 1,
+                                                    softWrap = false,
+                                                    overflow = TextOverflow.Ellipsis,
+                                                    modifier = Modifier.weight(1f, fill = false)
+                                                )
+                                                TooltipBox(
+                                                    positionProvider = TooltipDefaults.rememberPlainTooltipPositionProvider(),
+                                                    tooltip = {
+                                                        PlainTooltip {
+                                                            Text(S.wordEditor.pictureCardToggleSubtitle)
+                                                        }
+                                                    },
+                                                    state = rememberTooltipState()
+                                                ) {
+                                                    Icon(
+                                                        imageVector = Icons.Default.Info,
+                                                        contentDescription = S.wordEditor.pictureCardToggleSubtitle,
+                                                        tint = cs.onSurfaceVariant.copy(alpha = 0.72f),
+                                                        modifier = Modifier.size(14.dp)
+                                                    )
+                                                }
+                                            }
+                                            StudioSwitch(
+                                                checked = enablePicturePrompts,
+                                                onCheckedChange = {
+                                                    enablePicturePrompts = it
+                                                    hasUnsavedChanges = true
+                                                },
+                                                modifier = Modifier
+                                                    .scale(0.84f)
+                                                    .testTag("editor_enable_picture_prompts_switch")
+                                            )
+                                        }
+                                    }
+                                }
 
                                 if (!isSimpleMode && speakerGroups.isNotEmpty()) {
                                     val selectedProjGroups = remember(speakerGroupName) {
                                         parseSpeakerGroups(speakerGroupName)
                                     }
+                                    val speakerGroupStripState = rememberLazyListState()
                                     Column(
                                         verticalArrangement = Arrangement.spacedBy(4.dp),
                                         modifier = Modifier.fillMaxWidth()
                                     ) {
                                         Text(S.wordEditor.speakerGroupMultiLabel, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                        LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                            item {
-                                                StudioFilterChip(
-                                                    selected = selectedProjGroups.isEmpty(),
-                                                    onClick = {
-                                                        speakerGroupName = ""
-                                                        hasUnsavedChanges = true
-                                                    },
-                                                    labelText = S.wordEditor.unlimitedChip
-                                                )
-                                            }
-                                            items(speakerGroups) { grp ->
-                                                val isSelected = selectedProjGroups.any { it.equals(grp, ignoreCase = true) }
-                                                StudioFilterChip(
-                                                    selected = isSelected,
-                                                    onClick = {
-                                                        speakerGroupName = toggleSpeakerGroupInRaw(speakerGroupName, grp)
-                                                        hasUnsavedChanges = true
-                                                    },
-                                                    labelText = grp
-                                                )
+                                        StudioHorizontalLazyStrip(
+                                            state = speakerGroupStripState,
+                                            modifier = Modifier.fillMaxWidth()
+                                        ) {
+                                            LazyRow(
+                                                state = speakerGroupStripState,
+                                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                                modifier = Modifier.fillMaxWidth()
+                                            ) {
+                                                item {
+                                                    StudioFilterChip(
+                                                        selected = selectedProjGroups.isEmpty(),
+                                                        onClick = {
+                                                            speakerGroupName = ""
+                                                            hasUnsavedChanges = true
+                                                        },
+                                                        labelText = S.wordEditor.unlimitedChip
+                                                    )
+                                                }
+                                                items(speakerGroups) { grp ->
+                                                    val isSelected = selectedProjGroups.any { it.equals(grp, ignoreCase = true) }
+                                                    StudioFilterChip(
+                                                        selected = isSelected,
+                                                        onClick = {
+                                                            speakerGroupName = toggleSpeakerGroupInRaw(speakerGroupName, grp)
+                                                            hasUnsavedChanges = true
+                                                        },
+                                                        labelText = grp
+                                                    )
+                                                }
                                             }
                                         }
                                     }
@@ -1186,41 +1294,32 @@ fun WordListEditorScreen(
                                     horizontalArrangement = Arrangement.SpaceBetween,
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
-                                    LazyRow(
-                                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                        contentPadding = PaddingValues(end = 24.dp),
-                                        modifier = Modifier
-                                            .weight(1f)
-                                            .graphicsLayer(compositingStrategy = CompositingStrategy.Offscreen)
-                                            .drawWithContent {
-                                                drawContent()
-                                                val fadeWidth = 28.dp.toPx()
-                                                if (size.width > fadeWidth) {
-                                                    drawRect(
-                                                        brush = Brush.horizontalGradient(
-                                                            colors = listOf(Color.Black, Color.Transparent),
-                                                            startX = size.width - fadeWidth,
-                                                            endX = size.width
-                                                        ),
-                                                        blendMode = BlendMode.DstIn
-                                                    )
-                                                }
-                                            }
+                                    val wordGroupStripState = rememberLazyListState()
+                                    StudioHorizontalLazyStrip(
+                                        state = wordGroupStripState,
+                                        modifier = Modifier.weight(1f)
                                     ) {
-                                        item {
-                                            StudioFilterChip(
-                                                selected = selectedGroupFilter == "ALL",
-                                                onClick = { selectedGroupFilter = "ALL" },
-                                                labelText = S.wordEditor.allFilterChip.withArgs("count" to draftItems.size)
-                                            )
-                                        }
-                                        items(distinctWordGroups, key = { it }) { grp ->
-                                            val c = groupSummary[grp] ?: 0
-                                            StudioFilterChip(
-                                                selected = selectedGroupFilter == grp,
-                                                onClick = { selectedGroupFilter = grp },
-                                                labelText = "$grp ($c)"
-                                            )
+                                        LazyRow(
+                                            state = wordGroupStripState,
+                                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                            contentPadding = PaddingValues(end = 8.dp),
+                                            modifier = Modifier.fillMaxWidth()
+                                        ) {
+                                            item {
+                                                StudioFilterChip(
+                                                    selected = selectedGroupFilter == "ALL",
+                                                    onClick = { selectedGroupFilter = "ALL" },
+                                                    labelText = S.wordEditor.allFilterChip.withArgs("count" to draftItems.size)
+                                                )
+                                            }
+                                            items(distinctWordGroups, key = { it }) { grp ->
+                                                val c = groupSummary[grp] ?: 0
+                                                StudioFilterChip(
+                                                    selected = selectedGroupFilter == grp,
+                                                    onClick = { selectedGroupFilter = grp },
+                                                    labelText = "$grp ($c)"
+                                                )
+                                            }
                                         }
                                     }
 
@@ -2130,13 +2229,23 @@ fun WordListEditorScreen(
                         modifier = Modifier.fillMaxWidth()
                     )
                     if (distinctWordGroups.isNotEmpty()) {
-                        LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                            items(distinctWordGroups) { grp ->
-                                StudioFilterChip(
-                                    selected = wordGroup == grp,
-                                    onClick = { wordGroup = grp },
-                                    labelText = grp
-                                )
+                        val dialogGroupStripState = rememberLazyListState()
+                        StudioHorizontalLazyStrip(
+                            state = dialogGroupStripState,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            LazyRow(
+                                state = dialogGroupStripState,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                items(distinctWordGroups) { grp ->
+                                    StudioFilterChip(
+                                        selected = wordGroup == grp,
+                                        onClick = { wordGroup = grp },
+                                        labelText = grp
+                                    )
+                                }
                             }
                         }
                     }

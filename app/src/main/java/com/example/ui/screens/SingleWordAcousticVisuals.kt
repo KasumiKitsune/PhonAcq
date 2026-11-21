@@ -56,6 +56,7 @@ import com.example.data.Word
 import com.example.i18n.S
 import com.example.i18n.withArgs
 import com.example.ui.components.StudioFilterChip
+import com.example.ui.components.StudioHorizontalScrollStrip
 import com.example.ui.theme.LocalPhonAcqExtendedColors
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -895,27 +896,33 @@ fun SingleWordDynamicVowelCard(
 
             if (otherSpeakersEntries.isNotEmpty() && overlayOtherSpeakers) {
                 Spacer(modifier = Modifier.height(8.dp))
-                Row(
-                    modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    verticalAlignment = Alignment.CenterVertically
+                val overlayCoordScroll = rememberScrollState()
+                StudioHorizontalScrollStrip(
+                    state = overlayCoordScroll,
+                    modifier = Modifier.fillMaxWidth()
                 ) {
-                    Text(
-                        text = "跨人坐标:",
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    StudioFilterChip(
-                        selected = useVocalTractNormOnOverlay,
-                        onClick = { useVocalTractNormOnOverlay = true },
-                        labelText = "声道归一化相对舌位"
-                    )
-                    StudioFilterChip(
-                        selected = !useVocalTractNormOnOverlay,
-                        onClick = { useVocalTractNormOnOverlay = false },
-                        labelText = "原始 Bark 物理频率"
-                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth().horizontalScroll(overlayCoordScroll),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "跨人坐标:",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        StudioFilterChip(
+                            selected = useVocalTractNormOnOverlay,
+                            onClick = { useVocalTractNormOnOverlay = true },
+                            labelText = "声道归一化相对舌位"
+                        )
+                        StudioFilterChip(
+                            selected = !useVocalTractNormOnOverlay,
+                            onClick = { useVocalTractNormOnOverlay = false },
+                            labelText = "原始 Bark 物理频率"
+                        )
+                    }
                 }
             }
 
@@ -979,30 +986,36 @@ fun SingleWordDynamicVowelCard(
             // - Single-syllable / Diphthong focus: Onset -> Nucleus -> Target
             // - Monophthong focus: F1 / F2 / F3
             if (trajectories.size > 1 && selectedSyllableIndex == -1) {
-                Row(
-                    modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                val formantStripScroll = rememberScrollState()
+                StudioHorizontalScrollStrip(
+                    state = formantStripScroll,
+                    modifier = Modifier.fillMaxWidth()
                 ) {
-                    trajectories.forEachIndexed { idx, t ->
-                        val vDesc = if (t.vowelType == VowelGlideType.MONOPHTHONG) {
-                            S.acoustics.steadyRimeSuffix.withArgs(
-                                "region" to PhoneticScaleUtils.describeArticulatoryRegion(t.nucleusF1, t.nucleusF2)
+                    Row(
+                        modifier = Modifier.fillMaxWidth().horizontalScroll(formantStripScroll),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        trajectories.forEachIndexed { idx, t ->
+                            val vDesc = if (t.vowelType == VowelGlideType.MONOPHTHONG) {
+                                S.acoustics.steadyRimeSuffix.withArgs(
+                                    "region" to PhoneticScaleUtils.describeArticulatoryRegion(t.nucleusF1, t.nucleusF2)
+                                )
+                            } else {
+                                String.format(Locale.US, "%s · %.1f Bark", t.vowelType.chineseLabel.substringBefore(' '), t.barkGlideSpan)
+                            }
+                            val freqVal = if (t.vowelType == VowelGlideType.MONOPHTHONG) {
+                                "${t.nucleusF1}/${t.nucleusF2} Hz"
+                            } else {
+                                "${t.onsetF1}→${t.targetF1} / ${t.onsetF2}→${t.targetF2}"
+                            }
+                            FormantMetricBox(
+                                title = "${circledSyllableBadge(idx + 1)} ${t.syllableLabel.ifBlank { S.common.syllableFallback.withArgs("index" to idx + 1) }}",
+                                value = freqVal,
+                                sub = vDesc,
+                                highlight = idx == 0,
+                                modifier = Modifier.widthIn(min = 128.dp)
                             )
-                        } else {
-                            String.format(Locale.US, "%s · %.1f Bark", t.vowelType.chineseLabel.substringBefore(' '), t.barkGlideSpan)
                         }
-                        val freqVal = if (t.vowelType == VowelGlideType.MONOPHTHONG) {
-                            "${t.nucleusF1}/${t.nucleusF2} Hz"
-                        } else {
-                            "${t.onsetF1}→${t.targetF1} / ${t.onsetF2}→${t.targetF2}"
-                        }
-                        FormantMetricBox(
-                            title = "${circledSyllableBadge(idx + 1)} ${t.syllableLabel.ifBlank { S.common.syllableFallback.withArgs("index" to idx + 1) }}",
-                            value = freqVal,
-                            sub = vDesc,
-                            highlight = idx == 0,
-                            modifier = Modifier.widthIn(min = 128.dp)
-                        )
                     }
                 }
             } else if (focusedTraj != null && focusedTraj.vowelType != VowelGlideType.MONOPHTHONG) {
@@ -1361,22 +1374,28 @@ fun SingleWordDynamicVowelCard(
 
             // Legend for Trajectory Symbols & Inter-Syllable Dashed Transitions
             Spacer(modifier = Modifier.height(10.dp))
-            Row(
-                modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-                horizontalArrangement = Arrangement.spacedBy(14.dp),
-                verticalAlignment = Alignment.CenterVertically
+            val legendScroll = rememberScrollState()
+            StudioHorizontalScrollStrip(
+                state = legendScroll,
+                modifier = Modifier.fillMaxWidth()
             ) {
-                if (trajectories.any { it.vowelType != VowelGlideType.MONOPHTHONG }) {
-                    Text(S.acoustics.legendOnsetCircle, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Text(S.acoustics.legendDiphthongArrow, fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.primary)
-                }
-                if (trajectories.size > 1) {
-                    Text(S.acoustics.legendPolysyllableDashed, fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    trajectories.forEachIndexed { idx, t ->
-                        val col = sylPalette[idx % sylPalette.size]
-                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                            Box(modifier = Modifier.size(8.dp).background(col, CircleShape))
-                            Text("${circledSyllableBadge(idx + 1)} ${t.syllableLabel} (${t.vowelType.chineseLabel.substringBefore(' ')})", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                Row(
+                    modifier = Modifier.fillMaxWidth().horizontalScroll(legendScroll),
+                    horizontalArrangement = Arrangement.spacedBy(14.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    if (trajectories.any { it.vowelType != VowelGlideType.MONOPHTHONG }) {
+                        Text(S.acoustics.legendOnsetCircle, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(S.acoustics.legendDiphthongArrow, fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.primary)
+                    }
+                    if (trajectories.size > 1) {
+                        Text(S.acoustics.legendPolysyllableDashed, fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        trajectories.forEachIndexed { idx, t ->
+                            val col = sylPalette[idx % sylPalette.size]
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                Box(modifier = Modifier.size(8.dp).background(col, CircleShape))
+                                Text("${circledSyllableBadge(idx + 1)} ${t.syllableLabel} (${t.vowelType.chineseLabel.substringBefore(' ')})", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                            }
                         }
                     }
                 }

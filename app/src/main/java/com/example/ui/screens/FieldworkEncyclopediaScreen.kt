@@ -55,6 +55,7 @@ import com.example.ui.components.DesktopAdaptiveState
 import com.example.ui.components.PlatformVerticalScrollbar
 import com.example.ui.components.PredictiveBackGestureHandler
 import com.example.ui.components.ResponsiveContentContainer
+import com.example.ui.components.StudioHorizontalScrollStrip
 import com.example.ui.components.StudioMotion
 import com.example.ui.components.StudioSidebarNavItem
 import com.example.ui.components.predictiveBackLayer
@@ -416,28 +417,34 @@ private fun EncyclopediaSearchAndVolumeBar(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                Row(
-                    modifier = Modifier
-                        .weight(1f)
-                        .horizontalScroll(rememberScrollState()),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    verticalAlignment = Alignment.CenterVertically
+                val wideVolumeScroll = rememberScrollState()
+                StudioHorizontalScrollStrip(
+                    state = wideVolumeScroll,
+                    modifier = Modifier.weight(1f)
                 ) {
-                    VolumeFilterChip(
-                        selected = selectedVolume == null,
-                        icon = null,
-                        label = "全部 (${EncyclopediaRepository.allEntries.size})",
-                        onClick = { onSelectVolume(null) },
-                        modifier = Modifier.testTag("encyclopedia_vol_ALL")
-                    )
-                    EncyclopediaVolume.entries.forEach { vol ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(wideVolumeScroll),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
                         VolumeFilterChip(
-                            selected = selectedVolume == vol,
-                            icon = vol.icon,
-                            label = vol.shortTitle,
-                            onClick = { onSelectVolume(vol) },
-                            modifier = Modifier.testTag("encyclopedia_vol_${vol.name}")
+                            selected = selectedVolume == null,
+                            icon = null,
+                            label = "全部 (${EncyclopediaRepository.allEntries.size})",
+                            onClick = { onSelectVolume(null) },
+                            modifier = Modifier.testTag("encyclopedia_vol_ALL")
                         )
+                        EncyclopediaVolume.entries.forEach { vol ->
+                            VolumeFilterChip(
+                                selected = selectedVolume == vol,
+                                icon = vol.icon,
+                                label = vol.shortTitle,
+                                onClick = { onSelectVolume(vol) },
+                                modifier = Modifier.testTag("encyclopedia_vol_${vol.name}")
+                            )
+                        }
                     }
                 }
 
@@ -547,28 +554,34 @@ private fun EncyclopediaSearchAndVolumeBar(
                     .testTag("encyclopedia_search_input")
             )
 
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .horizontalScroll(rememberScrollState()),
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                verticalAlignment = Alignment.CenterVertically
+            val compactVolumeScroll = rememberScrollState()
+            StudioHorizontalScrollStrip(
+                state = compactVolumeScroll,
+                modifier = Modifier.fillMaxWidth()
             ) {
-                VolumeFilterChip(
-                    selected = selectedVolume == null,
-                    icon = null,
-                    label = "全部 (${EncyclopediaRepository.allEntries.size})",
-                    onClick = { onSelectVolume(null) },
-                    modifier = Modifier.testTag("encyclopedia_vol_ALL")
-                )
-                EncyclopediaVolume.entries.forEach { vol ->
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(compactVolumeScroll),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
                     VolumeFilterChip(
-                        selected = selectedVolume == vol,
-                        icon = vol.icon,
-                        label = vol.shortTitle,
-                        onClick = { onSelectVolume(vol) },
-                        modifier = Modifier.testTag("encyclopedia_vol_${vol.name}")
+                        selected = selectedVolume == null,
+                        icon = null,
+                        label = "全部 (${EncyclopediaRepository.allEntries.size})",
+                        onClick = { onSelectVolume(null) },
+                        modifier = Modifier.testTag("encyclopedia_vol_ALL")
                     )
+                    EncyclopediaVolume.entries.forEach { vol ->
+                        VolumeFilterChip(
+                            selected = selectedVolume == vol,
+                            icon = vol.icon,
+                            label = vol.shortTitle,
+                            onClick = { onSelectVolume(vol) },
+                            modifier = Modifier.testTag("encyclopedia_vol_${vol.name}")
+                        )
+                    }
                 }
             }
         }

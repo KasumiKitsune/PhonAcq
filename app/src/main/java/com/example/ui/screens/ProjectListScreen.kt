@@ -16,6 +16,7 @@ import com.example.ui.components.PlatformVerticalScrollbar
 import com.example.ui.components.PredictiveBackGestureHandler
 import com.example.ui.components.ResponsiveContentContainer
 import com.example.ui.components.StudioFilterChip
+import com.example.ui.components.StudioHorizontalLazyStrip
 import com.example.ui.components.StudioModalDialog
 import com.example.ui.components.StudioMotion
 import com.example.ui.components.SuspendDesktopShortcutsWhen
@@ -23,7 +24,9 @@ import com.example.ui.components.predictiveBackLayer
 import com.example.ui.components.rememberPredictiveBackVisualState
 import com.example.ui.components.rememberStudioInteraction
 import com.example.ui.components.studioAnimateItem
+import com.example.ui.components.studioRotateOn
 import com.example.ui.components.studioTactile
+import com.example.ui.theme.LocalPhonAcqExtendedColors
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
@@ -1108,6 +1111,29 @@ fun ProjectItemCard(
 
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     val cs = MaterialTheme.colorScheme
+                    val (manageSpkSrc, manageSpkHoveredState) = rememberStudioInteraction()
+                    val manageSpkHovered by manageSpkHoveredState
+                    val manageSpkTint by animateColorAsState(
+                        targetValue = if (manageSpkHovered) cs.primary else cs.onSurfaceVariant,
+                        animationSpec = StudioMotion.microTween(),
+                        label = "ProjManageSpkIconTint"
+                    )
+                    IconButton(
+                        onClick = onManageGroupSpeakers,
+                        interactionSource = manageSpkSrc,
+                        modifier = Modifier
+                            .size(34.dp)
+                            .hoverable(manageSpkSrc)
+                            .studioTactile(manageSpkSrc, pressScale = 0.90f)
+                            .pointerHoverIcon(PointerIcon.Hand)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.PersonAddAlt,
+                            contentDescription = S.project.cardManageSpeakerDesc,
+                            tint = manageSpkTint,
+                            modifier = Modifier.size(19.dp)
+                        )
+                    }
                     val (editSrc, editHoveredState) = rememberStudioInteraction()
                     val editHovered by editHoveredState
                     val editTint by animateColorAsState(
@@ -1119,7 +1145,7 @@ fun ProjectItemCard(
                         onClick = onEditDetails,
                         interactionSource = editSrc,
                         modifier = Modifier
-                            .size(36.dp)
+                            .size(34.dp)
                             .hoverable(editSrc)
                             .studioTactile(editSrc, pressScale = 0.90f)
                             .pointerHoverIcon(PointerIcon.Hand)
@@ -1128,7 +1154,7 @@ fun ProjectItemCard(
                             imageVector = Icons.Default.EditNote,
                             contentDescription = S.project.cardEditWordsDesc,
                             tint = editTint,
-                            modifier = Modifier.size(22.dp)
+                            modifier = Modifier.size(21.dp)
                         )
                     }
                     val (delSrc, delHoveredState) = rememberStudioInteraction()
@@ -1142,7 +1168,7 @@ fun ProjectItemCard(
                         onClick = { showDeleteConfirm = true },
                         interactionSource = delSrc,
                         modifier = Modifier
-                            .size(36.dp)
+                            .size(34.dp)
                             .hoverable(delSrc)
                             .studioTactile(delSrc, pressScale = 0.90f)
                             .pointerHoverIcon(PointerIcon.Hand)
@@ -1152,147 +1178,440 @@ fun ProjectItemCard(
                             imageVector = Icons.Default.DeleteOutline,
                             contentDescription = S.project.cardDeleteProjectDesc,
                             tint = delTint,
-                            modifier = Modifier.size(20.dp)
+                            modifier = Modifier.size(19.dp)
                         )
                     }
                 }
             }
 
-            // Middle Row: Direct Multi-Speaker Progress Chips
-            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                LazyRow(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    items(
-                        items = speakerProgressList,
-                        key = { it.speaker.id },
-                        contentType = { "speaker_progress_chip" }
-                    ) { spkInfo ->
-                        val cs = MaterialTheme.colorScheme
-                        val isDone = spkInfo.isCompleted
-                        val isStarted = spkInfo.hasStarted
-                        val (chipSrc, chipHoveredState) = rememberStudioInteraction()
-                        val chipHovered by chipHoveredState
-                        val baseBg = when {
-                            isDone -> cs.secondaryContainer
-                            isStarted -> cs.primaryContainer
-                            else -> cs.surfaceContainerHigh
-                        }
-                        val chipBg by animateColorAsState(
-                            targetValue = if (chipHovered) lerp(baseBg, cs.primary, 0.16f) else baseBg,
-                            animationSpec = StudioMotion.microTween(),
-                            label = "SpeakerChipBg_${spkInfo.speaker.id}"
-                        )
-                        val chipBorder by animateColorAsState(
-                            targetValue = if (chipHovered) cs.primary.copy(alpha = 0.55f) else cs.primary.copy(alpha = 0f),
-                            animationSpec = StudioMotion.microTween(),
-                            label = "SpeakerChipBorder_${spkInfo.speaker.id}"
-                        )
-                        val chipContent = when {
-                            isDone -> cs.onSecondaryContainer
-                            isStarted -> cs.onPrimaryContainer
-                            else -> cs.onSurfaceVariant
-                        }
+            // Middle Row: Compact Single-Row Top Speakers + "+N ▾" Popover Picker (zero horizontal scroll needed)
+            val prioritizedSpeakers = remember(speakerProgressList) {
+                speakerProgressList.sortedWith(
+                    compareByDescending<SpeakerProgressInfo> { it.hasStarted && !it.isCompleted }
+                        .thenByDescending { it.isCompleted }
+                        .thenByDescending { it.recordedWords }
+                )
+            }
+            var showAllSpeakersPopover by remember { mutableStateOf(false) }
 
-                        Surface(
-                            shape = RoundedCornerShape(12.dp),
-                            color = chipBg,
-                            border = BorderStroke(1.dp, chipBorder),
-                            modifier = studioAnimateItem()
-                                .studioTactile(chipSrc, pressScale = 0.96f)
-                                .clip(RoundedCornerShape(12.dp))
-                                .hoverable(chipSrc)
-                                .pointerHoverIcon(PointerIcon.Hand)
-                                .clickable(
-                                    interactionSource = chipSrc,
-                                    indication = LocalIndication.current
-                                ) { onSpeakerChipClick(spkInfo.speaker) }
+            BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+                val cs = MaterialTheme.colorScheme
+                val extendedColors = LocalPhonAcqExtendedColors.current
+                val maxVisible = when {
+                    maxWidth >= 460.dp -> 3
+                    maxWidth >= 230.dp -> 2
+                    else -> 1
+                }
+                val hasOverflow = prioritizedSpeakers.size > maxVisible
+                val visibleSpeakers = if (hasOverflow) {
+                    prioritizedSpeakers.take(maxVisible)
+                } else {
+                    prioritizedSpeakers
+                }
+                val hiddenCount = (prioritizedSpeakers.size - visibleSpeakers.size).coerceAtLeast(0)
+
+                if (prioritizedSpeakers.isEmpty()) {
+                    val (addSpkSrc, addSpkHoveredState) = rememberStudioInteraction()
+                    val addSpkHovered by addSpkHoveredState
+                    val addBg by animateColorAsState(
+                        targetValue = if (addSpkHovered) lerp(cs.surfaceContainer, cs.primaryContainer, 0.45f) else cs.surfaceContainer,
+                        animationSpec = StudioMotion.microTween(),
+                        label = "EmptyAddSpeakerChipBg"
+                    )
+                    val addBorder by animateColorAsState(
+                        targetValue = if (addSpkHovered) cs.primary.copy(alpha = 0.6f) else cs.outlineVariant.copy(alpha = 0.6f),
+                        animationSpec = StudioMotion.microTween(),
+                        label = "EmptyAddSpeakerChipBorder"
+                    )
+                    Surface(
+                        shape = RoundedCornerShape(10.dp),
+                        color = addBg,
+                        border = BorderStroke(1.dp, addBorder),
+                        modifier = Modifier
+                            .studioTactile(addSpkSrc, pressScale = 0.96f)
+                            .clip(RoundedCornerShape(10.dp))
+                            .hoverable(addSpkSrc)
+                            .pointerHoverIcon(PointerIcon.Hand)
+                            .clickable(
+                                interactionSource = addSpkSrc,
+                                indication = null
+                            ) { onManageGroupSpeakers() }
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(5.dp)
                         ) {
-                            Row(
-                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(5.dp)
-                            ) {
-                                Icon(
-                                    imageVector = when {
-                                        isDone -> Icons.Default.CheckCircle
-                                        isStarted -> Icons.Default.GraphicEq
-                                        else -> Icons.Default.PersonOutline
-                                    },
-                                    contentDescription = null,
-                                    tint = chipContent,
-                                    modifier = Modifier.size(14.dp)
-                                )
-                                Text(
-                                    text = spkInfo.speaker.name,
-                                    fontSize = 12.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = chipContent,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                    modifier = Modifier.widthIn(max = 140.dp)
-                                )
-                                Text(
-                                    text = "${spkInfo.recordedWords}/$totalWords",
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.SemiBold,
-                                    color = chipContent.copy(alpha = 0.85f),
-                                    maxLines = 1,
-                                    softWrap = false
-                                )
-                            }
+                            Icon(
+                                imageVector = Icons.Default.PersonAddAlt,
+                                contentDescription = S.project.cardManageSpeakerDesc,
+                                tint = cs.primary,
+                                modifier = Modifier.size(14.dp)
+                            )
+                            Text(
+                                text = if (isSimpleMode) S.project.cardManageSpeakerSimple else S.project.cardManageSpeakerAdv,
+                                fontSize = 11.5.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = cs.primary,
+                                maxLines = 1,
+                                softWrap = false
+                            )
                         }
                     }
+                } else {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        visibleSpeakers.forEach { spkInfo ->
+                            val isDone = spkInfo.isCompleted
+                            val isStarted = spkInfo.hasStarted
+                            val (chipSrc, chipHoveredState) = rememberStudioInteraction()
+                            val chipHovered by chipHoveredState
+                            val baseBg = when {
+                                isDone -> cs.secondaryContainer
+                                isStarted -> cs.primaryContainer
+                                else -> cs.surfaceContainerHigh
+                            }
+                            val chipBg by animateColorAsState(
+                                targetValue = if (chipHovered) lerp(baseBg, cs.primary, 0.16f) else baseBg,
+                                animationSpec = StudioMotion.microTween(),
+                                label = "SpeakerChipBg_${spkInfo.speaker.id}"
+                            )
+                            val chipBorder by animateColorAsState(
+                                targetValue = if (chipHovered) cs.primary.copy(alpha = 0.55f) else cs.primary.copy(alpha = 0f),
+                                animationSpec = StudioMotion.microTween(),
+                                label = "SpeakerChipBorder_${spkInfo.speaker.id}"
+                            )
+                            val chipContent = when {
+                                isDone -> cs.onSecondaryContainer
+                                isStarted -> cs.onPrimaryContainer
+                                else -> cs.onSurfaceVariant
+                            }
+                            val chipIconTint = when {
+                                isDone -> extendedColors.success
+                                isStarted -> cs.primary
+                                else -> cs.onSurfaceVariant
+                            }
 
-                    // Quick "+ 发音人" chip
-                    item(key = "add_speaker_chip") {
-                        val cs = MaterialTheme.colorScheme
-                        val (addSpkSrc, addSpkHoveredState) = rememberStudioInteraction()
-                        val addSpkHovered by addSpkHoveredState
-                        val addBg by animateColorAsState(
-                            targetValue = if (addSpkHovered) lerp(cs.surfaceContainer, cs.primaryContainer, 0.45f) else cs.surfaceContainer,
-                            animationSpec = StudioMotion.microTween(),
-                            label = "AddSpeakerChipBg"
-                        )
-                        val addBorder by animateColorAsState(
-                            targetValue = if (addSpkHovered) cs.primary.copy(alpha = 0.6f) else cs.outlineVariant.copy(alpha = 0.6f),
-                            animationSpec = StudioMotion.microTween(),
-                            label = "AddSpeakerChipBorder"
-                        )
-                        Surface(
-                            shape = RoundedCornerShape(12.dp),
-                            color = addBg,
-                            border = BorderStroke(1.dp, addBorder),
-                            modifier = studioAnimateItem()
-                                .studioTactile(addSpkSrc, pressScale = 0.96f)
-                                .clip(RoundedCornerShape(12.dp))
-                                .hoverable(addSpkSrc)
-                                .pointerHoverIcon(PointerIcon.Hand)
-                                .clickable(
-                                    interactionSource = addSpkSrc,
-                                    indication = LocalIndication.current
-                                ) { onManageGroupSpeakers() }
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                            Surface(
+                                shape = RoundedCornerShape(10.dp),
+                                color = chipBg,
+                                border = BorderStroke(1.dp, chipBorder),
+                                modifier = Modifier
+                                    .weight(1f, fill = false)
+                                    .studioTactile(chipSrc, pressScale = 0.96f)
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .hoverable(chipSrc)
+                                    .pointerHoverIcon(PointerIcon.Hand)
+                                    .clickable(
+                                        interactionSource = chipSrc,
+                                        indication = null
+                                    ) { onSpeakerChipClick(spkInfo.speaker) }
                             ) {
-                                Icon(
-                                    imageVector = Icons.Default.PersonAddAlt,
-                                    contentDescription = S.project.cardManageSpeakerDesc,
-                                    tint = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.size(14.dp)
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 9.dp, vertical = 6.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = when {
+                                            isDone -> Icons.Default.CheckCircle
+                                            isStarted -> Icons.Default.GraphicEq
+                                            else -> Icons.Default.PersonOutline
+                                        },
+                                        contentDescription = null,
+                                        tint = chipIconTint,
+                                        modifier = Modifier.size(13.dp)
+                                    )
+                                    Text(
+                                        text = spkInfo.speaker.name,
+                                        fontSize = 11.5.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = chipContent,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                        modifier = Modifier.weight(1f, fill = false)
+                                    )
+                                    Text(
+                                        text = "${spkInfo.recordedWords}/$totalWords",
+                                        fontSize = 10.5.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        fontFamily = FontFamily.Monospace,
+                                        color = chipContent.copy(alpha = 0.82f),
+                                        maxLines = 1,
+                                        softWrap = false
+                                    )
+                                }
+                            }
+                        }
+
+                        if (hasOverflow) {
+                            Box {
+                                val (moreSrc, moreHoveredState) = rememberStudioInteraction()
+                                val moreHovered by moreHoveredState
+                                val moreBg by animateColorAsState(
+                                    targetValue = when {
+                                        showAllSpeakersPopover -> cs.primaryContainer
+                                        moreHovered -> lerp(cs.surfaceContainer, cs.primaryContainer, 0.55f)
+                                        else -> cs.surfaceContainer
+                                    },
+                                    animationSpec = StudioMotion.microTween(),
+                                    label = "MoreSpeakersChipBg"
                                 )
-                                Text(
-                                    text = if (isSimpleMode) S.project.cardManageSpeakerSimple else S.project.cardManageSpeakerAdv,
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = MaterialTheme.colorScheme.primary,
-                                    maxLines = 1,
-                                    softWrap = false
+                                val moreBorder by animateColorAsState(
+                                    targetValue = when {
+                                        showAllSpeakersPopover || moreHovered -> cs.primary.copy(alpha = 0.55f)
+                                        else -> cs.outlineVariant.copy(alpha = 0.65f)
+                                    },
+                                    animationSpec = StudioMotion.microTween(),
+                                    label = "MoreSpeakersChipBorder"
                                 )
+                                val moreFg by animateColorAsState(
+                                    targetValue = if (showAllSpeakersPopover || moreHovered) cs.primary else cs.onSurfaceVariant,
+                                    animationSpec = StudioMotion.microTween(),
+                                    label = "MoreSpeakersChipFg"
+                                )
+
+                                Surface(
+                                    shape = RoundedCornerShape(10.dp),
+                                    color = moreBg,
+                                    border = BorderStroke(1.dp, moreBorder),
+                                    modifier = Modifier
+                                        .studioTactile(moreSrc, pressScale = 0.95f)
+                                        .clip(RoundedCornerShape(10.dp))
+                                        .hoverable(moreSrc)
+                                        .pointerHoverIcon(PointerIcon.Hand)
+                                        .clickable(
+                                            interactionSource = moreSrc,
+                                            indication = null
+                                        ) { showAllSpeakersPopover = true }
+                                        .testTag("project_more_speakers_${project.id}")
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(2.dp)
+                                    ) {
+                                        Text(
+                                            text = "+$hiddenCount",
+                                            fontSize = 11.5.sp,
+                                            fontWeight = FontWeight.ExtraBold,
+                                            fontFamily = FontFamily.Monospace,
+                                            color = moreFg,
+                                            maxLines = 1,
+                                            softWrap = false
+                                        )
+                                        Icon(
+                                            imageVector = Icons.Default.ExpandMore,
+                                            contentDescription = null,
+                                            tint = moreFg,
+                                            modifier = Modifier
+                                                .size(14.dp)
+                                                .studioRotateOn(showAllSpeakersPopover)
+                                        )
+                                    }
+                                }
+
+                                DropdownMenu(
+                                    expanded = showAllSpeakersPopover,
+                                    onDismissRequest = { showAllSpeakersPopover = false },
+                                    shape = RoundedCornerShape(14.dp),
+                                    containerColor = cs.surface,
+                                    border = BorderStroke(1.dp, cs.outlineVariant.copy(alpha = 0.7f)),
+                                    shadowElevation = 6.dp,
+                                    modifier = Modifier.widthIn(min = 236.dp, max = 288.dp)
+                                ) {
+                                    // Popover Header
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(horizontal = 12.dp, vertical = 6.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.SpaceBetween
+                                    ) {
+                                        Text(
+                                            text = S.speaker.allFilterChip.withArgs("count" to prioritizedSpeakers.size),
+                                            fontSize = 11.5.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = cs.onSurfaceVariant
+                                        )
+                                        if (!isSimpleMode && project.speakerGroupName.isNotBlank()) {
+                                            Text(
+                                                text = project.speakerGroupName,
+                                                fontSize = 10.5.sp,
+                                                fontWeight = FontWeight.Medium,
+                                                color = cs.primary,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis,
+                                                modifier = Modifier.widthIn(max = 120.dp)
+                                            )
+                                        }
+                                    }
+                                    HorizontalDivider(
+                                        color = cs.outlineVariant.copy(alpha = 0.45f),
+                                        modifier = Modifier.padding(bottom = 4.dp)
+                                    )
+
+                                    // Scrollable speaker list (caps height so 20+ speakers stay compact)
+                                    Column(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .heightIn(max = 264.dp)
+                                            .verticalScroll(rememberScrollState())
+                                            .padding(horizontal = 6.dp),
+                                        verticalArrangement = Arrangement.spacedBy(2.dp)
+                                    ) {
+                                        prioritizedSpeakers.forEach { spkInfo ->
+                                            val isDone = spkInfo.isCompleted
+                                            val isStarted = spkInfo.hasStarted
+                                            val (rowSrc, rowHoveredState) = rememberStudioInteraction()
+                                            val rowHovered by rowHoveredState
+                                            val hoverFill = cs.primaryContainer.copy(alpha = 0.55f)
+                                            val rowBg by animateColorAsState(
+                                                targetValue = if (rowHovered) hoverFill else hoverFill.copy(alpha = 0f),
+                                                animationSpec = StudioMotion.microTween(),
+                                                label = "SpkPopoverRowBg_${spkInfo.speaker.id}"
+                                            )
+                                            val statusTint = when {
+                                                isDone -> extendedColors.success
+                                                isStarted -> cs.primary
+                                                else -> cs.onSurfaceVariant
+                                            }
+                                            Surface(
+                                                shape = RoundedCornerShape(9.dp),
+                                                color = rowBg,
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .clip(RoundedCornerShape(9.dp))
+                                                    .hoverable(rowSrc)
+                                                    .pointerHoverIcon(PointerIcon.Hand)
+                                                    .clickable(
+                                                        interactionSource = rowSrc,
+                                                        indication = null
+                                                    ) {
+                                                        showAllSpeakersPopover = false
+                                                        onSpeakerChipClick(spkInfo.speaker)
+                                                    }
+                                            ) {
+                                                Row(
+                                                    modifier = Modifier
+                                                        .fillMaxWidth()
+                                                        .padding(horizontal = 8.dp, vertical = 7.dp),
+                                                    verticalAlignment = Alignment.CenterVertically,
+                                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                                ) {
+                                                    Icon(
+                                                        imageVector = when {
+                                                            isDone -> Icons.Default.CheckCircle
+                                                            isStarted -> Icons.Default.GraphicEq
+                                                            else -> Icons.Default.PersonOutline
+                                                        },
+                                                        contentDescription = null,
+                                                        tint = statusTint,
+                                                        modifier = Modifier.size(15.dp)
+                                                    )
+                                                    Column(modifier = Modifier.weight(1f)) {
+                                                        Text(
+                                                            text = spkInfo.speaker.name,
+                                                            fontSize = 12.5.sp,
+                                                            fontWeight = FontWeight.SemiBold,
+                                                            color = cs.onSurface,
+                                                            maxLines = 1,
+                                                            overflow = TextOverflow.Ellipsis
+                                                        )
+                                                        if (spkInfo.speaker.dialect.isNotBlank()) {
+                                                            Text(
+                                                                text = spkInfo.speaker.dialect,
+                                                                fontSize = 10.5.sp,
+                                                                color = cs.onSurfaceVariant,
+                                                                maxLines = 1,
+                                                                overflow = TextOverflow.Ellipsis
+                                                            )
+                                                        }
+                                                    }
+                                                    Surface(
+                                                        shape = RoundedCornerShape(6.dp),
+                                                        color = when {
+                                                            isDone -> extendedColors.successContainer
+                                                            isStarted -> cs.primaryContainer
+                                                            else -> cs.surfaceContainerHigh
+                                                        }
+                                                    ) {
+                                                        Text(
+                                                            text = "${spkInfo.recordedWords}/$totalWords",
+                                                            fontSize = 10.5.sp,
+                                                            fontWeight = FontWeight.Bold,
+                                                            fontFamily = FontFamily.Monospace,
+                                                            color = when {
+                                                                isDone -> extendedColors.onSuccessContainer
+                                                                isStarted -> cs.onPrimaryContainer
+                                                                else -> cs.onSurfaceVariant
+                                                            },
+                                                            maxLines = 1,
+                                                            softWrap = false,
+                                                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                                        )
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+
+                                    HorizontalDivider(
+                                        color = cs.outlineVariant.copy(alpha = 0.45f),
+                                        modifier = Modifier.padding(top = 4.dp, bottom = 4.dp)
+                                    )
+                                    val (mgrRowSrc, mgrRowHoveredState) = rememberStudioInteraction()
+                                    val mgrRowHovered by mgrRowHoveredState
+                                    val mgrFill = cs.primaryContainer.copy(alpha = 0.5f)
+                                    val mgrBg by animateColorAsState(
+                                        targetValue = if (mgrRowHovered) mgrFill else mgrFill.copy(alpha = 0f),
+                                        animationSpec = StudioMotion.microTween(),
+                                        label = "SpkPopoverManageBg"
+                                    )
+                                    Surface(
+                                        shape = RoundedCornerShape(9.dp),
+                                        color = mgrBg,
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(horizontal = 6.dp)
+                                            .clip(RoundedCornerShape(9.dp))
+                                            .hoverable(mgrRowSrc)
+                                            .pointerHoverIcon(PointerIcon.Hand)
+                                            .clickable(
+                                                interactionSource = mgrRowSrc,
+                                                indication = null
+                                            ) {
+                                                showAllSpeakersPopover = false
+                                                onManageGroupSpeakers()
+                                            }
+                                    ) {
+                                        Row(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(horizontal = 8.dp, vertical = 7.dp),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(7.dp)
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.PersonAddAlt,
+                                                contentDescription = null,
+                                                tint = cs.primary,
+                                                modifier = Modifier.size(15.dp)
+                                            )
+                                            Text(
+                                                text = if (isSimpleMode) S.project.cardManageSpeakerSimple else S.project.cardManageSpeakerAdv,
+                                                fontSize = 12.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                color = cs.primary,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis
+                                            )
+                                        }
+                                    }
+                                }
                             }
                         }
                     }
@@ -1699,43 +2018,51 @@ fun SpeakerManagerPage(
                     ) {
                         if (!isSimpleMode) {
                             // Group Filter Bar
-                            LazyRow(
-                                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                contentPadding = PaddingValues(vertical = 4.dp)
+                            val speakerGroupFilterState = rememberLazyListState()
+                            StudioHorizontalLazyStrip(
+                                state = speakerGroupFilterState,
+                                modifier = Modifier.fillMaxWidth()
                             ) {
-                                item {
-                                    StudioFilterChip(
-                                        selected = selectedGroupFilter == "ALL",
-                                        onClick = { selectedGroupFilter = "ALL" },
-                                        labelText = S.speaker.allFilterChip.withArgs("count" to speakers.size),
-                                        leadingIcon = if (selectedGroupFilter == "ALL") {
-                                            { Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(16.dp)) }
-                                        } else null
-                                    )
-                                }
-                                items(speakerGroups) { grp ->
-                                    val countInGrp = speakers.count { it.belongsToGroup(grp) }
-                                    StudioFilterChip(
-                                        selected = selectedGroupFilter == grp,
-                                        onClick = { selectedGroupFilter = grp },
-                                        labelText = "$grp ($countInGrp)",
-                                        leadingIcon = {
-                                            Icon(
-                                                imageVector = if (selectedGroupFilter == grp) Icons.Default.Check else Icons.Default.FolderShared,
-                                                contentDescription = null,
-                                                modifier = Modifier.size(16.dp)
-                                            )
-                                        }
-                                    )
-                                }
-                                val ungroupedCount = speakers.count { it.groupList.isEmpty() }
-                                if (ungroupedCount > 0 && speakerGroups.isNotEmpty()) {
+                                LazyRow(
+                                    state = speakerGroupFilterState,
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    contentPadding = PaddingValues(vertical = 4.dp),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
                                     item {
                                         StudioFilterChip(
-                                            selected = selectedGroupFilter == "UNGROUPED",
-                                            onClick = { selectedGroupFilter = "UNGROUPED" },
-                                            labelText = S.speaker.ungroupedFilterChip.withArgs("count" to ungroupedCount)
+                                            selected = selectedGroupFilter == "ALL",
+                                            onClick = { selectedGroupFilter = "ALL" },
+                                            labelText = S.speaker.allFilterChip.withArgs("count" to speakers.size),
+                                            leadingIcon = if (selectedGroupFilter == "ALL") {
+                                                { Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(16.dp)) }
+                                            } else null
                                         )
+                                    }
+                                    items(speakerGroups) { grp ->
+                                        val countInGrp = speakers.count { it.belongsToGroup(grp) }
+                                        StudioFilterChip(
+                                            selected = selectedGroupFilter == grp,
+                                            onClick = { selectedGroupFilter = grp },
+                                            labelText = "$grp ($countInGrp)",
+                                            leadingIcon = {
+                                                Icon(
+                                                    imageVector = if (selectedGroupFilter == grp) Icons.Default.Check else Icons.Default.FolderShared,
+                                                    contentDescription = null,
+                                                    modifier = Modifier.size(16.dp)
+                                                )
+                                            }
+                                        )
+                                    }
+                                    val ungroupedCount = speakers.count { it.groupList.isEmpty() }
+                                    if (ungroupedCount > 0 && speakerGroups.isNotEmpty()) {
+                                        item {
+                                            StudioFilterChip(
+                                                selected = selectedGroupFilter == "UNGROUPED",
+                                                onClick = { selectedGroupFilter = "UNGROUPED" },
+                                                labelText = S.speaker.ungroupedFilterChip.withArgs("count" to ungroupedCount)
+                                            )
+                                        }
                                     }
                                 }
                             }
@@ -2492,23 +2819,31 @@ fun ProjectDetailEditDialog(
                                 singleLine = true,
                                 shape = RoundedCornerShape(14.dp)
                             )
-                            LazyRow(
-                                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                verticalAlignment = Alignment.CenterVertically
+                            val editGroupStripState = rememberLazyListState()
+                            StudioHorizontalLazyStrip(
+                                state = editGroupStripState,
+                                modifier = Modifier.fillMaxWidth()
                             ) {
-                                item {
-                                    StudioFilterChip(
-                                        selected = edtSpeakerGroup.isBlank(),
-                                        onClick = { edtSpeakerGroup = "" },
-                                        labelText = S.project.unlimitedGroupChip
-                                    )
-                                }
-                                items(speakerGroups) { grp ->
-                                    StudioFilterChip(
-                                        selected = edtSpeakerGroup.trim() == grp,
-                                        onClick = { edtSpeakerGroup = grp },
-                                        labelText = grp
-                                    )
+                                LazyRow(
+                                    state = editGroupStripState,
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    item {
+                                        StudioFilterChip(
+                                            selected = edtSpeakerGroup.isBlank(),
+                                            onClick = { edtSpeakerGroup = "" },
+                                            labelText = S.project.unlimitedGroupChip
+                                        )
+                                    }
+                                    items(speakerGroups) { grp ->
+                                        StudioFilterChip(
+                                            selected = edtSpeakerGroup.trim() == grp,
+                                            onClick = { edtSpeakerGroup = grp },
+                                            labelText = grp
+                                        )
+                                    }
                                 }
                             }
                         }

@@ -136,6 +136,7 @@ import androidx.compose.ui.window.DialogProperties
 import com.example.ui.components.PlatformVerticalScrollbar
 import com.example.ui.components.StudioAlertDialog
 import com.example.ui.components.StudioFilterChip
+import com.example.ui.components.StudioHorizontalScrollStrip
 import com.example.ui.components.StudioModalDialog
 import com.example.ui.components.StudioMotion
 import com.example.ui.components.consumeDialogCardTaps
@@ -1272,38 +1273,43 @@ private fun DesktopStudioFilePickerSurface(request: DesktopFilePickerRequest) {
                                             .padding(horizontal = 8.dp),
                                         verticalAlignment = Alignment.CenterVertically
                                     ) {
-                                        Row(
-                                            modifier = Modifier
-                                                .weight(1f)
-                                                .horizontalScroll(crumbScroll),
-                                            verticalAlignment = Alignment.CenterVertically
+                                        StudioHorizontalScrollStrip(
+                                            state = crumbScroll,
+                                            modifier = Modifier.weight(1f)
                                         ) {
-                                            segments.forEachIndexed { idx, (label, segFile) ->
-                                                val isLast = idx == segments.lastIndex
-                                                Surface(
-                                                    shape = RoundedCornerShape(7.dp),
-                                                    color = if (isLast) cs.primaryContainer.copy(alpha = 0.65f) else Color.Transparent,
-                                                    modifier = Modifier
-                                                        .clip(RoundedCornerShape(7.dp))
-                                                        .pointerHoverIcon(PointerIcon.Hand)
-                                                        .clickable { navigateToDirectory(segFile) }
-                                                ) {
-                                                    Text(
-                                                        text = label,
-                                                        fontSize = 12.sp,
-                                                        fontWeight = if (isLast) FontWeight.Bold else FontWeight.Medium,
-                                                        color = if (isLast) cs.onPrimaryContainer else cs.onSurfaceVariant,
-                                                        maxLines = 1,
-                                                        modifier = Modifier.padding(horizontal = 7.dp, vertical = 4.dp)
-                                                    )
-                                                }
-                                                if (!isLast) {
-                                                    Icon(
-                                                        imageVector = Icons.Default.ChevronRight,
-                                                        contentDescription = null,
-                                                        tint = cs.outline,
-                                                        modifier = Modifier.size(14.dp)
-                                                    )
+                                            Row(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .horizontalScroll(crumbScroll),
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                segments.forEachIndexed { idx, (label, segFile) ->
+                                                    val isLast = idx == segments.lastIndex
+                                                    Surface(
+                                                        shape = RoundedCornerShape(7.dp),
+                                                        color = if (isLast) cs.primaryContainer.copy(alpha = 0.65f) else Color.Transparent,
+                                                        modifier = Modifier
+                                                            .clip(RoundedCornerShape(7.dp))
+                                                            .pointerHoverIcon(PointerIcon.Hand)
+                                                            .clickable { navigateToDirectory(segFile) }
+                                                    ) {
+                                                        Text(
+                                                            text = label,
+                                                            fontSize = 12.sp,
+                                                            fontWeight = if (isLast) FontWeight.Bold else FontWeight.Medium,
+                                                            color = if (isLast) cs.onPrimaryContainer else cs.onSurfaceVariant,
+                                                            maxLines = 1,
+                                                            modifier = Modifier.padding(horizontal = 7.dp, vertical = 4.dp)
+                                                        )
+                                                    }
+                                                    if (!isLast) {
+                                                        Icon(
+                                                            imageVector = Icons.Default.ChevronRight,
+                                                            contentDescription = null,
+                                                            tint = cs.outline,
+                                                            modifier = Modifier.size(14.dp)
+                                                        )
+                                                    }
                                                 }
                                             }
                                         }
@@ -1466,26 +1472,32 @@ private fun DesktopStudioFilePickerSurface(request: DesktopFilePickerRequest) {
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
-                        Row(
-                            modifier = Modifier
-                                .weight(1f)
-                                .horizontalScroll(rememberScrollState()),
-                            horizontalArrangement = Arrangement.spacedBy(6.dp),
-                            verticalAlignment = Alignment.CenterVertically
+                        val formatFilterScroll = rememberScrollState()
+                        StudioHorizontalScrollStrip(
+                            state = formatFilterScroll,
+                            modifier = Modifier.weight(1f)
                         ) {
-                            request.filters.forEachIndexed { idx, cat ->
-                                val count = filterCounts.getOrElse(idx) { 0 }
-                                val chipLabel = if (cat.extensions.isEmpty()) {
-                                    cat.label
-                                } else {
-                                    "${cat.label} ($count)"
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .horizontalScroll(formatFilterScroll),
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                request.filters.forEachIndexed { idx, cat ->
+                                    val count = filterCounts.getOrElse(idx) { 0 }
+                                    val chipLabel = if (cat.extensions.isEmpty()) {
+                                        cat.label
+                                    } else {
+                                        "${cat.label} ($count)"
+                                    }
+                                    StudioFilterChip(
+                                        selected = activeFilterIndex == idx,
+                                        onClick = { activeFilterIndex = idx },
+                                        labelText = chipLabel,
+                                        horizontalPadding = 10.dp
+                                    )
                                 }
-                                StudioFilterChip(
-                                    selected = activeFilterIndex == idx,
-                                    onClick = { activeFilterIndex = idx },
-                                    labelText = chipLabel,
-                                    horizontalPadding = 10.dp
-                                )
                             }
                         }
                         Spacer(modifier = Modifier.width(8.dp))
@@ -1504,38 +1516,45 @@ private fun DesktopStudioFilePickerSurface(request: DesktopFilePickerRequest) {
                         exit = StudioMotion.verticalPanelExit
                     ) {
                         val corpusDir = Context.appDataRootDir
-                        Row(
+                        val compactQuickPlacesScroll = rememberScrollState()
+                        StudioHorizontalScrollStrip(
+                            state = compactQuickPlacesScroll,
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .horizontalScroll(rememberScrollState())
-                                .padding(horizontal = 16.dp, vertical = 4.dp),
-                            horizontalArrangement = Arrangement.spacedBy(6.dp),
-                            verticalAlignment = Alignment.CenterVertically
+                                .padding(horizontal = 16.dp, vertical = 4.dp)
                         ) {
-                            quickPlaces.forEach { place ->
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .horizontalScroll(compactQuickPlacesScroll),
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                quickPlaces.forEach { place ->
+                                    StudioFilterChip(
+                                        selected = currentDir.absolutePath.equals(place.dir.absolutePath, ignoreCase = true),
+                                        onClick = { navigateToDirectory(place.dir) },
+                                        labelText = place.label,
+                                        showCheckmark = false,
+                                        horizontalPadding = 9.dp
+                                    )
+                                }
                                 StudioFilterChip(
-                                    selected = currentDir.absolutePath.equals(place.dir.absolutePath, ignoreCase = true),
-                                    onClick = { navigateToDirectory(place.dir) },
-                                    labelText = place.label,
+                                    selected = currentDir.absolutePath.equals(corpusDir.absolutePath, ignoreCase = true),
+                                    onClick = { navigateToDirectory(corpusDir) },
+                                    labelText = "本地语料目录",
                                     showCheckmark = false,
                                     horizontalPadding = 9.dp
                                 )
-                            }
-                            StudioFilterChip(
-                                selected = currentDir.absolutePath.equals(corpusDir.absolutePath, ignoreCase = true),
-                                onClick = { navigateToDirectory(corpusDir) },
-                                labelText = "本地语料目录",
-                                showCheckmark = false,
-                                horizontalPadding = 9.dp
-                            )
-                            mountedVolumes.forEach { vol ->
-                                StudioFilterChip(
-                                    selected = currentDir.absolutePath.equals(vol.root.absolutePath, ignoreCase = true),
-                                    onClick = { navigateToDirectory(vol.root) },
-                                    labelText = vol.displayName,
-                                    showCheckmark = false,
-                                    horizontalPadding = 9.dp
-                                )
+                                mountedVolumes.forEach { vol ->
+                                    StudioFilterChip(
+                                        selected = currentDir.absolutePath.equals(vol.root.absolutePath, ignoreCase = true),
+                                        onClick = { navigateToDirectory(vol.root) },
+                                        labelText = vol.displayName,
+                                        showCheckmark = false,
+                                        horizontalPadding = 9.dp
+                                    )
+                                }
                             }
                         }
                     }

@@ -61,6 +61,7 @@ import com.example.ui.components.KeycapBadge
 import com.example.ui.components.LocalAppWindowMetrics
 import com.example.ui.components.PlatformVerticalScrollbar
 import com.example.ui.components.ResponsiveContentContainer
+import com.example.ui.components.StudioHorizontalScrollStrip
 import com.example.ui.components.StudioModalDialog
 import com.example.ui.components.StudioMotion
 import com.example.ui.components.consumeDialogCardTaps
@@ -625,32 +626,38 @@ fun ProjectAcousticSummarySheet(
                                                 .padding(horizontal = 16.dp, vertical = 8.dp),
                                             verticalArrangement = Arrangement.spacedBy(8.dp)
                                         ) {
-                                            Box(
-                                                modifier = Modifier
-                                                    .fillMaxWidth()
-                                                    .horizontalScroll(rememberScrollState())
+                                            val desktopModeScroll = rememberScrollState()
+                                            StudioHorizontalScrollStrip(
+                                                state = desktopModeScroll,
+                                                modifier = Modifier.fillMaxWidth()
                                             ) {
-                                                MacroSegmentedTrack {
-                                                    MacroSegmentedItem(
-                                                        selected = !isMultiSpeakerCompareMode,
-                                                        onClick = { isMultiSpeakerCompareMode = false },
-                                                        label = S.acoustics.tabCurrentSpeakerPhonology,
-                                                        leadingIcon = {
-                                                            Icon(Icons.Default.Person, contentDescription = null, modifier = Modifier.size(15.dp))
-                                                        },
-                                                        compact = true,
-                                                        modifier = Modifier.testTag("macro_tab_single_speaker")
-                                                    )
-                                                    MacroSegmentedItem(
-                                                        selected = isMultiSpeakerCompareMode,
-                                                        onClick = { isMultiSpeakerCompareMode = true },
-                                                        label = S.acoustics.tabMultiSpeakerNormalized.withArgs("count" to recordedSpeakerCount),
-                                                        leadingIcon = {
-                                                            Icon(Icons.Default.Groups, contentDescription = null, modifier = Modifier.size(16.dp))
-                                                        },
-                                                        compact = true,
-                                                        modifier = Modifier.testTag("macro_tab_multi_speaker_lobanov")
-                                                    )
+                                                Box(
+                                                    modifier = Modifier
+                                                        .fillMaxWidth()
+                                                        .horizontalScroll(desktopModeScroll)
+                                                ) {
+                                                    MacroSegmentedTrack {
+                                                        MacroSegmentedItem(
+                                                            selected = !isMultiSpeakerCompareMode,
+                                                            onClick = { isMultiSpeakerCompareMode = false },
+                                                            label = S.acoustics.tabCurrentSpeakerPhonology,
+                                                            leadingIcon = {
+                                                                Icon(Icons.Default.Person, contentDescription = null, modifier = Modifier.size(15.dp))
+                                                            },
+                                                            compact = true,
+                                                            modifier = Modifier.testTag("macro_tab_single_speaker")
+                                                        )
+                                                        MacroSegmentedItem(
+                                                            selected = isMultiSpeakerCompareMode,
+                                                            onClick = { isMultiSpeakerCompareMode = true },
+                                                            label = S.acoustics.tabMultiSpeakerNormalized.withArgs("count" to recordedSpeakerCount),
+                                                            leadingIcon = {
+                                                                Icon(Icons.Default.Groups, contentDescription = null, modifier = Modifier.size(16.dp))
+                                                            },
+                                                            compact = true,
+                                                            modifier = Modifier.testTag("macro_tab_multi_speaker_lobanov")
+                                                        )
+                                                    }
                                                 }
                                             }
                                             if (!isMultiSpeakerCompareMode && multiSpeakerPairsState.size >= 2) {
@@ -995,27 +1002,33 @@ fun ProjectAcousticSummarySheet(
             // Multi-speaker comparison mode switcher (shown automatically when >=2 speakers have recordings)
             if (recordedSpeakerCount >= 2) {
                 Spacer(modifier = Modifier.height(10.dp))
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .horizontalScroll(rememberScrollState())
-                        .padding(horizontal = 20.dp)
+                val mobileModeScroll = rememberScrollState()
+                StudioHorizontalScrollStrip(
+                    state = mobileModeScroll,
+                    modifier = Modifier.fillMaxWidth()
                 ) {
-                    MacroSegmentedTrack {
-                        MacroSegmentedItem(
-                            selected = !isMultiSpeakerCompareMode,
-                            onClick = { isMultiSpeakerCompareMode = false },
-                            label = S.acoustics.tabCurrentSpeakerPhonology,
-                            leadingIcon = { Icon(Icons.Default.Person, contentDescription = null, modifier = Modifier.size(15.dp)) },
-                            modifier = Modifier.testTag("macro_tab_single_speaker")
-                        )
-                        MacroSegmentedItem(
-                            selected = isMultiSpeakerCompareMode,
-                            onClick = { isMultiSpeakerCompareMode = true },
-                            label = S.acoustics.tabMultiSpeakerNormalized.withArgs("count" to recordedSpeakerCount),
-                            leadingIcon = { Icon(Icons.Default.Groups, contentDescription = null, modifier = Modifier.size(16.dp)) },
-                            modifier = Modifier.testTag("macro_tab_multi_speaker_lobanov")
-                        )
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(mobileModeScroll)
+                            .padding(horizontal = 20.dp)
+                    ) {
+                        MacroSegmentedTrack {
+                            MacroSegmentedItem(
+                                selected = !isMultiSpeakerCompareMode,
+                                onClick = { isMultiSpeakerCompareMode = false },
+                                label = S.acoustics.tabCurrentSpeakerPhonology,
+                                leadingIcon = { Icon(Icons.Default.Person, contentDescription = null, modifier = Modifier.size(15.dp)) },
+                                modifier = Modifier.testTag("macro_tab_single_speaker")
+                            )
+                            MacroSegmentedItem(
+                                selected = isMultiSpeakerCompareMode,
+                                onClick = { isMultiSpeakerCompareMode = true },
+                                label = S.acoustics.tabMultiSpeakerNormalized.withArgs("count" to recordedSpeakerCount),
+                                leadingIcon = { Icon(Icons.Default.Groups, contentDescription = null, modifier = Modifier.size(16.dp)) },
+                                modifier = Modifier.testTag("macro_tab_multi_speaker_lobanov")
+                            )
+                        }
                     }
                 }
                 if (!isMultiSpeakerCompareMode && multiSpeakerPairsState.size >= 2) {
@@ -1515,26 +1528,30 @@ internal fun VowelTypeManualOverrideRow(
             }
         }
 
-        Box(
-            modifier = Modifier
-                .align(Alignment.CenterVertically)
-                .horizontalScroll(rememberScrollState())
+        val glideOverrideScroll = rememberScrollState()
+        StudioHorizontalScrollStrip(
+            state = glideOverrideScroll,
+            modifier = Modifier.align(Alignment.CenterVertically)
         ) {
-            MacroSegmentedTrack {
-                options.forEach { (typeVal, label) ->
-                    val selected = currentOverride == typeVal
-                    MacroSegmentedItem(
-                        selected = selected,
-                        onClick = { onSelectOverride(typeVal) },
-                        label = label,
-                        compact = true,
-                        leadingIcon = {
-                            PhoneticGlideGlyph(
-                                glideType = typeVal,
-                                tint = LocalContentColor.current
-                            )
-                        }
-                    )
+            Box(
+                modifier = Modifier.horizontalScroll(glideOverrideScroll)
+            ) {
+                MacroSegmentedTrack {
+                    options.forEach { (typeVal, label) ->
+                        val selected = currentOverride == typeVal
+                        MacroSegmentedItem(
+                            selected = selected,
+                            onClick = { onSelectOverride(typeVal) },
+                            label = label,
+                            compact = true,
+                            leadingIcon = {
+                                PhoneticGlideGlyph(
+                                    glideType = typeVal,
+                                    tint = LocalContentColor.current
+                                )
+                            }
+                        )
+                    }
                 }
             }
         }

@@ -80,6 +80,8 @@ import com.example.i18n.withArgs
 import com.example.ui.components.AdaptiveModalSurface
 import com.example.ui.components.PlatformVerticalScrollbar
 import com.example.ui.components.StudioFilterChip
+import com.example.ui.components.StudioHorizontalLazyStrip
+import com.example.ui.components.StudioHorizontalScrollStrip
 import com.example.ui.components.StudioMotion
 import com.example.ui.components.studioAnimateItem
 import com.example.ui.theme.formatQuickNoteSymbolForDisplay
@@ -245,18 +247,24 @@ internal fun QuickRemarkEditorDialog(
                     )
 
                     val tabTitles = S.recording.quickNoteTabs
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .horizontalScroll(rememberScrollState()),
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    val noteTabScroll = rememberScrollState()
+                    StudioHorizontalScrollStrip(
+                        state = noteTabScroll,
+                        modifier = Modifier.fillMaxWidth()
                     ) {
-                        tabTitles.forEachIndexed { idx, tabLabel ->
-                            StudioFilterChip(
-                                selected = selectedSymbolTab == idx,
-                                onClick = { selectedSymbolTab = idx },
-                                labelText = tabLabel
-                            )
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .horizontalScroll(noteTabScroll),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            tabTitles.forEachIndexed { idx, tabLabel ->
+                                StudioFilterChip(
+                                    selected = selectedSymbolTab == idx,
+                                    onClick = { selectedSymbolTab = idx },
+                                    labelText = tabLabel
+                                )
+                            }
                         }
                     }
 
@@ -837,30 +845,39 @@ fun SpeakerSelectionAndManagementDialog(
                     } else {
                         // Group filter chips inside dialog
                         if (!isSimpleMode && speakerGroups.isNotEmpty()) {
-                            LazyRow(
-                                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                modifier = Modifier.padding(bottom = 8.dp)
+                            val speakerDialogGroupState = rememberLazyListState()
+                            StudioHorizontalLazyStrip(
+                                state = speakerDialogGroupState,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(bottom = 8.dp)
                             ) {
-                                item {
-                                    StudioFilterChip(
-                                        selected = selectedFilterGroup == "ALL",
-                                        onClick = { selectedFilterGroup = "ALL" },
-                                        labelText = S.recording.allSpeakersChip.withArgs("count" to speakers.size)
-                                    )
-                                }
-                                items(speakerGroups.size) { idx ->
-                                    val grp = speakerGroups[idx]
-                                    val count = speakers.count { it.belongsToGroup(grp) }
-                                    val isProjectGrp = parseSpeakerGroups(projectGroupName).any { it.equals(grp, ignoreCase = true) }
-                                    StudioFilterChip(
-                                        selected = selectedFilterGroup == grp,
-                                        onClick = { selectedFilterGroup = grp },
-                                        labelText = if (isProjectGrp) {
-                                            S.recording.projectGroupChip.withArgs("group" to grp, "count" to count)
-                                        } else {
-                                            S.recording.groupChip.withArgs("group" to grp, "count" to count)
-                                        }
-                                    )
+                                LazyRow(
+                                    state = speakerDialogGroupState,
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    item {
+                                        StudioFilterChip(
+                                            selected = selectedFilterGroup == "ALL",
+                                            onClick = { selectedFilterGroup = "ALL" },
+                                            labelText = S.recording.allSpeakersChip.withArgs("count" to speakers.size)
+                                        )
+                                    }
+                                    items(speakerGroups.size) { idx ->
+                                        val grp = speakerGroups[idx]
+                                        val count = speakers.count { it.belongsToGroup(grp) }
+                                        val isProjectGrp = parseSpeakerGroups(projectGroupName).any { it.equals(grp, ignoreCase = true) }
+                                        StudioFilterChip(
+                                            selected = selectedFilterGroup == grp,
+                                            onClick = { selectedFilterGroup = grp },
+                                            labelText = if (isProjectGrp) {
+                                                S.recording.projectGroupChip.withArgs("group" to grp, "count" to count)
+                                            } else {
+                                                S.recording.groupChip.withArgs("group" to grp, "count" to count)
+                                            }
+                                        )
+                                    }
                                 }
                             }
                         }
