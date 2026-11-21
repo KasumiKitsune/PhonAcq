@@ -677,7 +677,11 @@ fun SmartImportWorkspaceScreen(
                                     Box(modifier = Modifier.fillMaxSize()) {
                                         LazyColumn(
                                             state = stagedPoolListState,
-                                            contentPadding = PaddingValues(vertical = 2.dp),
+                                            contentPadding = PaddingValues(
+                                                top = 2.dp,
+                                                bottom = 2.dp,
+                                                end = if (DesktopAdaptiveState.isDesktopPlatform) 11.dp else 0.dp
+                                            ),
                                             verticalArrangement = Arrangement.spacedBy(6.dp),
                                             modifier = Modifier.fillMaxSize()
                                         ) {

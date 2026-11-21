@@ -1972,122 +1972,148 @@ private fun TipIllustrationLargeTextAndVolumeKey(
     val isDesktopIllustration = DesktopAdaptiveState.isDesktopPlatform
     val desktopScreenClip = remember {
         Path().apply {
-            addRoundRect(RoundRect(Rect(54f, 26f, 188f, 162f), CornerRadius(12f, 12f)))
+            addRoundRect(RoundRect(Rect(35f, 43f, 201f, 153f), CornerRadius(10f, 10f)))
         }
     }
+    val desktopEyeArc = remember {
+        svgPath("M174 68Q156 64 142 73")
+    }
     val keycapArrowRight = remember {
-        svgPath("M204 131H214M210.5 127.5L214 131L210.5 134.5")
+        svgPath("M229 122H239M235.5 118.5L239 122L235.5 125.5")
     }
 
     // Marching dashes phase (24px total cycle over 6s)
     val dashPhase = -24f * t
 
     Canvas(modifier = modifier) {
-        val contentW = 314f
-        val contentH = 174f
+        val contentW = if (isDesktopIllustration) 352f else 314f
+        val contentH = if (isDesktopIllustration) 198f else 174f
         val scale = min(size.width / contentW, size.height / contentH)
-        val offsetX = size.width / 2f - 160f * scale
-        val offsetY = size.height / 2f - 90f * scale
+        val offsetX = size.width / 2f - (if (isDesktopIllustration) 176f else 160f) * scale
+        val offsetY = size.height / 2f - (if (isDesktopIllustration) 99f else 90f) * scale
 
         withTransform({
             translate(offsetX, offsetY)
             scale(scale, scale, Offset.Zero)
         }) {
-            // 1. Background Decorative Capsule (bgBreathe around 160, 90)
+            // 1. Background Decorative Capsule
             val bgScale = evalKf(t, Kf(0f, 1f, EaseSmooth), Kf(50f, 1.025f, EaseSmooth), Kf(100f, 1f))
             val bgAlpha = evalKf(t, Kf(0f, 0.65f, EaseSmooth), Kf(50f, 0.8f, EaseSmooth), Kf(100f, 0.65f))
-            withPivotTransform(160f, 90f, sx = bgScale) {
-                drawRoundRect(
-                    color = capsuleBg.copy(alpha = capsuleBg.alpha * (bgAlpha / 0.65f)),
-                    topLeft = Offset(24f, 26f),
-                    size = Size(272f, 128f),
-                    cornerRadius = CornerRadius(64f, 64f)
-                )
+            if (isDesktopIllustration) {
+                withPivotTransform(176f, 99f, sx = bgScale) {
+                    drawRoundRect(
+                        color = capsuleBg.copy(alpha = capsuleBg.alpha * (bgAlpha / 0.65f)),
+                        topLeft = Offset(18f, 34f),
+                        size = Size(316f, 130f),
+                        cornerRadius = CornerRadius(65f, 65f)
+                    )
+                }
+            } else {
+                withPivotTransform(160f, 90f, sx = bgScale) {
+                    drawRoundRect(
+                        color = capsuleBg.copy(alpha = capsuleBg.alpha * (bgAlpha / 0.65f)),
+                        topLeft = Offset(24f, 26f),
+                        size = Size(272f, 128f),
+                        cornerRadius = CornerRadius(64f, 64f)
+                    )
+                }
             }
 
             if (isDesktopIllustration) {
-                // Desktop Studio Window Frame + Tactile Space & Arrow Keycaps
+                // Desktop Studio Landscape Window (16:10 proportion) + Tactile Space & Arrow Keycaps
                 // Guide lines from Space/Arrow keycaps to Mic & Next badges
                 drawLine(
                     color = greenAccent,
-                    start = Offset(218f, 85f),
-                    end = Offset(234f, 85f),
+                    start = Offset(248f, 78f),
+                    end = Offset(265f, 78f),
                     strokeWidth = 2f,
                     pathEffect = PathEffect.dashPathEffect(floatArrayOf(3f, 3f), dashPhase)
                 )
                 drawLine(
                     color = phoneBodyColor,
-                    start = Offset(218f, 131f),
-                    end = Offset(234f, 131f),
+                    start = Offset(248f, 122f),
+                    end = Offset(265f, 122f),
                     strokeWidth = 2f,
                     pathEffect = PathEffect.dashPathEffect(floatArrayOf(3f, 3f), dashPhase)
                 )
 
-                // Desktop Studio Window Outer Bezel + Screen
+                // Soft elevation shadow + Desktop Studio Window Outer Bezel (176x120 -> 1.47:1 landscape)
+                drawRoundRect(
+                    color = phoneBodyColor.copy(alpha = 0.14f),
+                    topLeft = Offset(30f, 41f),
+                    size = Size(176f, 120f),
+                    cornerRadius = CornerRadius(14f, 14f)
+                )
                 drawRoundRect(
                     color = phoneBodyColor,
-                    topLeft = Offset(48f, 20f),
-                    size = Size(146f, 148f),
-                    cornerRadius = CornerRadius(16f, 16f)
+                    topLeft = Offset(30f, 38f),
+                    size = Size(176f, 120f),
+                    cornerRadius = CornerRadius(14f, 14f)
                 )
                 drawRoundRect(
                     color = screenColor,
-                    topLeft = Offset(54f, 26f),
-                    size = Size(134f, 136f),
-                    cornerRadius = CornerRadius(12f, 12f)
+                    topLeft = Offset(35f, 43f),
+                    size = Size(166f, 110f),
+                    cornerRadius = CornerRadius(10f, 10f)
                 )
-                // Window titlebar traffic-light dots
-                drawCircle(color = Color(0xFFEF5350).copy(alpha = 0.75f), radius = 2.6f, center = Offset(64f, 35f))
-                drawCircle(color = Color(0xFFFFCA28).copy(alpha = 0.75f), radius = 2.6f, center = Offset(72f, 35f))
-                drawCircle(color = greenAccent.copy(alpha = 0.75f), radius = 2.6f, center = Offset(80f, 35f))
-                drawRoundRect(color = subtleBarColor, topLeft = Offset(64f, 48f), size = Size(48f, 7f), cornerRadius = CornerRadius(3.5f, 3.5f))
+                // Window titlebar traffic-light dots + titlebar divider
+                drawCircle(color = Color(0xFFEF5350).copy(alpha = 0.78f), radius = 2.2f, center = Offset(45f, 50f))
+                drawCircle(color = Color(0xFFFFCA28).copy(alpha = 0.78f), radius = 2.2f, center = Offset(52.5f, 50f))
+                drawCircle(color = greenAccent.copy(alpha = 0.78f), radius = 2.2f, center = Offset(60f, 50f))
+                drawRoundRect(color = subtleBarColor, topLeft = Offset(70f, 47.5f), size = Size(44f, 5f), cornerRadius = CornerRadius(2.5f, 2.5f))
+                drawLine(
+                    color = subtleBarColor.copy(alpha = 0.85f),
+                    start = Offset(35f, 57.5f),
+                    end = Offset(201f, 57.5f),
+                    strokeWidth = 1.2f
+                )
 
                 // Tactile [Space] Keycap (depresses on Act 2: 33%..60%)
                 val spacePress = evalKf(t, Kf(0f, 0f), Kf(33f, 0f), Kf(37f, 2.8f), Kf(52f, 2.8f, EaseOutBack), Kf(56f, -0.5f), Kf(60f, 0f), Kf(100f, 0f))
                 drawRoundRect(
                     color = greenAccent.copy(alpha = 0.45f),
-                    topLeft = Offset(197f, 74f),
+                    topLeft = Offset(222f, 67f),
                     size = Size(24f, 24f),
                     cornerRadius = CornerRadius(6f, 6f)
                 )
                 withTransform({ translate(0f, spacePress) }) {
                     drawRoundRect(
                         color = screenColor,
-                        topLeft = Offset(197f, 71f),
+                        topLeft = Offset(222f, 64f),
                         size = Size(24f, 24f),
                         cornerRadius = CornerRadius(6f, 6f)
                     )
                     drawRoundRect(
                         color = greenAccent,
-                        topLeft = Offset(197f, 71f),
+                        topLeft = Offset(222f, 64f),
                         size = Size(24f, 24f),
                         cornerRadius = CornerRadius(6f, 6f),
                         style = Stroke(width = 2f)
                     )
                     // Spacebar U-bar symbol
-                    drawLine(color = greenAccent, start = Offset(202f, 84f), end = Offset(202f, 87f), strokeWidth = 2f, cap = StrokeCap.Round)
-                    drawLine(color = greenAccent, start = Offset(202f, 87f), end = Offset(216f, 87f), strokeWidth = 2f, cap = StrokeCap.Round)
-                    drawLine(color = greenAccent, start = Offset(216f, 84f), end = Offset(216f, 87f), strokeWidth = 2f, cap = StrokeCap.Round)
+                    drawLine(color = greenAccent, start = Offset(227f, 77f), end = Offset(227f, 80f), strokeWidth = 2f, cap = StrokeCap.Round)
+                    drawLine(color = greenAccent, start = Offset(227f, 80f), end = Offset(241f, 80f), strokeWidth = 2f, cap = StrokeCap.Round)
+                    drawLine(color = greenAccent, start = Offset(241f, 77f), end = Offset(241f, 80f), strokeWidth = 2f, cap = StrokeCap.Round)
                 }
 
                 // Tactile [→] Keycap (depresses on Act 3: 64%..84%)
                 val arrowPress = evalKf(t, Kf(0f, 0f), Kf(64f, 0f), Kf(67f, 2.8f), Kf(75f, 2.8f, EaseOutBack), Kf(79f, -0.5f), Kf(84f, 0f), Kf(100f, 0f))
                 drawRoundRect(
                     color = phoneBodyColor.copy(alpha = 0.45f),
-                    topLeft = Offset(197f, 120f),
+                    topLeft = Offset(222f, 111f),
                     size = Size(24f, 24f),
                     cornerRadius = CornerRadius(6f, 6f)
                 )
                 withTransform({ translate(0f, arrowPress) }) {
                     drawRoundRect(
                         color = screenColor,
-                        topLeft = Offset(197f, 117f),
+                        topLeft = Offset(222f, 108f),
                         size = Size(24f, 24f),
                         cornerRadius = CornerRadius(6f, 6f)
                     )
                     drawRoundRect(
                         color = phoneBodyColor,
-                        topLeft = Offset(197f, 117f),
+                        topLeft = Offset(222f, 108f),
                         size = Size(24f, 24f),
                         cornerRadius = CornerRadius(6f, 6f),
                         style = Stroke(width = 2f)
@@ -2154,47 +2180,55 @@ private fun TipIllustrationLargeTextAndVolumeKey(
             }
 
             // 4. Top-Right "Eye" Button (Act 1: 0%..32%)
-            val eyeRipAlpha = evalKf(t, Kf(0f, 0f), Kf(6f, 0f), Kf(8f, 0.75f, EaseOutExpo), Kf(22f, 0f), Kf(100f, 0f))
-            if (eyeRipAlpha > 0.01f) {
-                val eyeRipScale = evalKf(t, Kf(0f, 0.9f), Kf(6f, 0.9f), Kf(8f, 1f, EaseOutExpo), Kf(22f, 1.85f), Kf(100f, 1.85f))
-                withPivotTransform(170f, 52f, sx = eyeRipScale) {
-                    drawCircle(color = primaryBright.copy(alpha = eyeRipAlpha), radius = 15f, center = Offset(170f, 52f), style = Stroke(width = 2f))
+            withTransform({
+                if (isDesktopIllustration) {
+                    translate(15f, 18f)
+                    scale(0.80f, 0.80f, Offset(170f, 52f))
                 }
-            }
+            }) {
+                val eyeRipAlpha = evalKf(t, Kf(0f, 0f), Kf(6f, 0f), Kf(8f, 0.75f, EaseOutExpo), Kf(22f, 0f), Kf(100f, 0f))
+                if (eyeRipAlpha > 0.01f) {
+                    val eyeRipScale = evalKf(t, Kf(0f, 0.9f), Kf(6f, 0.9f), Kf(8f, 1f, EaseOutExpo), Kf(22f, 1.85f), Kf(100f, 1.85f))
+                    withPivotTransform(170f, 52f, sx = eyeRipScale) {
+                        drawCircle(color = primaryBright.copy(alpha = eyeRipAlpha), radius = 15f, center = Offset(170f, 52f), style = Stroke(width = 2f))
+                    }
+                }
 
-            val eyeOuterScale = evalKf(t, Kf(0f, 1f), Kf(3f, 1f), Kf(6f, 0.8f, EaseOutBack), Kf(12f, 1.24f, EaseOutQuart), Kf(18f, 0.95f), Kf(24f, 1.03f), Kf(32f, 1f), Kf(100f, 1f))
-            withPivotTransform(170f, 52f, sx = eyeOuterScale) {
-                drawCircle(color = primaryAccent.copy(alpha = 0.24f), radius = 15f, center = Offset(170f, 52f))
-            }
+                val eyeOuterScale = evalKf(t, Kf(0f, 1f), Kf(3f, 1f), Kf(6f, 0.8f, EaseOutBack), Kf(12f, 1.24f, EaseOutQuart), Kf(18f, 0.95f), Kf(24f, 1.03f), Kf(32f, 1f), Kf(100f, 1f))
+                withPivotTransform(170f, 52f, sx = eyeOuterScale) {
+                    drawCircle(color = primaryAccent.copy(alpha = 0.24f), radius = 15f, center = Offset(170f, 52f))
+                }
 
-            val eyeInnerScale = evalKf(t, Kf(0f, 1f), Kf(3f, 1f), Kf(6f, 0.78f, EaseOutBack), Kf(11f, 1.18f, EaseOutQuart), Kf(17f, 0.96f), Kf(23f, 1.02f), Kf(30f, 1f), Kf(100f, 1f))
-            val eyeInnerTint = evalKf(t, Kf(0f, 0f), Kf(6f, 0f), Kf(11f, 1f), Kf(17f, 0f), Kf(100f, 0f))
-            withPivotTransform(170f, 52f, sx = eyeInnerScale) {
-                drawCircle(color = lerp(phoneBodyColor, primaryBright, eyeInnerTint), radius = 11f, center = Offset(170f, 52f))
-            }
+                val eyeInnerScale = evalKf(t, Kf(0f, 1f), Kf(3f, 1f), Kf(6f, 0.78f, EaseOutBack), Kf(11f, 1.18f, EaseOutQuart), Kf(17f, 0.96f), Kf(23f, 1.02f), Kf(30f, 1f), Kf(100f, 1f))
+                val eyeInnerTint = evalKf(t, Kf(0f, 0f), Kf(6f, 0f), Kf(11f, 1f), Kf(17f, 0f), Kf(100f, 0f))
+                withPivotTransform(170f, 52f, sx = eyeInnerScale) {
+                    drawCircle(color = lerp(phoneBodyColor, primaryBright, eyeInnerTint), radius = 11f, center = Offset(170f, 52f))
+                }
 
-            val eyeBlinkSx = evalKf(t, Kf(0f, 1f), Kf(3f, 1f), Kf(6f, 1.08f, EaseOutBack), Kf(11f, 1.14f), Kf(18f, 0.98f), Kf(28f, 1f), Kf(100f, 1f))
-            val eyeBlinkSy = evalKf(t, Kf(0f, 1f), Kf(3f, 1f), Kf(6f, 0.12f, EaseOutBack), Kf(11f, 1.18f), Kf(18f, 0.98f), Kf(28f, 1f), Kf(100f, 1f))
-            val pupilTx = evalKf(t, Kf(0f, 0f), Kf(7f, 0f), Kf(12f, -1.8f), Kf(20f, -1.8f), Kf(28f, 0f), Kf(100f, 0f))
-            val pupilTy = evalKf(t, Kf(0f, 0f), Kf(7f, 0f), Kf(12f, 1.2f), Kf(20f, 1.2f), Kf(28f, 0f), Kf(100f, 0f))
-            val pupilScale = evalKf(t, Kf(0f, 1f), Kf(7f, 1f), Kf(12f, 1.2f), Kf(20f, 1.2f), Kf(28f, 1f), Kf(100f, 1f))
-            withPivotTransform(170f, 52f, sx = eyeBlinkSx, sy = eyeBlinkSy) {
-                drawPath(paths.eyeOutline, color = onPrimaryAccent, style = Stroke(width = 1.6f, cap = StrokeCap.Round, join = StrokeJoin.Round))
-                withPivotTransform(170f, 52f, tx = pupilTx, ty = pupilTy, sx = pupilScale) {
-                    drawCircle(color = onPrimaryAccent, radius = 2f, center = Offset(170f, 52f))
+                val eyeBlinkSx = evalKf(t, Kf(0f, 1f), Kf(3f, 1f), Kf(6f, 1.08f, EaseOutBack), Kf(11f, 1.14f), Kf(18f, 0.98f), Kf(28f, 1f), Kf(100f, 1f))
+                val eyeBlinkSy = evalKf(t, Kf(0f, 1f), Kf(3f, 1f), Kf(6f, 0.12f, EaseOutBack), Kf(11f, 1.18f), Kf(18f, 0.98f), Kf(28f, 1f), Kf(100f, 1f))
+                val pupilTx = evalKf(t, Kf(0f, 0f), Kf(7f, 0f), Kf(12f, -1.8f), Kf(20f, -1.8f), Kf(28f, 0f), Kf(100f, 0f))
+                val pupilTy = evalKf(t, Kf(0f, 0f), Kf(7f, 0f), Kf(12f, 1.2f), Kf(20f, 1.2f), Kf(28f, 0f), Kf(100f, 0f))
+                val pupilScale = evalKf(t, Kf(0f, 1f), Kf(7f, 1f), Kf(12f, 1.2f), Kf(20f, 1.2f), Kf(28f, 1f), Kf(100f, 1f))
+                withPivotTransform(170f, 52f, sx = eyeBlinkSx, sy = eyeBlinkSy) {
+                    drawPath(paths.eyeOutline, color = onPrimaryAccent, style = Stroke(width = 1.6f, cap = StrokeCap.Round, join = StrokeJoin.Round))
+                    withPivotTransform(170f, 52f, tx = pupilTx, ty = pupilTy, sx = pupilScale) {
+                        drawCircle(color = onPrimaryAccent, radius = 2f, center = Offset(170f, 52f))
+                    }
                 }
             }
 
             // Dashed Arc from Eye to Card + Energy Beam
+            val activeEyeArc = if (isDesktopIllustration) desktopEyeArc else paths.eyeToCardArc
             drawPath(
-                path = paths.eyeToCardArc,
+                path = activeEyeArc,
                 color = phoneBodyColor,
                 style = Stroke(width = 1.8f, cap = StrokeCap.Round, pathEffect = PathEffect.dashPathEffect(floatArrayOf(3f, 3f), dashPhase))
             )
             val arcPulseAlpha = evalKf(t, Kf(0f, 0f), Kf(6f, 0f), Kf(8f, 1f, EaseOutQuart), Kf(17f, 1f), Kf(19f, 0f), Kf(100f, 0f))
             if (arcPulseAlpha > 0.01f) {
                 drawPath(
-                    path = paths.eyeToCardArc,
+                    path = activeEyeArc,
                     color = primaryBright.copy(alpha = arcPulseAlpha),
                     style = Stroke(width = 2.8f, cap = StrokeCap.Round)
                 )
@@ -2202,6 +2236,12 @@ private fun TipIllustrationLargeTextAndVolumeKey(
 
             // 5. Center Screen Clipped Area (supports Act 3 page-turn carousel!)
             clipPath(if (isDesktopIllustration) desktopScreenClip else paths.phoneScreen) {
+                withTransform({
+                    if (isDesktopIllustration) {
+                        translate(-11f, -11f)
+                        scale(0.78f, 0.78f, Offset(129f, 117f))
+                    }
+                }) {
                 // Outgoing Card (Act 3: 68%..81% slides left -112px)
                 val outAlpha = evalKf(
                     t,
@@ -2330,6 +2370,7 @@ private fun TipIllustrationLargeTextAndVolumeKey(
                         }
                     }
                 }
+                }
             }
 
             // 6. Left Floating "aA" Pill Badge (badgeBounce around 61, 82)
@@ -2360,77 +2401,92 @@ private fun TipIllustrationLargeTextAndVolumeKey(
             val bigATy = evalKf(t, Kf(0f, 0f), Kf(11f, 0f), Kf(17f, -2.2f, EaseOutBack), Kf(22f, 0.6f), Kf(28f, 0f), Kf(100f, 0f))
             val bigAScale = evalKf(t, Kf(0f, 1f), Kf(11f, 1f), Kf(17f, 1.18f, EaseOutBack), Kf(22f, 0.95f), Kf(28f, 1f), Kf(100f, 1f))
 
-            withPivotTransform(61f, 82f, tx = aaTx, ty = aaTy, sx = aaScale, rotDeg = aaRot) {
-                drawRoundRect(color = phoneBodyColor, topLeft = Offset(34f, 68f), size = Size(54f, 28f), cornerRadius = CornerRadius(14f, 14f))
-                drawRoundRect(color = screenColor, topLeft = Offset(34f, 68f), size = Size(54f, 28f), cornerRadius = CornerRadius(14f, 14f), style = Stroke(width = 2.5f))
-                drawPath(paths.badgeSmallA, color = Color.White, style = Stroke(width = 1.8f, cap = StrokeCap.Round, join = StrokeJoin.Round))
-                withPivotTransform(61.5f, 81f, ty = bigATy, sx = bigAScale) {
-                    drawPath(paths.badgeBigA, color = Color.White, style = Stroke(width = 1.8f, cap = StrokeCap.Round, join = StrokeJoin.Round))
+            withTransform({
+                if (isDesktopIllustration) {
+                    translate(-17f, 20f)
+                    scale(0.86f, 0.86f, Offset(61f, 82f))
+                }
+            }) {
+                withPivotTransform(61f, 82f, tx = aaTx, ty = aaTy, sx = aaScale, rotDeg = aaRot) {
+                    drawRoundRect(color = phoneBodyColor, topLeft = Offset(34f, 68f), size = Size(54f, 28f), cornerRadius = CornerRadius(14f, 14f))
+                    drawRoundRect(color = screenColor, topLeft = Offset(34f, 68f), size = Size(54f, 28f), cornerRadius = CornerRadius(14f, 14f), style = Stroke(width = 2.5f))
+                    drawPath(paths.badgeSmallA, color = Color.White, style = Stroke(width = 1.8f, cap = StrokeCap.Round, join = StrokeJoin.Round))
+                    withPivotTransform(61.5f, 81f, ty = bigATy, sx = bigAScale) {
+                        drawPath(paths.badgeBigA, color = Color.White, style = Stroke(width = 1.8f, cap = StrokeCap.Round, join = StrokeJoin.Round))
+                    }
                 }
             }
 
             // 7. Right Callout Pills: Record (Act 2) & Next Page (Act 3)
-            // Record Halo
-            val recHaloAlpha = evalKf(t, Kf(0f, 0f), Kf(36f, 0f), Kf(39f, 0.65f, EaseOutExpo), Kf(55f, 0f), Kf(100f, 0f))
-            if (recHaloAlpha > 0.01f) {
-                val recHaloScale = evalKf(t, Kf(0f, 0.95f), Kf(36f, 0.95f), Kf(39f, 1f, EaseOutExpo), Kf(55f, 1.36f), Kf(100f, 1.36f))
-                withPivotTransform(259f, 85f, sx = recHaloScale) {
-                    drawRoundRect(color = greenAccent.copy(alpha = recHaloAlpha), topLeft = Offset(232f, 66f), size = Size(54f, 38f), cornerRadius = CornerRadius(14f, 14f), style = Stroke(width = 2f))
-                }
-            }
-
-            val recTx = evalKf(t, Kf(0f, 0f), Kf(35f, 0f), Kf(40f, 5f, EaseOutQuart), Kf(45f, 3f), Kf(50f, 4.5f, EaseOutBack), Kf(57f, -1.5f), Kf(63f, 0f), Kf(100f, 0f))
-            val recScale = evalKf(t, Kf(0f, 1f), Kf(35f, 1f), Kf(40f, 1.14f, EaseOutQuart), Kf(45f, 1.06f), Kf(50f, 1.12f, EaseOutBack), Kf(57f, 0.97f), Kf(63f, 1f), Kf(100f, 1f))
-            withPivotTransform(259f, 85f, tx = recTx, sx = recScale) {
-                drawRoundRect(color = greenPillBg, topLeft = Offset(232f, 66f), size = Size(54f, 38f), cornerRadius = CornerRadius(14f, 14f))
-                drawRoundRect(color = screenColor, topLeft = Offset(232f, 66f), size = Size(54f, 38f), cornerRadius = CornerRadius(14f, 14f), style = Stroke(width = 2f))
-
-                // Sound wave arcs around mic
-                val swAlpha = evalKf(t, Kf(0f, 0f), Kf(37f, 0f), Kf(41f, 0.9f), Kf(46f, 0.4f), Kf(51f, 0.95f), Kf(58f, 0f), Kf(100f, 0f))
-                if (swAlpha > 0.01f) {
-                    val swScale = evalKf(t, Kf(0f, 0.7f), Kf(37f, 0.7f), Kf(41f, 1.05f), Kf(46f, 0.85f), Kf(51f, 1.12f), Kf(58f, 0.7f), Kf(100f, 0.7f))
-                    withPivotTransform(259f, 81f, sx = swScale) {
-                        drawPath(paths.micSoundWaves, color = greenAccent.copy(alpha = swAlpha), style = Stroke(width = 1.6f, cap = StrokeCap.Round))
+            // Record Halo + Pill
+            withTransform({
+                if (isDesktopIllustration) translate(34f, -7f)
+            }) {
+                val recHaloAlpha = evalKf(t, Kf(0f, 0f), Kf(36f, 0f), Kf(39f, 0.65f, EaseOutExpo), Kf(55f, 0f), Kf(100f, 0f))
+                if (recHaloAlpha > 0.01f) {
+                    val recHaloScale = evalKf(t, Kf(0f, 0.95f), Kf(36f, 0.95f), Kf(39f, 1f, EaseOutExpo), Kf(55f, 1.36f), Kf(100f, 1.36f))
+                    withPivotTransform(259f, 85f, sx = recHaloScale) {
+                        drawRoundRect(color = greenAccent.copy(alpha = recHaloAlpha), topLeft = Offset(232f, 66f), size = Size(54f, 38f), cornerRadius = CornerRadius(14f, 14f), style = Stroke(width = 2f))
                     }
                 }
 
-                // Mic Icon Dance (259, 83.5)
-                val micTy = evalKf(t, Kf(0f, 0f), Kf(36f, 0f), Kf(40f, -2.5f), Kf(45f, 0.5f), Kf(50f, -2f), Kf(55f, 0f), Kf(100f, 0f))
-                val micScale = evalKf(t, Kf(0f, 1f), Kf(36f, 1f), Kf(40f, 1.12f), Kf(45f, 0.96f), Kf(50f, 1.1f), Kf(55f, 1f), Kf(100f, 1f))
-                val micRot = evalKf(t, Kf(0f, 0f), Kf(36f, 0f), Kf(40f, -7f), Kf(45f, 6f), Kf(50f, -4f), Kf(55f, 0f), Kf(100f, 0f))
-                withPivotTransform(259f, 83.5f, ty = micTy, sx = micScale, rotDeg = micRot) {
-                    drawRoundRect(color = greenAccent, topLeft = Offset(255f, 74f), size = Size(8f, 13f), cornerRadius = CornerRadius(4f, 4f))
-                    drawPath(paths.micStand, color = greenAccent, style = Stroke(width = 2f, cap = StrokeCap.Round))
+                val recTx = evalKf(t, Kf(0f, 0f), Kf(35f, 0f), Kf(40f, 5f, EaseOutQuart), Kf(45f, 3f), Kf(50f, 4.5f, EaseOutBack), Kf(57f, -1.5f), Kf(63f, 0f), Kf(100f, 0f))
+                val recScale = evalKf(t, Kf(0f, 1f), Kf(35f, 1f), Kf(40f, 1.14f, EaseOutQuart), Kf(45f, 1.06f), Kf(50f, 1.12f, EaseOutBack), Kf(57f, 0.97f), Kf(63f, 1f), Kf(100f, 1f))
+                withPivotTransform(259f, 85f, tx = recTx, sx = recScale) {
+                    drawRoundRect(color = greenPillBg, topLeft = Offset(232f, 66f), size = Size(54f, 38f), cornerRadius = CornerRadius(14f, 14f))
+                    drawRoundRect(color = screenColor, topLeft = Offset(232f, 66f), size = Size(54f, 38f), cornerRadius = CornerRadius(14f, 14f), style = Stroke(width = 2f))
+
+                    // Sound wave arcs around mic
+                    val swAlpha = evalKf(t, Kf(0f, 0f), Kf(37f, 0f), Kf(41f, 0.9f), Kf(46f, 0.4f), Kf(51f, 0.95f), Kf(58f, 0f), Kf(100f, 0f))
+                    if (swAlpha > 0.01f) {
+                        val swScale = evalKf(t, Kf(0f, 0.7f), Kf(37f, 0.7f), Kf(41f, 1.05f), Kf(46f, 0.85f), Kf(51f, 1.12f), Kf(58f, 0.7f), Kf(100f, 0.7f))
+                        withPivotTransform(259f, 81f, sx = swScale) {
+                            drawPath(paths.micSoundWaves, color = greenAccent.copy(alpha = swAlpha), style = Stroke(width = 1.6f, cap = StrokeCap.Round))
+                        }
+                    }
+
+                    // Mic Icon Dance (259, 83.5)
+                    val micTy = evalKf(t, Kf(0f, 0f), Kf(36f, 0f), Kf(40f, -2.5f), Kf(45f, 0.5f), Kf(50f, -2f), Kf(55f, 0f), Kf(100f, 0f))
+                    val micScale = evalKf(t, Kf(0f, 1f), Kf(36f, 1f), Kf(40f, 1.12f), Kf(45f, 0.96f), Kf(50f, 1.1f), Kf(55f, 1f), Kf(100f, 1f))
+                    val micRot = evalKf(t, Kf(0f, 0f), Kf(36f, 0f), Kf(40f, -7f), Kf(45f, 6f), Kf(50f, -4f), Kf(55f, 0f), Kf(100f, 0f))
+                    withPivotTransform(259f, 83.5f, ty = micTy, sx = micScale, rotDeg = micRot) {
+                        drawRoundRect(color = greenAccent, topLeft = Offset(255f, 74f), size = Size(8f, 13f), cornerRadius = CornerRadius(4f, 4f))
+                        drawPath(paths.micStand, color = greenAccent, style = Stroke(width = 2f, cap = StrokeCap.Round))
+                    }
                 }
             }
 
-            // Next Page Halo
-            val nextHaloAlpha = evalKf(t, Kf(0f, 0f), Kf(66f, 0f), Kf(69f, 0.65f, EaseOutExpo), Kf(83f, 0f), Kf(100f, 0f))
-            if (nextHaloAlpha > 0.01f) {
-                val nextHaloScale = evalKf(t, Kf(0f, 0.95f), Kf(66f, 0.95f), Kf(69f, 1f, EaseOutExpo), Kf(83f, 1.36f), Kf(100f, 1.36f))
-                withPivotTransform(259f, 131f, sx = nextHaloScale) {
-                    drawRoundRect(color = phoneBodyColor.copy(alpha = nextHaloAlpha), topLeft = Offset(232f, 112f), size = Size(54f, 38f), cornerRadius = CornerRadius(14f, 14f), style = Stroke(width = 2f))
-                }
-            }
-
-            val nextTx = evalKf(t, Kf(0f, 0f), Kf(65f, 0f), Kf(71f, 5.5f, EaseOutBack), Kf(78f, -1.5f), Kf(84f, 0.8f), Kf(90f, 0f), Kf(100f, 0f))
-            val nextScale = evalKf(t, Kf(0f, 1f), Kf(65f, 1f), Kf(71f, 1.14f, EaseOutBack), Kf(78f, 0.96f), Kf(84f, 1.02f), Kf(90f, 1f), Kf(100f, 1f))
-            withPivotTransform(259f, 131f, tx = nextTx, sx = nextScale) {
-                drawRoundRect(color = bluePillBg, topLeft = Offset(232f, 112f), size = Size(54f, 38f), cornerRadius = CornerRadius(14f, 14f))
-                drawRoundRect(color = screenColor, topLeft = Offset(232f, 112f), size = Size(54f, 38f), cornerRadius = CornerRadius(14f, 14f), style = Stroke(width = 2f))
-
-                // Next Arrow Dash (255.5, 131)
-                val arrTx = evalKf(t, Kf(0f, 0f), Kf(65f, 0f), Kf(68f, -4f, EaseOutBack), Kf(73f, 3.8f, EaseOutQuart), Kf(79f, -1f), Kf(88f, 0f), Kf(100f, 0f))
-                val arrSx = evalKf(t, Kf(0f, 1f), Kf(65f, 1f), Kf(68f, 0.88f, EaseOutBack), Kf(73f, 1.1f, EaseOutQuart), Kf(79f, 0.97f), Kf(88f, 1f), Kf(100f, 1f))
-                withPivotTransform(255.5f, 131f, tx = arrTx, sx = arrSx, sy = 1f) {
-                    drawPath(paths.nextArrow, color = phoneBodyColor, style = Stroke(width = 2.2f, cap = StrokeCap.Round, join = StrokeJoin.Round))
+            // Next Page Halo + Pill
+            withTransform({
+                if (isDesktopIllustration) translate(34f, -9f)
+            }) {
+                val nextHaloAlpha = evalKf(t, Kf(0f, 0f), Kf(66f, 0f), Kf(69f, 0.65f, EaseOutExpo), Kf(83f, 0f), Kf(100f, 0f))
+                if (nextHaloAlpha > 0.01f) {
+                    val nextHaloScale = evalKf(t, Kf(0f, 0.95f), Kf(66f, 0.95f), Kf(69f, 1f, EaseOutExpo), Kf(83f, 1.36f), Kf(100f, 1.36f))
+                    withPivotTransform(259f, 131f, sx = nextHaloScale) {
+                        drawRoundRect(color = phoneBodyColor.copy(alpha = nextHaloAlpha), topLeft = Offset(232f, 112f), size = Size(54f, 38f), cornerRadius = CornerRadius(14f, 14f), style = Stroke(width = 2f))
+                    }
                 }
 
-                // Next Bar Recoil (267, 131)
-                val barTx = evalKf(t, Kf(0f, 0f), Kf(71f, 0f), Kf(74f, 2.8f, EaseOutBack), Kf(80f, -0.8f), Kf(88f, 0f), Kf(100f, 0f))
-                val barSy = evalKf(t, Kf(0f, 1f), Kf(71f, 1f), Kf(74f, 1.12f, EaseOutBack), Kf(80f, 0.96f), Kf(88f, 1f), Kf(100f, 1f))
-                withPivotTransform(267f, 131f, tx = barTx, sx = 1f, sy = barSy) {
-                    drawPath(paths.nextBar, color = phoneBodyColor, style = Stroke(width = 2.2f, cap = StrokeCap.Round, join = StrokeJoin.Round))
+                val nextTx = evalKf(t, Kf(0f, 0f), Kf(65f, 0f), Kf(71f, 5.5f, EaseOutBack), Kf(78f, -1.5f), Kf(84f, 0.8f), Kf(90f, 0f), Kf(100f, 0f))
+                val nextScale = evalKf(t, Kf(0f, 1f), Kf(65f, 1f), Kf(71f, 1.14f, EaseOutBack), Kf(78f, 0.96f), Kf(84f, 1.02f), Kf(90f, 1f), Kf(100f, 1f))
+                withPivotTransform(259f, 131f, tx = nextTx, sx = nextScale) {
+                    drawRoundRect(color = bluePillBg, topLeft = Offset(232f, 112f), size = Size(54f, 38f), cornerRadius = CornerRadius(14f, 14f))
+                    drawRoundRect(color = screenColor, topLeft = Offset(232f, 112f), size = Size(54f, 38f), cornerRadius = CornerRadius(14f, 14f), style = Stroke(width = 2f))
+
+                    // Next Arrow Dash (255.5, 131)
+                    val arrTx = evalKf(t, Kf(0f, 0f), Kf(65f, 0f), Kf(68f, -4f, EaseOutBack), Kf(73f, 3.8f, EaseOutQuart), Kf(79f, -1f), Kf(88f, 0f), Kf(100f, 0f))
+                    val arrSx = evalKf(t, Kf(0f, 1f), Kf(65f, 1f), Kf(68f, 0.88f, EaseOutBack), Kf(73f, 1.1f, EaseOutQuart), Kf(79f, 0.97f), Kf(88f, 1f), Kf(100f, 1f))
+                    withPivotTransform(255.5f, 131f, tx = arrTx, sx = arrSx, sy = 1f) {
+                        drawPath(paths.nextArrow, color = phoneBodyColor, style = Stroke(width = 2.2f, cap = StrokeCap.Round, join = StrokeJoin.Round))
+                    }
+
+                    // Next Bar Recoil (267, 131)
+                    val barTx = evalKf(t, Kf(0f, 0f), Kf(71f, 0f), Kf(74f, 2.8f, EaseOutBack), Kf(80f, -0.8f), Kf(88f, 0f), Kf(100f, 0f))
+                    val barSy = evalKf(t, Kf(0f, 1f), Kf(71f, 1f), Kf(74f, 1.12f, EaseOutBack), Kf(80f, 0.96f), Kf(88f, 1f), Kf(100f, 1f))
+                    withPivotTransform(267f, 131f, tx = barTx, sx = 1f, sy = barSy) {
+                        drawPath(paths.nextBar, color = phoneBodyColor, style = Stroke(width = 2.2f, cap = StrokeCap.Round, join = StrokeJoin.Round))
+                    }
                 }
             }
         }

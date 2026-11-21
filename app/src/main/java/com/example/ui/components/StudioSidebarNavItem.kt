@@ -71,6 +71,7 @@ fun StudioSidebarNavItem(
         label = "StudioSidebarNavItem"
     )
 
+    val hoverBg = colorScheme.surfaceContainerHigh.copy(alpha = 0.72f)
     val itemBg by transition.animateColor(
         transitionSpec = { StudioMotion.microTween() },
         label = "sidebarItemBg"
@@ -78,19 +79,20 @@ fun StudioSidebarNavItem(
         when {
             sel && hov -> lerp(colorScheme.surfaceContainerLow, colorScheme.primaryContainer, 0.78f)
             sel -> lerp(colorScheme.surfaceContainerLow, colorScheme.primaryContainer, 0.62f)
-            hov -> colorScheme.surfaceContainerHigh.copy(alpha = 0.72f)
-            else -> Color.Transparent
+            hov -> hoverBg
+            else -> hoverBg.copy(alpha = 0f)
         }
     }
 
+    val hoverBorder = colorScheme.outlineVariant.copy(alpha = 0.45f)
     val borderCol by transition.animateColor(
         transitionSpec = { StudioMotion.microTween() },
         label = "sidebarItemBorder"
     ) { (sel, hov, _) ->
         when {
             sel -> colorScheme.primary.copy(alpha = 0.36f)
-            hov -> colorScheme.outlineVariant.copy(alpha = 0.45f)
-            else -> Color.Transparent
+            hov -> hoverBorder
+            else -> hoverBorder.copy(alpha = 0f)
         }
     }
 

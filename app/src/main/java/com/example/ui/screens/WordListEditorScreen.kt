@@ -1462,7 +1462,11 @@ fun WordListEditorScreen(
                                         LazyColumn(
                                             state = wordListState,
                                             modifier = Modifier.fillMaxSize(),
-                                            contentPadding = PaddingValues(vertical = 6.dp),
+                                            contentPadding = PaddingValues(
+                                                top = 6.dp,
+                                                bottom = 6.dp,
+                                                end = if (DesktopAdaptiveState.isDesktopPlatform) 11.dp else 0.dp
+                                            ),
                                             verticalArrangement = Arrangement.spacedBy(6.dp)
                                         ) {
                                             itemsIndexed(

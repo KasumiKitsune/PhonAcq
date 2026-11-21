@@ -1122,7 +1122,7 @@ internal fun WordStripChip(
             isSelected -> MaterialTheme.colorScheme.primary
             isHovered -> MaterialTheme.colorScheme.primary.copy(alpha = 0.65f)
             isRecorded -> MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.7f)
-            else -> Color.Transparent
+            else -> MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0f)
         },
         animationSpec = StudioMotion.microTween(),
         label = "WordStripChipBorder"

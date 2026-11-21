@@ -927,6 +927,9 @@ internal fun TabletWordSidebar(
                 LazyColumn(
                     state = listState,
                     modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(
+                        end = if (DesktopAdaptiveState.isDesktopPlatform) 11.dp else 0.dp
+                    ),
                     verticalArrangement = Arrangement.spacedBy(5.dp)
                 ) {
                     itemsIndexed(words, key = { _, w -> w.id }) { idx, word ->

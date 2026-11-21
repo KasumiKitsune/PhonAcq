@@ -38,6 +38,7 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.grid.LazyGridState
 import androidx.compose.foundation.shape.CircleShape
@@ -1025,7 +1026,8 @@ fun StudioSegmentedControl(
     selectedIndex: Int,
     onOptionSelected: (Int) -> Unit,
     modifier: Modifier = Modifier,
-    optionTestTags: List<String>? = null
+    optionTestTags: List<String>? = null,
+    maxWidth: Dp = (options.size * 176).dp.coerceAtMost(480.dp)
 ) {
     if (options.isEmpty()) return
     val colorScheme = MaterialTheme.colorScheme
@@ -1052,6 +1054,7 @@ fun StudioSegmentedControl(
         shadowElevation = 0.dp,
         tonalElevation = 0.dp,
         modifier = modifier
+            .widthIn(max = maxWidth)
             .fillMaxWidth()
             .height(40.dp)
     ) {

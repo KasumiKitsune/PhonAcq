@@ -532,7 +532,12 @@ fun SettingsScreen(
                                     modifier = Modifier
                                         .fillMaxSize()
                                         .verticalScroll(sidebarScrollState)
-                                        .padding(horizontal = 12.dp, vertical = 14.dp),
+                                        .padding(
+                                            start = 12.dp,
+                                            end = if (DesktopAdaptiveState.isDesktopPlatform) 14.dp else 12.dp,
+                                            top = 14.dp,
+                                            bottom = 14.dp
+                                        ),
                                     verticalArrangement = Arrangement.spacedBy(14.dp)
                                 ) {
                                     SettingsMenuGroup.entries.forEach { group ->

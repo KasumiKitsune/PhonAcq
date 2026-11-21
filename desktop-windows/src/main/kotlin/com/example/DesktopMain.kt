@@ -536,15 +536,15 @@ fun main(args: Array<String>) = application {
                     adapter = rememberScrollbarAdapter(listState),
                     style = defaultScrollbarStyle().copy(
                         minimalHeight = 28.dp,
-                        thickness = 6.dp,
+                        thickness = 5.dp,
                         shape = RoundedCornerShape(3.dp),
-                        unhoverColor = cs.onSurface.copy(alpha = 0.18f),
-                        hoverColor = cs.onSurface.copy(alpha = 0.42f)
+                        unhoverColor = cs.onSurface.copy(alpha = 0.16f),
+                        hoverColor = cs.onSurface.copy(alpha = 0.40f)
                     ),
                     modifier = mod
                         .align(Alignment.CenterEnd)
                         .fillMaxHeight()
-                        .padding(vertical = 4.dp, horizontal = 2.dp)
+                        .padding(vertical = 4.dp, horizontal = 1.dp)
                 )
             }
             DesktopAdaptiveState.gridScrollbarSlot = { gridState, mod ->
@@ -553,15 +553,15 @@ fun main(args: Array<String>) = application {
                     adapter = rememberScrollbarAdapter(gridState),
                     style = defaultScrollbarStyle().copy(
                         minimalHeight = 28.dp,
-                        thickness = 6.dp,
+                        thickness = 5.dp,
                         shape = RoundedCornerShape(3.dp),
-                        unhoverColor = cs.onSurface.copy(alpha = 0.18f),
-                        hoverColor = cs.onSurface.copy(alpha = 0.42f)
+                        unhoverColor = cs.onSurface.copy(alpha = 0.16f),
+                        hoverColor = cs.onSurface.copy(alpha = 0.40f)
                     ),
                     modifier = mod
                         .align(Alignment.CenterEnd)
                         .fillMaxHeight()
-                        .padding(vertical = 4.dp, horizontal = 2.dp)
+                        .padding(vertical = 4.dp, horizontal = 1.dp)
                 )
             }
             DesktopAdaptiveState.scrollScrollbarSlot = { scrollState, mod ->
@@ -570,15 +570,15 @@ fun main(args: Array<String>) = application {
                     adapter = rememberScrollbarAdapter(scrollState),
                     style = defaultScrollbarStyle().copy(
                         minimalHeight = 28.dp,
-                        thickness = 6.dp,
+                        thickness = 5.dp,
                         shape = RoundedCornerShape(3.dp),
-                        unhoverColor = cs.onSurface.copy(alpha = 0.18f),
-                        hoverColor = cs.onSurface.copy(alpha = 0.42f)
+                        unhoverColor = cs.onSurface.copy(alpha = 0.16f),
+                        hoverColor = cs.onSurface.copy(alpha = 0.40f)
                     ),
                     modifier = mod
                         .align(Alignment.CenterEnd)
                         .fillMaxHeight()
-                        .padding(vertical = 4.dp, horizontal = 2.dp)
+                        .padding(vertical = 4.dp, horizontal = 1.dp)
                 )
             }
             onDispose {

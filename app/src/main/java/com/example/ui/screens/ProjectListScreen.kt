@@ -10,6 +10,7 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import com.example.ui.components.AdaptiveModalSurface
 import com.example.ui.components.AnimatedDialogVisibility
+import com.example.ui.components.DesktopAdaptiveState
 import com.example.ui.components.LocalAppWindowMetrics
 import com.example.ui.components.PlatformVerticalScrollbar
 import com.example.ui.components.PredictiveBackGestureHandler
@@ -60,6 +61,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -463,7 +465,7 @@ fun ProjectListScreen(
                                                 targetValue = if (speakerCardHovered) {
                                                     cs.primary.copy(alpha = 0.45f)
                                                 } else {
-                                                    Color.Transparent
+                                                    cs.primary.copy(alpha = 0f)
                                                 },
                                                 animationSpec = StudioMotion.microTween(),
                                                 label = "ConsoleSpeakerCardBorder"
@@ -1183,7 +1185,7 @@ fun ProjectItemCard(
                             label = "SpeakerChipBg_${spkInfo.speaker.id}"
                         )
                         val chipBorder by animateColorAsState(
-                            targetValue = if (chipHovered) cs.primary.copy(alpha = 0.55f) else Color.Transparent,
+                            targetValue = if (chipHovered) cs.primary.copy(alpha = 0.55f) else cs.primary.copy(alpha = 0f),
                             animationSpec = StudioMotion.microTween(),
                             label = "SpeakerChipBorder_${spkInfo.speaker.id}"
                         )
@@ -1745,316 +1747,106 @@ fun SpeakerManagerPage(
                                 state = speakerListState,
                                 modifier = Modifier.fillMaxSize(),
                                 verticalArrangement = Arrangement.spacedBy(10.dp),
-                                contentPadding = PaddingValues(bottom = 88.dp)
+                                contentPadding = PaddingValues(
+                                    end = if (DesktopAdaptiveState.isDesktopPlatform) 11.dp else 0.dp,
+                                    bottom = 88.dp
+                                )
                             ) {
                                 items(filteredSpeakers, key = { it.id }) { speaker ->
-                                    Card(
-                                        modifier = studioAnimateItem().fillMaxWidth(),
-                                        shape = RoundedCornerShape(20.dp),
-                                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
-                                        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
-                                    ) {
-                                    Row(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .padding(16.dp),
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.SpaceBetween
-                                    ) {
-                                        Row(
-                                            modifier = Modifier.weight(1f),
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.spacedBy(12.dp)
-                                        ) {
-                                            Surface(
-                                                shape = CircleShape,
-                                                color = MaterialTheme.colorScheme.primaryContainer,
-                                                modifier = Modifier.size(46.dp)
-                                            ) {
-                                                Box(contentAlignment = Alignment.Center) {
-                                                    Text(
-                                                        text = speaker.name.take(1),
-                                                        style = MaterialTheme.typography.titleMedium,
-                                                        fontWeight = FontWeight.ExtraBold,
-                                                        color = MaterialTheme.colorScheme.onPrimaryContainer
-                                                    )
+                                    var pitchRange by remember(speaker.id) { mutableStateOf(viewModel.getSpeakerPitchRange(speaker.id)) }
+                                    var isEstimating by remember(speaker.id) { mutableStateOf(false) }
+                                    var showManualPitchDialog by remember(speaker.id) { mutableStateOf(false) }
+                                    var showDeleteConfirm by remember(speaker.id) { mutableStateOf(false) }
+                                    val context = LocalContext.current
+
+                                    SpeakerProfileCard(
+                                        speaker = speaker,
+                                        isSimpleMode = isSimpleMode,
+                                        pitchRange = pitchRange,
+                                        isEstimatingPitch = isEstimating,
+                                        canDelete = speakers.size > 1,
+                                        onEstimatePitch = {
+                                            isEstimating = true
+                                            viewModel.estimatePitchRangeForSpeaker(speaker) { res ->
+                                                isEstimating = false
+                                                pitchRange = res
+                                                if (res == null) {
+                                                    Toast.makeText(context, S.speaker.tooFewSamplesForEstimateToast, Toast.LENGTH_SHORT).show()
                                                 }
                                             }
+                                        },
+                                        onOpenManualPitch = { showManualPitchDialog = true },
+                                        onEdit = {
+                                            nameField = speaker.name
+                                            genderField = if (speaker.gender in presetGenders) speaker.gender else "多元/不限"
+                                            ageFieldText = speaker.age.toString()
+                                            dialectField = speaker.dialect
+                                            groupField = speaker.groupName
+                                            notesField = speaker.notes
+                                            speakerToEdit = speaker
+                                        },
+                                        onDeleteRequest = { showDeleteConfirm = true },
+                                        modifier = studioAnimateItem()
+                                    )
 
-                                            Column(
-                                                modifier = Modifier.weight(1f),
-                                                verticalArrangement = Arrangement.spacedBy(4.dp)
-                                            ) {
-                                                Row(
-                                                    verticalAlignment = Alignment.CenterVertically,
-                                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                                                ) {
-                                                    Text(
-                                                        text = speaker.name,
-                                                        fontWeight = FontWeight.ExtraBold,
-                                                        fontSize = 15.sp,
-                                                        color = MaterialTheme.colorScheme.onSurface,
-                                                        maxLines = 1,
-                                                        overflow = TextOverflow.Ellipsis,
-                                                        modifier = Modifier.weight(1f, fill = false)
-                                                    )
-                                                    Surface(
-                                                        shape = RoundedCornerShape(6.dp),
-                                                        color = MaterialTheme.colorScheme.secondaryContainer
-                                                    ) {
-                                                        val ageDisplay = S.common.ageWithUnit.withArgs("age" to speaker.age)
-                                                        val badgeLabel = if (speaker.gender.isBlank() || speaker.gender == "不愿透露") {
-                                                            ageDisplay
-                                                        } else {
-                                                            "${S.speaker.displayGender(speaker.gender)} · $ageDisplay"
-                                                        }
-                                                        Text(
-                                                            text = badgeLabel,
-                                                            fontSize = 10.sp,
-                                                            fontWeight = FontWeight.Bold,
-                                                            color = MaterialTheme.colorScheme.onSecondaryContainer,
-                                                            maxLines = 1,
-                                                            softWrap = false,
-                                                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                                                        )
-                                                    }
-                                                }
-                                                if (!isSimpleMode && speaker.groupList.isNotEmpty()) {
-                                                    FlowRow(
-                                                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                                        verticalArrangement = Arrangement.spacedBy(4.dp)
-                                                    ) {
-                                                        speaker.groupList.forEach { grp ->
-                                                            Surface(
-                                                                shape = RoundedCornerShape(6.dp),
-                                                                color = MaterialTheme.colorScheme.tertiaryContainer
-                                                            ) {
-                                                                Text(
-                                                                    text = grp,
-                                                                    fontSize = 10.sp,
-                                                                    fontWeight = FontWeight.Bold,
-                                                                    color = MaterialTheme.colorScheme.onTertiaryContainer,
-                                                                    maxLines = 1,
-                                                                    overflow = TextOverflow.Ellipsis,
-                                                                    modifier = Modifier
-                                                                        .widthIn(max = 180.dp)
-                                                                        .padding(horizontal = 6.dp, vertical = 2.dp)
-                                                                )
-                                                            }
-                                                        }
-                                                    }
-                                                }
-
-                                                Text(
-                                                    text = S.speaker.speakerDialectPrefix.withArgs("dialect" to speaker.dialect),
-                                                    fontSize = 12.sp,
-                                                    fontWeight = FontWeight.Medium,
-                                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                                    maxLines = 1,
-                                                    overflow = TextOverflow.Ellipsis
-                                                )
-
-                                                if (!isSimpleMode) {
-                                                    var pitchRange by remember(speaker.id) { mutableStateOf(viewModel.getSpeakerPitchRange(speaker.id)) }
-                                                    var isEstimating by remember(speaker.id) { mutableStateOf(false) }
-                                                    var showManualPitchDialog by remember(speaker.id) { mutableStateOf(false) }
-                                                    val context = LocalContext.current
-
-                                                    FlowRow(
-                                                        horizontalArrangement = Arrangement.spacedBy(4.dp),
-                                                        verticalArrangement = Arrangement.spacedBy(2.dp)
-                                                    ) {
-                                                        Text(
-                                                            text = S.speaker.personalPitchRangePrefix.withArgs(
-                                                                "range" to (pitchRange?.let { "${it.first.toInt()}–${it.second.toInt()} Hz" } ?: S.speaker.pitchPendingEstimate)
-                                                            ),
-                                                            fontSize = 11.sp,
-                                                            fontWeight = FontWeight.Bold,
-                                                            maxLines = 1,
-                                                            softWrap = false,
-                                                            color = if (pitchRange != null) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline,
-                                                            modifier = Modifier.align(Alignment.CenterVertically)
-                                                        )
-                                                        TextButton(
-                                                            onClick = {
-                                                                isEstimating = true
-                                                                viewModel.estimatePitchRangeForSpeaker(speaker) { res ->
-                                                                    isEstimating = false
-                                                                    pitchRange = res
-                                                                    if (res == null) {
-                                                                        Toast.makeText(context, S.speaker.tooFewSamplesForEstimateToast, Toast.LENGTH_SHORT).show()
-                                                                    }
-                                                                }
-                                                            },
-                                                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
-                                                            modifier = Modifier
-                                                                .align(Alignment.CenterVertically)
-                                                                .defaultMinSize(minWidth = 1.dp, minHeight = 32.dp)
-                                                        ) {
-                                                            Text(
-                                                                text = if (isEstimating) {
-                                                                    S.speaker.estimatingPitch
-                                                                } else if (pitchRange == null) {
-                                                                    S.speaker.autoEstimatePitch
-                                                                } else {
-                                                                    S.speaker.reEstimatePitch
-                                                                },
-                                                                fontSize = 11.sp,
-                                                                fontWeight = FontWeight.Bold,
-                                                                maxLines = 1,
-                                                                softWrap = false
-                                                            )
-                                                        }
-                                                        TextButton(
-                                                            onClick = { showManualPitchDialog = true },
-                                                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
-                                                            modifier = Modifier
-                                                                .align(Alignment.CenterVertically)
-                                                                .defaultMinSize(minWidth = 1.dp, minHeight = 32.dp)
-                                                        ) {
-                                                            Text(
-                                                                text = S.recording.manualPitchButton,
-                                                                fontSize = 11.sp,
-                                                                fontWeight = FontWeight.Bold,
-                                                                maxLines = 1,
-                                                                softWrap = false
-                                                            )
-                                                        }
-                                                    }
-
-                                                    com.example.ui.components.AnimatedDialogVisibility(visible = showManualPitchDialog) {
-                                                        ManualSpeakerPitchDialog(
-                                                            speaker = speaker,
-                                                            currentRange = pitchRange,
-                                                            onSave = { minHz, maxHz ->
-                                                                viewModel.saveSpeakerPitchRange(speaker.id, minHz, maxHz)
-                                                                pitchRange = minHz to maxHz
-                                                                showManualPitchDialog = false
-                                                                Toast.makeText(
-                                                                    context,
-                                                                    S.recording.manualPitchSavedToast.withArgs(
-                                                                        "min" to minHz.toInt(),
-                                                                        "max" to maxHz.toInt()
-                                                                    ),
-                                                                    Toast.LENGTH_SHORT
-                                                                ).show()
-                                                            },
-                                                            onResetAuto = {
-                                                                viewModel.clearSpeakerPitchRange(speaker.id)
-                                                                pitchRange = null
-                                                                showManualPitchDialog = false
-                                                                Toast.makeText(
-                                                                    context,
-                                                                    S.recording.manualPitchResetToast,
-                                                                    Toast.LENGTH_SHORT
-                                                                ).show()
-                                                            },
-                                                            onDismiss = { showManualPitchDialog = false }
-                                                        )
-                                                    }
-                                                }
-
-                                                if (speaker.notes.isNotEmpty()) {
-                                                    Text(
-                                                        text = S.speaker.notesPrefix.withArgs("notes" to speaker.notes),
-                                                        fontSize = 11.sp,
-                                                        color = MaterialTheme.colorScheme.outline,
-                                                        maxLines = 2,
-                                                        overflow = TextOverflow.Ellipsis
-                                                    )
-                                                }
-                                            }
-                                        }
-
-                                        Row(
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.spacedBy(2.dp)
-                                        ) {
-                                            val cs = MaterialTheme.colorScheme
-                                            val (spkEditSrc, spkEditHovState) = rememberStudioInteraction()
-                                            val spkEditHov by spkEditHovState
-                                            val spkEditTint by animateColorAsState(
-                                                targetValue = if (spkEditHov) cs.primary else cs.primary.copy(alpha = 0.85f),
-                                                animationSpec = StudioMotion.microTween(),
-                                                label = "SpkEditTint_${speaker.id}"
-                                            )
-                                            IconButton(
-                                                onClick = {
-                                                    nameField = speaker.name
-                                                    genderField = if (speaker.gender in presetGenders) speaker.gender else "多元/不限"
-                                                    ageFieldText = speaker.age.toString()
-                                                    dialectField = speaker.dialect
-                                                    groupField = speaker.groupName
-                                                    notesField = speaker.notes
-                                                    speakerToEdit = speaker
+                                    if (!isSimpleMode) {
+                                        com.example.ui.components.AnimatedDialogVisibility(visible = showManualPitchDialog) {
+                                            ManualSpeakerPitchDialog(
+                                                speaker = speaker,
+                                                currentRange = pitchRange,
+                                                onSave = { minHz, maxHz ->
+                                                    viewModel.saveSpeakerPitchRange(speaker.id, minHz, maxHz)
+                                                    pitchRange = minHz to maxHz
+                                                    showManualPitchDialog = false
+                                                    Toast.makeText(
+                                                        context,
+                                                        S.recording.manualPitchSavedToast.withArgs(
+                                                            "min" to minHz.toInt(),
+                                                            "max" to maxHz.toInt()
+                                                        ),
+                                                        Toast.LENGTH_SHORT
+                                                    ).show()
                                                 },
-                                                interactionSource = spkEditSrc,
-                                                modifier = Modifier
-                                                    .hoverable(spkEditSrc)
-                                                    .studioTactile(spkEditSrc, pressScale = 0.90f)
-                                                    .pointerHoverIcon(PointerIcon.Hand)
-                                            ) {
-                                                Icon(
-                                                    imageVector = Icons.Default.Edit,
-                                                    contentDescription = S.speaker.editInfoDesc,
-                                                    tint = spkEditTint,
-                                                    modifier = Modifier.size(20.dp)
-                                                )
-                                            }
-
-                                            if (speakers.size > 1) {
-                                                var showDeleteConfirm by remember { mutableStateOf(false) }
-                                                val (spkDelSrc, spkDelHovState) = rememberStudioInteraction()
-                                                val spkDelHov by spkDelHovState
-                                                val spkDelTint by animateColorAsState(
-                                                    targetValue = if (spkDelHov) cs.error else cs.error.copy(alpha = 0.82f),
-                                                    animationSpec = StudioMotion.microTween(),
-                                                    label = "SpkDelTint_${speaker.id}"
-                                                )
-
-                                                IconButton(
-                                                    onClick = { showDeleteConfirm = true },
-                                                    interactionSource = spkDelSrc,
-                                                    modifier = Modifier
-                                                        .hoverable(spkDelSrc)
-                                                        .studioTactile(spkDelSrc, pressScale = 0.90f)
-                                                        .pointerHoverIcon(PointerIcon.Hand)
-                                                ) {
-                                                    Icon(
-                                                        imageVector = Icons.Default.DeleteOutline,
-                                                        contentDescription = S.speaker.deleteSpeakerDesc,
-                                                        tint = spkDelTint,
-                                                        modifier = Modifier.size(20.dp)
-                                                    )
-                                                }
-
-                                                com.example.ui.components.AnimatedDialogVisibility(visible = showDeleteConfirm) {
-                                                    com.example.ui.components.StudioAlertDialog(
-                                                        onDismissRequest = { showDeleteConfirm = false },
-                                                        title = { Text(S.speaker.deleteSpeakerTitle, fontWeight = FontWeight.Bold) },
-                                                        text = { Text(S.speaker.deleteSpeakerBody.withArgs("name" to speaker.name)) },
-                                                        confirmButton = {
-                                                            TextButton(
-                                                                onClick = {
-                                                                    viewModel.deleteSpeaker(speaker)
-                                                                    showDeleteConfirm = false
-                                                                },
-                                                                colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)
-                                                            ) {
-                                                                Text(S.project.confirmDelete)
-                                                            }
-                                                        },
-                                                        dismissButton = {
-                                                            TextButton(onClick = { showDeleteConfirm = false }) {
-                                                                Text(S.common.cancel)
-                                                            }
-                                                        }
-                                                    )
-                                                }
-                                            }
+                                                onResetAuto = {
+                                                    viewModel.clearSpeakerPitchRange(speaker.id)
+                                                    pitchRange = null
+                                                    showManualPitchDialog = false
+                                                    Toast.makeText(
+                                                        context,
+                                                        S.recording.manualPitchResetToast,
+                                                        Toast.LENGTH_SHORT
+                                                    ).show()
+                                                },
+                                                onDismiss = { showManualPitchDialog = false }
+                                            )
                                         }
                                     }
-                                }
+
+                                    if (speakers.size > 1) {
+                                        com.example.ui.components.AnimatedDialogVisibility(visible = showDeleteConfirm) {
+                                            com.example.ui.components.StudioAlertDialog(
+                                                onDismissRequest = { showDeleteConfirm = false },
+                                                title = { Text(S.speaker.deleteSpeakerTitle, fontWeight = FontWeight.Bold) },
+                                                text = { Text(S.speaker.deleteSpeakerBody.withArgs("name" to speaker.name)) },
+                                                confirmButton = {
+                                                    TextButton(
+                                                        onClick = {
+                                                            viewModel.deleteSpeaker(speaker)
+                                                            showDeleteConfirm = false
+                                                        },
+                                                        colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)
+                                                    ) {
+                                                        Text(S.project.confirmDelete)
+                                                    }
+                                                },
+                                                dismissButton = {
+                                                    TextButton(onClick = { showDeleteConfirm = false }) {
+                                                        Text(S.common.cancel)
+                                                    }
+                                                }
+                                            )
+                                        }
+                                    }
                                 }
                             }
                             PlatformVerticalScrollbar(
@@ -2065,6 +1857,455 @@ fun SpeakerManagerPage(
                     }
                 }
             }
+        }
+    }
+}
+
+/**
+ * Refined, studio-grade speaker profile card shared across Desktop & Mobile.
+ * Structured into 3 crisp tiers:
+ * 1) Top identity header (monogram badge + name/age/dialect/group metadata + top-right action pills)
+ * 2) Full-width embedded acoustic pitch calibration strip (readout left + tactile action pills right)
+ * 3) Optional subtle notes footer
+ */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+internal fun SpeakerProfileCard(
+    speaker: Speaker,
+    isSimpleMode: Boolean,
+    pitchRange: Pair<Float, Float>?,
+    isEstimatingPitch: Boolean,
+    canDelete: Boolean,
+    onEstimatePitch: () -> Unit,
+    onOpenManualPitch: () -> Unit,
+    onEdit: () -> Unit,
+    onDeleteRequest: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val cs = MaterialTheme.colorScheme
+    val (cardSrc, cardHoveredState) = rememberStudioInteraction()
+    val cardHovered by cardHoveredState
+    val cardBorder by animateColorAsState(
+        targetValue = if (cardHovered) cs.primary.copy(alpha = 0.36f) else cs.outlineVariant.copy(alpha = 0.65f),
+        animationSpec = StudioMotion.microTween(),
+        label = "SpeakerCardBorder_${speaker.id}"
+    )
+
+    val ageDisplay = S.common.ageWithUnit.withArgs("age" to speaker.age)
+    val genderAgeBadge = if (speaker.gender.isBlank() || speaker.gender == "不愿透露") {
+        ageDisplay
+    } else {
+        "${S.speaker.displayGender(speaker.gender)} · $ageDisplay"
+    }
+
+    Surface(
+        shape = RoundedCornerShape(16.dp),
+        color = cs.surface,
+        border = BorderStroke(1.dp, cardBorder),
+        shadowElevation = 0.dp,
+        tonalElevation = 0.dp,
+        modifier = modifier
+            .fillMaxWidth()
+            .hoverable(cardSrc)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 14.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            // Tier 1: Identity Header + Compact Action Buttons
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.Top,
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = cs.primaryContainer,
+                    border = BorderStroke(1.dp, cs.primary.copy(alpha = 0.16f)),
+                    modifier = Modifier.size(44.dp)
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Text(
+                            text = speaker.name.take(1).ifBlank { "?" },
+                            fontSize = 17.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = cs.onPrimaryContainer
+                        )
+                    }
+                }
+
+                Column(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        Text(
+                            text = speaker.name,
+                            fontSize = 15.5.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = cs.onSurface,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.align(Alignment.CenterVertically)
+                        )
+                        Surface(
+                            shape = RoundedCornerShape(6.dp),
+                            color = cs.surfaceContainerHigh,
+                            modifier = Modifier.align(Alignment.CenterVertically)
+                        ) {
+                            Text(
+                                text = genderAgeBadge,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = cs.onSurfaceVariant,
+                                maxLines = 1,
+                                softWrap = false,
+                                modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.dp)
+                            )
+                        }
+                    }
+
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalArrangement = Arrangement.spacedBy(5.dp)
+                    ) {
+                        // Dialect metadata pill
+                        Surface(
+                            shape = RoundedCornerShape(6.dp),
+                            color = cs.secondaryContainer.copy(alpha = 0.72f)
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.5.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.RecordVoiceOver,
+                                    contentDescription = null,
+                                    tint = cs.onSecondaryContainer.copy(alpha = 0.78f),
+                                    modifier = Modifier.size(12.dp)
+                                )
+                                Text(
+                                    text = S.speaker.speakerDialectPrefix.withArgs("dialect" to speaker.dialect),
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    color = cs.onSecondaryContainer,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                        }
+
+                        if (!isSimpleMode && speaker.groupList.isNotEmpty()) {
+                            speaker.groupList.forEach { grp ->
+                                Surface(
+                                    shape = RoundedCornerShape(6.dp),
+                                    color = cs.tertiaryContainer
+                                ) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                        modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.5.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.FolderShared,
+                                            contentDescription = null,
+                                            tint = cs.onTertiaryContainer.copy(alpha = 0.8f),
+                                            modifier = Modifier.size(11.dp)
+                                        )
+                                        Text(
+                                            text = grp,
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.SemiBold,
+                                            color = cs.onTertiaryContainer,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
+                                            modifier = Modifier.widthIn(max = 180.dp)
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Top-right crisp icon buttons
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    SpeakerCardIconAction(
+                        icon = Icons.Default.Edit,
+                        contentDescription = S.speaker.editInfoDesc,
+                        isDestructive = false,
+                        onClick = onEdit
+                    )
+                    if (canDelete) {
+                        SpeakerCardIconAction(
+                            icon = Icons.Default.DeleteOutline,
+                            contentDescription = S.speaker.deleteSpeakerDesc,
+                            isDestructive = true,
+                            onClick = onDeleteRequest
+                        )
+                    }
+                }
+            }
+
+            // Tier 2: Full-width Embedded Acoustic Pitch Calibration Strip (Advanced mode)
+            if (!isSimpleMode) {
+                Surface(
+                    shape = RoundedCornerShape(11.dp),
+                    color = cs.surfaceContainer,
+                    border = BorderStroke(1.dp, cs.outlineVariant.copy(alpha = 0.42f)),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    BoxWithConstraints(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 12.dp, vertical = 8.dp)
+                    ) {
+                        val isCompactStrip = maxWidth < 340.dp
+                        val pitchValueText = pitchRange?.let { "${it.first.toInt()}–${it.second.toInt()} Hz" }
+                            ?: S.speaker.pitchPendingEstimate
+                        val estimateLabel = when {
+                            isEstimatingPitch -> S.speaker.estimatingPitch
+                            pitchRange == null -> S.speaker.autoEstimatePitch
+                            else -> S.speaker.reEstimatePitch
+                        }
+
+                        @Composable
+                        fun PitchReadout() {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(7.dp)
+                            ) {
+                                Surface(
+                                    shape = RoundedCornerShape(7.dp),
+                                    color = if (pitchRange != null) {
+                                        cs.primaryContainer.copy(alpha = 0.85f)
+                                    } else {
+                                        cs.surfaceContainerHigh
+                                    },
+                                    modifier = Modifier.size(24.dp)
+                                ) {
+                                    Box(contentAlignment = Alignment.Center) {
+                                        Icon(
+                                            imageVector = Icons.Default.GraphicEq,
+                                            contentDescription = null,
+                                            tint = if (pitchRange != null) cs.primary else cs.onSurfaceVariant,
+                                            modifier = Modifier.size(14.dp)
+                                        )
+                                    }
+                                }
+                                Text(
+                                    text = S.speaker.personalPitchRangePrefix.withArgs("range" to "").trimEnd(),
+                                    fontSize = 11.5.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    color = cs.onSurfaceVariant,
+                                    maxLines = 1,
+                                    softWrap = false
+                                )
+                                Text(
+                                    text = pitchValueText,
+                                    fontSize = 12.5.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    fontFamily = if (pitchRange != null) FontFamily.Monospace else FontFamily.Default,
+                                    color = if (pitchRange != null) cs.primary else cs.onSurfaceVariant,
+                                    maxLines = 1,
+                                    softWrap = false
+                                )
+                            }
+                        }
+
+                        @Composable
+                        fun PitchActionPills() {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                SpeakerPitchMiniPill(
+                                    icon = Icons.Default.Refresh,
+                                    label = estimateLabel,
+                                    onClick = onEstimatePitch
+                                )
+                                SpeakerPitchMiniPill(
+                                    icon = Icons.Default.Tune,
+                                    label = S.recording.manualPitchButton,
+                                    onClick = onOpenManualPitch
+                                )
+                            }
+                        }
+
+                        if (isCompactStrip) {
+                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                PitchReadout()
+                                PitchActionPills()
+                            }
+                        } else {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                PitchReadout()
+                                PitchActionPills()
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Tier 3: Optional Notes Footer
+            if (speaker.notes.isNotBlank()) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.Top,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.EditNote,
+                        contentDescription = null,
+                        tint = cs.onSurfaceVariant.copy(alpha = 0.72f),
+                        modifier = Modifier
+                            .padding(top = 1.dp)
+                            .size(14.dp)
+                    )
+                    Text(
+                        text = S.speaker.notesPrefix.withArgs("notes" to speaker.notes),
+                        fontSize = 11.5.sp,
+                        lineHeight = 16.sp,
+                        color = cs.onSurfaceVariant,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SpeakerCardIconAction(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    contentDescription: String,
+    isDestructive: Boolean,
+    onClick: () -> Unit
+) {
+    val cs = MaterialTheme.colorScheme
+    val (src, hoveredState) = rememberStudioInteraction()
+    val hovered by hoveredState
+    val bg by animateColorAsState(
+        targetValue = when {
+            hovered && isDestructive -> cs.errorContainer
+            hovered -> cs.primaryContainer
+            else -> cs.surfaceContainerLow
+        },
+        animationSpec = StudioMotion.microTween(),
+        label = "SpkActionBg"
+    )
+    val border by animateColorAsState(
+        targetValue = when {
+            hovered && isDestructive -> cs.error.copy(alpha = 0.45f)
+            hovered -> cs.primary.copy(alpha = 0.42f)
+            else -> cs.outlineVariant.copy(alpha = 0.55f)
+        },
+        animationSpec = StudioMotion.microTween(),
+        label = "SpkActionBorder"
+    )
+    val tint by animateColorAsState(
+        targetValue = when {
+            isDestructive -> if (hovered) cs.error else cs.error.copy(alpha = 0.82f)
+            hovered -> cs.primary
+            else -> cs.onSurfaceVariant
+        },
+        animationSpec = StudioMotion.microTween(),
+        label = "SpkActionTint"
+    )
+
+    Surface(
+        shape = RoundedCornerShape(9.dp),
+        color = bg,
+        border = BorderStroke(1.dp, border),
+        modifier = Modifier
+            .size(32.dp)
+            .clip(RoundedCornerShape(9.dp))
+            .hoverable(src)
+            .studioTactile(src, pressScale = 0.92f)
+            .pointerHoverIcon(PointerIcon.Hand)
+            .clickable(interactionSource = src, indication = null, onClick = onClick)
+    ) {
+        Box(contentAlignment = Alignment.Center) {
+            Icon(
+                imageVector = icon,
+                contentDescription = contentDescription,
+                tint = tint,
+                modifier = Modifier.size(16.dp)
+            )
+        }
+    }
+}
+
+@Composable
+private fun SpeakerPitchMiniPill(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    label: String,
+    onClick: () -> Unit
+) {
+    val cs = MaterialTheme.colorScheme
+    val (src, hoveredState) = rememberStudioInteraction()
+    val hovered by hoveredState
+    val bg by animateColorAsState(
+        targetValue = if (hovered) cs.primaryContainer else cs.surface,
+        animationSpec = StudioMotion.microTween(),
+        label = "SpkPitchPillBg"
+    )
+    val border by animateColorAsState(
+        targetValue = if (hovered) cs.primary.copy(alpha = 0.45f) else cs.outlineVariant.copy(alpha = 0.65f),
+        animationSpec = StudioMotion.microTween(),
+        label = "SpkPitchPillBorder"
+    )
+    val contentColor by animateColorAsState(
+        targetValue = if (hovered) cs.primary else cs.onSurfaceVariant,
+        animationSpec = StudioMotion.microTween(),
+        label = "SpkPitchPillFg"
+    )
+
+    Surface(
+        shape = RoundedCornerShape(8.dp),
+        color = bg,
+        border = BorderStroke(1.dp, border),
+        modifier = Modifier
+            .clip(RoundedCornerShape(8.dp))
+            .hoverable(src)
+            .studioTactile(src, pressScale = 0.96f)
+            .pointerHoverIcon(PointerIcon.Hand)
+            .clickable(interactionSource = src, indication = null, onClick = onClick)
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+            modifier = Modifier.padding(horizontal = 9.dp, vertical = 5.dp)
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                tint = contentColor,
+                modifier = Modifier.size(13.dp)
+            )
+            Text(
+                text = label,
+                fontSize = 11.5.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = contentColor,
+                maxLines = 1,
+                softWrap = false
+            )
         }
     }
 }
