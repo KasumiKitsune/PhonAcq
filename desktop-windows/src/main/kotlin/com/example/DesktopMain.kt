@@ -532,54 +532,60 @@ fun main(args: Array<String>) = application {
             }
             DesktopAdaptiveState.listScrollbarSlot = { listState, mod ->
                 val cs = MaterialTheme.colorScheme
-                VerticalScrollbar(
-                    adapter = rememberScrollbarAdapter(listState),
-                    style = defaultScrollbarStyle().copy(
-                        minimalHeight = 28.dp,
-                        thickness = 5.dp,
-                        shape = RoundedCornerShape(3.dp),
-                        unhoverColor = cs.onSurface.copy(alpha = 0.16f),
-                        hoverColor = cs.onSurface.copy(alpha = 0.40f)
-                    ),
-                    modifier = mod
-                        .align(Alignment.CenterEnd)
-                        .fillMaxHeight()
-                        .padding(vertical = 4.dp, horizontal = 1.dp)
-                )
+                Box(modifier = Modifier.matchParentSize()) {
+                    VerticalScrollbar(
+                        adapter = rememberScrollbarAdapter(listState),
+                        style = defaultScrollbarStyle().copy(
+                            minimalHeight = 28.dp,
+                            thickness = 5.dp,
+                            shape = RoundedCornerShape(3.dp),
+                            unhoverColor = cs.onSurface.copy(alpha = 0.16f),
+                            hoverColor = cs.onSurface.copy(alpha = 0.40f)
+                        ),
+                        modifier = mod
+                            .align(Alignment.CenterEnd)
+                            .fillMaxHeight()
+                            .padding(vertical = 4.dp, horizontal = 1.dp)
+                    )
+                }
             }
             DesktopAdaptiveState.gridScrollbarSlot = { gridState, mod ->
                 val cs = MaterialTheme.colorScheme
-                VerticalScrollbar(
-                    adapter = rememberScrollbarAdapter(gridState),
-                    style = defaultScrollbarStyle().copy(
-                        minimalHeight = 28.dp,
-                        thickness = 5.dp,
-                        shape = RoundedCornerShape(3.dp),
-                        unhoverColor = cs.onSurface.copy(alpha = 0.16f),
-                        hoverColor = cs.onSurface.copy(alpha = 0.40f)
-                    ),
-                    modifier = mod
-                        .align(Alignment.CenterEnd)
-                        .fillMaxHeight()
-                        .padding(vertical = 4.dp, horizontal = 1.dp)
-                )
+                Box(modifier = Modifier.matchParentSize()) {
+                    VerticalScrollbar(
+                        adapter = rememberScrollbarAdapter(gridState),
+                        style = defaultScrollbarStyle().copy(
+                            minimalHeight = 28.dp,
+                            thickness = 5.dp,
+                            shape = RoundedCornerShape(3.dp),
+                            unhoverColor = cs.onSurface.copy(alpha = 0.16f),
+                            hoverColor = cs.onSurface.copy(alpha = 0.40f)
+                        ),
+                        modifier = mod
+                            .align(Alignment.CenterEnd)
+                            .fillMaxHeight()
+                            .padding(vertical = 4.dp, horizontal = 1.dp)
+                    )
+                }
             }
             DesktopAdaptiveState.scrollScrollbarSlot = { scrollState, mod ->
                 val cs = MaterialTheme.colorScheme
-                VerticalScrollbar(
-                    adapter = rememberScrollbarAdapter(scrollState),
-                    style = defaultScrollbarStyle().copy(
-                        minimalHeight = 28.dp,
-                        thickness = 5.dp,
-                        shape = RoundedCornerShape(3.dp),
-                        unhoverColor = cs.onSurface.copy(alpha = 0.16f),
-                        hoverColor = cs.onSurface.copy(alpha = 0.40f)
-                    ),
-                    modifier = mod
-                        .align(Alignment.CenterEnd)
-                        .fillMaxHeight()
-                        .padding(vertical = 4.dp, horizontal = 1.dp)
-                )
+                Box(modifier = Modifier.matchParentSize()) {
+                    VerticalScrollbar(
+                        adapter = rememberScrollbarAdapter(scrollState),
+                        style = defaultScrollbarStyle().copy(
+                            minimalHeight = 28.dp,
+                            thickness = 5.dp,
+                            shape = RoundedCornerShape(3.dp),
+                            unhoverColor = cs.onSurface.copy(alpha = 0.16f),
+                            hoverColor = cs.onSurface.copy(alpha = 0.40f)
+                        ),
+                        modifier = mod
+                            .align(Alignment.CenterEnd)
+                            .fillMaxHeight()
+                            .padding(vertical = 4.dp, horizontal = 1.dp)
+                    )
+                }
             }
             onDispose {
                 DesktopAdaptiveState.desktopTopBarSlot = null

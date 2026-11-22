@@ -314,112 +314,16 @@ fun MainScreen(
                             )
                         }
                     ) {
-                        val showCompactBottomBar = isCompactWidth &&
-                            !isFullWindowImmersive &&
-                            !isPrimaryOverlayOpen &&
-                            !showFullGlobalOverlay &&
-                            currentScreen != AppScreen.Settings
+                        var lastCompactTabScreen by remember { mutableStateOf<AppScreen>(AppScreen.ProjectList) }
+                        if (currentScreen != AppScreen.Settings) {
+                            lastCompactTabScreen = currentScreen
+                        }
 
-                        Scaffold(
-                            contentWindowInsets = if (DesktopAdaptiveState.isDesktopPlatform) {
-                                WindowInsets(0, 0, 0, 0)
-                            } else {
-                                WindowInsets.navigationBars
-                            },
-                            bottomBar = {
-                                androidx.compose.animation.AnimatedVisibility(
-                                    visible = showCompactBottomBar,
-                                    enter = slideInVertically(StudioMotion.mediumInTween()) { it } + fadeIn(StudioMotion.shortInTween()),
-                                    exit = slideOutVertically(StudioMotion.mediumOutTween()) { it } + fadeOut(StudioMotion.shortOutTween())
-                                ) {
-                                    NavigationBar(
-                                        containerColor = MaterialTheme.colorScheme.surface,
-                                        tonalElevation = 0.dp,
-                                        modifier = Modifier.testTag("app_bottom_bar")
-                                    ) {
-                                        NavigationBarItem(
-                                            selected = currentScreen == AppScreen.ProjectList,
-                                            onClick = { currentScreen = AppScreen.ProjectList },
-                                            icon = { Icon(Icons.AutoMirrored.Filled.List, contentDescription = S.nav.tabProjects) },
-                                            label = {
-                                                Text(
-                                                    text = S.nav.tabProjects,
-                                                    fontWeight = if (currentScreen == AppScreen.ProjectList) FontWeight.Bold else FontWeight.Normal,
-                                                    fontSize = 12.sp,
-                                                    maxLines = 1,
-                                                    softWrap = false
-                                                )
-                                            },
-                                            colors = NavigationBarItemDefaults.colors(
-                                                selectedIconColor = MaterialTheme.colorScheme.primary,
-                                                selectedTextColor = MaterialTheme.colorScheme.primary,
-                                                unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.72f),
-                                                unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.72f),
-                                                indicatorColor = MaterialTheme.colorScheme.primaryContainer
-                                            ),
-                                            modifier = Modifier
-                                                .pointerHoverIcon(PointerIcon.Hand)
-                                                .testTag("tab_project_list")
-                                        )
-                                        NavigationBarItem(
-                                            selected = currentScreen == AppScreen.RecordingWorkspace,
-                                            onClick = { currentScreen = AppScreen.RecordingWorkspace },
-                                            icon = { Icon(Icons.Default.Mic, contentDescription = S.nav.tabRecordingStudio) },
-                                            label = {
-                                                Text(
-                                                    text = S.nav.tabRecordingStudio,
-                                                    fontWeight = if (currentScreen == AppScreen.RecordingWorkspace) FontWeight.Bold else FontWeight.Normal,
-                                                    fontSize = 12.sp,
-                                                    maxLines = 1,
-                                                    softWrap = false
-                                                )
-                                            },
-                                            colors = NavigationBarItemDefaults.colors(
-                                                selectedIconColor = MaterialTheme.colorScheme.primary,
-                                                selectedTextColor = MaterialTheme.colorScheme.primary,
-                                                unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.72f),
-                                                unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.72f),
-                                                indicatorColor = MaterialTheme.colorScheme.primaryContainer
-                                            ),
-                                            modifier = Modifier
-                                                .pointerHoverIcon(PointerIcon.Hand)
-                                                .testTag("tab_recording_workspace")
-                                        )
-                                        NavigationBarItem(
-                                            selected = currentScreen == AppScreen.ArchiveExplorer,
-                                            onClick = { currentScreen = AppScreen.ArchiveExplorer },
-                                            icon = { Icon(Icons.Default.Folder, contentDescription = S.nav.tabArchive) },
-                                            label = {
-                                                Text(
-                                                    text = S.nav.tabArchive,
-                                                    fontWeight = if (currentScreen == AppScreen.ArchiveExplorer) FontWeight.Bold else FontWeight.Normal,
-                                                    fontSize = 12.sp,
-                                                    maxLines = 1,
-                                                    softWrap = false
-                                                )
-                                            },
-                                            colors = NavigationBarItemDefaults.colors(
-                                                selectedIconColor = MaterialTheme.colorScheme.primary,
-                                                selectedTextColor = MaterialTheme.colorScheme.primary,
-                                                unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.72f),
-                                                unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.72f),
-                                                indicatorColor = MaterialTheme.colorScheme.primaryContainer
-                                            ),
-                                            modifier = Modifier
-                                                .pointerHoverIcon(PointerIcon.Hand)
-                                                .testTag("tab_archive_explorer")
-                                        )
-                                    }
-                                }
-                            },
-                            containerColor = MaterialTheme.colorScheme.background,
-                            modifier = Modifier.fillMaxSize()
-                        ) { innerPadding ->
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxSize()
-                                    .padding(innerPadding)
-                            ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .background(MaterialTheme.colorScheme.background)
+                        ) {
                                 // Unified NavigationRail for Medium (600..959dp) and Expanded (>=960dp)
                                 AnimatedVisibility(
                                     visible = showNavRail && !isFullWindowImmersive,
@@ -722,19 +626,51 @@ fun MainScreen(
                                     showEncyclopediaOverlay -> "ENCYCLOPEDIA"
                                     showRoomNoiseCheck -> "SOUND_CHECK"
                                     currentScreen == AppScreen.Settings -> "SETTINGS"
+                                    isCompactWidth -> "COMPACT_TABS"
                                     currentScreen == AppScreen.ArchiveExplorer -> "ARCHIVE_EXPLORER"
                                     isExpandedSplit -> "SPLIT_WORKSPACE"
                                     currentScreen == AppScreen.RecordingWorkspace -> "RECORDING_WORKSPACE"
                                     else -> "PROJECT_LIST"
                                 }
 
+                                val androidNavBarInsetModifier = if (DesktopAdaptiveState.isDesktopPlatform) {
+                                    Modifier
+                                } else {
+                                    Modifier.navigationBarsPadding()
+                                }
+
                                 AnimatedContent(
                                     targetState = activeWorkspaceKey,
                                     transitionSpec = {
-                                        (fadeIn(StudioMotion.pageInTween()) +
-                                            slideInVertically(StudioMotion.pageInTween()) { it / 32 } +
-                                            scaleIn(initialScale = 0.985f, animationSpec = StudioMotion.pageInTween())) togetherWith
-                                            (fadeOut(StudioMotion.pageOutTween()) + scaleOut(targetScale = 0.99f, animationSpec = StudioMotion.pageOutTween()))
+                                        if (isCompactWidth) {
+                                            val leavingRootTabs = initialState == "COMPACT_TABS"
+                                            val enteringRootTabs = targetState == "COMPACT_TABS"
+                                            when {
+                                                leavingRootTabs -> {
+                                                    // Entering full-screen subpage (Settings, WordEditor, Manual, etc.) from bottom-tab root
+                                                    (slideInHorizontally(StudioMotion.pageInTween()) { it / 4 } +
+                                                        fadeIn(StudioMotion.pageInTween())) togetherWith
+                                                        (slideOutHorizontally(StudioMotion.pageOutTween()) { -it / 8 } +
+                                                            fadeOut(StudioMotion.pageOutTween()))
+                                                }
+                                                enteringRootTabs -> {
+                                                    // Returning from full-screen subpage back to bottom-tab root
+                                                    (slideInHorizontally(StudioMotion.pageInTween()) { -it / 8 } +
+                                                        fadeIn(StudioMotion.pageInTween())) togetherWith
+                                                        (slideOutHorizontally(StudioMotion.pageOutTween()) { it / 4 } +
+                                                            fadeOut(StudioMotion.pageOutTween()))
+                                                }
+                                                else -> {
+                                                    fadeIn(StudioMotion.pageInTween()) togetherWith
+                                                        fadeOut(StudioMotion.pageOutTween())
+                                                }
+                                            }.using(SizeTransform(clip = false))
+                                        } else {
+                                            // Desktop / Tablet: calm cross-fade with subtle scale (no vertical bobbing)
+                                            (fadeIn(StudioMotion.pageInTween()) +
+                                                scaleIn(initialScale = 0.99f, animationSpec = StudioMotion.pageInTween())) togetherWith
+                                                fadeOut(StudioMotion.pageOutTween())
+                                        }
                                     },
                                     label = "UnifiedMainWorkspaceTransition",
                                     modifier = Modifier
@@ -743,6 +679,183 @@ fun MainScreen(
                                         .clipToBounds()
                                 ) { paneKey ->
                                     when (paneKey) {
+                                        "COMPACT_TABS" -> {
+                                            Scaffold(
+                                                contentWindowInsets = WindowInsets(0, 0, 0, 0),
+                                                bottomBar = {
+                                                    NavigationBar(
+                                                        containerColor = MaterialTheme.colorScheme.surface,
+                                                        tonalElevation = 0.dp,
+                                                        modifier = Modifier.testTag("app_bottom_bar")
+                                                    ) {
+                                                        NavigationBarItem(
+                                                            selected = lastCompactTabScreen == AppScreen.ProjectList,
+                                                            onClick = { currentScreen = AppScreen.ProjectList },
+                                                            icon = { Icon(Icons.AutoMirrored.Filled.List, contentDescription = S.nav.tabProjects) },
+                                                            label = {
+                                                                Text(
+                                                                    text = S.nav.tabProjects,
+                                                                    fontWeight = if (lastCompactTabScreen == AppScreen.ProjectList) FontWeight.Bold else FontWeight.Normal,
+                                                                    fontSize = 12.sp,
+                                                                    maxLines = 1,
+                                                                    softWrap = false
+                                                                )
+                                                            },
+                                                            colors = NavigationBarItemDefaults.colors(
+                                                                selectedIconColor = MaterialTheme.colorScheme.primary,
+                                                                selectedTextColor = MaterialTheme.colorScheme.primary,
+                                                                unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.72f),
+                                                                unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.72f),
+                                                                indicatorColor = MaterialTheme.colorScheme.primaryContainer
+                                                            ),
+                                                            modifier = Modifier
+                                                                .pointerHoverIcon(PointerIcon.Hand)
+                                                                .testTag("tab_project_list")
+                                                        )
+                                                        NavigationBarItem(
+                                                            selected = lastCompactTabScreen == AppScreen.RecordingWorkspace,
+                                                            onClick = { currentScreen = AppScreen.RecordingWorkspace },
+                                                            icon = { Icon(Icons.Default.Mic, contentDescription = S.nav.tabRecordingStudio) },
+                                                            label = {
+                                                                Text(
+                                                                    text = S.nav.tabRecordingStudio,
+                                                                    fontWeight = if (lastCompactTabScreen == AppScreen.RecordingWorkspace) FontWeight.Bold else FontWeight.Normal,
+                                                                    fontSize = 12.sp,
+                                                                    maxLines = 1,
+                                                                    softWrap = false
+                                                                )
+                                                            },
+                                                            colors = NavigationBarItemDefaults.colors(
+                                                                selectedIconColor = MaterialTheme.colorScheme.primary,
+                                                                selectedTextColor = MaterialTheme.colorScheme.primary,
+                                                                unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.72f),
+                                                                unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.72f),
+                                                                indicatorColor = MaterialTheme.colorScheme.primaryContainer
+                                                            ),
+                                                            modifier = Modifier
+                                                                .pointerHoverIcon(PointerIcon.Hand)
+                                                                .testTag("tab_recording_workspace")
+                                                        )
+                                                        NavigationBarItem(
+                                                            selected = lastCompactTabScreen == AppScreen.ArchiveExplorer,
+                                                            onClick = { currentScreen = AppScreen.ArchiveExplorer },
+                                                            icon = { Icon(Icons.Default.Folder, contentDescription = S.nav.tabArchive) },
+                                                            label = {
+                                                                Text(
+                                                                    text = S.nav.tabArchive,
+                                                                    fontWeight = if (lastCompactTabScreen == AppScreen.ArchiveExplorer) FontWeight.Bold else FontWeight.Normal,
+                                                                    fontSize = 12.sp,
+                                                                    maxLines = 1,
+                                                                    softWrap = false
+                                                                )
+                                                            },
+                                                            colors = NavigationBarItemDefaults.colors(
+                                                                selectedIconColor = MaterialTheme.colorScheme.primary,
+                                                                selectedTextColor = MaterialTheme.colorScheme.primary,
+                                                                unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.72f),
+                                                                unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.72f),
+                                                                indicatorColor = MaterialTheme.colorScheme.primaryContainer
+                                                            ),
+                                                            modifier = Modifier
+                                                                .pointerHoverIcon(PointerIcon.Hand)
+                                                                .testTag("tab_archive_explorer")
+                                                        )
+                                                    }
+                                                },
+                                                containerColor = MaterialTheme.colorScheme.background,
+                                                modifier = Modifier.fillMaxSize()
+                                            ) { tabPadding ->
+                                                BoxTransition(
+                                                    targetState = lastCompactTabScreen,
+                                                    modifier = Modifier
+                                                        .fillMaxSize()
+                                                        .padding(tabPadding)
+                                                ) { tabScreen ->
+                                                    when (tabScreen) {
+                                                        AppScreen.ProjectList -> {
+                                                            ProjectListScreen(
+                                                                viewModel = viewModel,
+                                                                onProjectOpened = {
+                                                                    currentScreen = AppScreen.RecordingWorkspace
+                                                                },
+                                                                onOpenDrawer = { scope.launch { drawerState.open() } },
+                                                                onOpenSettings = { currentScreen = AppScreen.Settings },
+                                                                onOpenWirelessLink = { showWirelessPairingDialog = true },
+                                                                onOpenWordListEditor = { proj ->
+                                                                    wordEditorInitialProject = proj
+                                                                    showWordListEditor = true
+                                                                },
+                                                                onOpenImportPage = { uris, mergeProj ->
+                                                                    importInitialUris = uris
+                                                                    importInitialMergeProject = mergeProj
+                                                                    showImportWorkspace = true
+                                                                },
+                                                                openSpeakerManagerTrigger = openSpeakerManagerTrigger,
+                                                                onSpeakerManagerTriggerConsumed = { openSpeakerManagerTrigger = 0 },
+                                                                isSplitPaneMode = false,
+                                                                modifier = Modifier
+                                                                    .fillMaxSize()
+                                                                    .predictiveBackLayer(mainTabBackState)
+                                                            )
+                                                        }
+
+                                                        AppScreen.RecordingWorkspace -> {
+                                                            if (currentProject == null) {
+                                                                NoProjectPlaceholder(
+                                                                    title = S.nav.selectProjectFirstTitle,
+                                                                    description = S.nav.selectProjectRecordingHint,
+                                                                    icon = Icons.Default.Mic,
+                                                                    buttonText = S.nav.goSelectProject,
+                                                                    onNavigateToProjects = { currentScreen = AppScreen.ProjectList }
+                                                                )
+                                                            } else {
+                                                                RecordingScreen(
+                                                                    viewModel = viewModel,
+                                                                    onNavigateBack = { currentScreen = AppScreen.ProjectList },
+                                                                    onViewArchive = { currentScreen = AppScreen.ArchiveExplorer },
+                                                                    onOpenFullSettings = { currentScreen = AppScreen.Settings },
+                                                                    onOpenWirelessLink = { showWirelessPairingDialog = true },
+                                                                    isSplitPaneMode = false,
+                                                                    modifier = Modifier
+                                                                        .fillMaxSize()
+                                                                        .predictiveBackLayer(mainTabBackState)
+                                                                )
+                                                            }
+                                                        }
+
+                                                        AppScreen.ArchiveExplorer -> {
+                                                            if (currentProject == null) {
+                                                                NoProjectPlaceholder(
+                                                                    title = S.nav.selectProjectFirstTitle,
+                                                                    description = if (isSimpleMode) {
+                                                                        S.nav.selectProjectArchiveHintSimple
+                                                                    } else {
+                                                                        S.nav.selectProjectArchiveHintAdv
+                                                                    },
+                                                                    icon = Icons.Default.Folder,
+                                                                    buttonText = S.nav.goSelectProject,
+                                                                    onNavigateToProjects = { currentScreen = AppScreen.ProjectList }
+                                                                )
+                                                            } else {
+                                                                ArchiveExplorerScreen(
+                                                                    viewModel = viewModel,
+                                                                    onNavigateBack = { currentScreen = AppScreen.RecordingWorkspace },
+                                                                    onSelectedWordPosition = { seqPos ->
+                                                                        viewModel.selectWordBySequencePosition(seqPos)
+                                                                        currentScreen = AppScreen.RecordingWorkspace
+                                                                    },
+                                                                    isTablet = false,
+                                                                    modifier = Modifier.fillMaxSize()
+                                                                )
+                                                            }
+                                                        }
+
+                                                        else -> Unit
+                                                    }
+                                                }
+                                            }
+                                        }
+
                                         "IMMERSIVE_RECORDING" -> {
                                             RecordingScreen(
                                                 viewModel = viewModel,
@@ -768,7 +881,9 @@ fun MainScreen(
                                                     null
                                                 },
                                                 isSplitPaneMode = isExpandedSplit,
-                                                modifier = Modifier.fillMaxSize()
+                                                modifier = Modifier
+                                                    .fillMaxSize()
+                                                    .then(androidNavBarInsetModifier)
                                             )
                                         }
 
@@ -826,14 +941,18 @@ fun MainScreen(
                                                     showUserManualOverlay = false
                                                     showEncyclopediaOverlay = true
                                                 },
-                                                modifier = Modifier.fillMaxSize()
+                                                modifier = Modifier
+                                                    .fillMaxSize()
+                                                    .then(androidNavBarInsetModifier)
                                             )
                                         }
 
                                         "ENCYCLOPEDIA" -> {
                                             FieldworkEncyclopediaScreen(
                                                 onBack = { showEncyclopediaOverlay = false },
-                                                modifier = Modifier.fillMaxSize()
+                                                modifier = Modifier
+                                                    .fillMaxSize()
+                                                    .then(androidNavBarInsetModifier)
                                             )
                                         }
 
@@ -845,7 +964,9 @@ fun MainScreen(
                                                     showRoomNoiseCheck = false
                                                     currentScreen = if (isExpandedSplit) AppScreen.ProjectList else AppScreen.RecordingWorkspace
                                                 },
-                                                modifier = Modifier.fillMaxSize()
+                                                modifier = Modifier
+                                                    .fillMaxSize()
+                                                    .then(androidNavBarInsetModifier)
                                             )
                                         }
 
@@ -882,7 +1003,9 @@ fun MainScreen(
                                                         currentScreen = if (isExpandedSplit) AppScreen.ProjectList else AppScreen.RecordingWorkspace
                                                     },
                                                     isTablet = !isCompactWidth,
-                                                    modifier = Modifier.fillMaxSize()
+                                                    modifier = Modifier
+                                                        .fillMaxSize()
+                                                        .then(androidNavBarInsetModifier)
                                                 )
                                             }
                                         }
@@ -893,11 +1016,7 @@ fun MainScreen(
                                                 onProjectOpened = {
                                                     currentScreen = AppScreen.RecordingWorkspace
                                                 },
-                                                onOpenDrawer = if (isCompactWidth) {
-                                                    { scope.launch { drawerState.open() } }
-                                                } else {
-                                                    null
-                                                },
+                                                onOpenDrawer = null,
                                                 onOpenSettings = { currentScreen = AppScreen.Settings },
                                                 onOpenWirelessLink = { showWirelessPairingDialog = true },
                                                 onOpenWordListEditor = { proj ->
@@ -914,6 +1033,7 @@ fun MainScreen(
                                                 isSplitPaneMode = !isCompactWidth,
                                                 modifier = Modifier
                                                     .fillMaxSize()
+                                                    .then(androidNavBarInsetModifier)
                                                     .predictiveBackLayer(mainTabBackState)
                                             )
                                         }
@@ -937,6 +1057,7 @@ fun MainScreen(
                                                     isSplitPaneMode = false,
                                                     modifier = Modifier
                                                         .fillMaxSize()
+                                                        .then(androidNavBarInsetModifier)
                                                         .predictiveBackLayer(mainTabBackState)
                                                 )
                                             }
@@ -1028,9 +1149,7 @@ fun MainScreen(
                                                     AnimatedContent(
                                                         targetState = currentProject?.id ?: -1L,
                                                         transitionSpec = {
-                                                            (fadeIn(StudioMotion.pageInTween()) +
-                                                                slideInVertically(StudioMotion.pageInTween()) { it / 32 }) togetherWith
-                                                                fadeOut(StudioMotion.pageOutTween())
+                                                            StudioMotion.subtleFadeScale()
                                                         },
                                                         label = "TabletWorkspaceTransition"
                                                     ) { activeProjectId ->
@@ -1132,7 +1251,6 @@ fun MainScreen(
                                 }
                             }
                         }
-                    }
 
                     // Non-docked PhoneticDetails modal (Compact / Medium / <1120dp windows)
                     if (showPhoneticWord != null && !canDockRightInspector) {

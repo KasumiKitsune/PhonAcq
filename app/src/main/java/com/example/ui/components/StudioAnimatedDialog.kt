@@ -513,6 +513,7 @@ fun StudioAlertDialog(
                         }
                         if (text != null) {
                             val textScrollState = rememberScrollState()
+                            val hasVerticalOverflow = textScrollState.maxValue > 0
                             Box(
                                 modifier = Modifier
                                     .fillMaxWidth()
@@ -522,6 +523,9 @@ fun StudioAlertDialog(
                                     modifier = Modifier
                                         .fillMaxWidth()
                                         .verticalScroll(textScrollState)
+                                        .padding(
+                                            end = if (hasVerticalOverflow && DesktopAdaptiveState.isDesktopPlatform) 10.dp else 0.dp
+                                        )
                                 ) {
                                     CompositionLocalProvider(LocalContentColor provides textContentColor) {
                                         ProvideTextStyle(MaterialTheme.typography.bodyMedium) {
@@ -529,10 +533,12 @@ fun StudioAlertDialog(
                                         }
                                     }
                                 }
-                                PlatformVerticalScrollbar(
-                                    scrollState = textScrollState,
-                                    modifier = Modifier.align(Alignment.CenterEnd)
-                                )
+                                if (hasVerticalOverflow) {
+                                    PlatformVerticalScrollbar(
+                                        scrollState = textScrollState,
+                                        modifier = Modifier.align(Alignment.CenterEnd)
+                                    )
+                                }
                             }
                         }
                         Row(
