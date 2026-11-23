@@ -303,9 +303,10 @@ object TeprojParser {
             activeSpeakerWlDoc?.let { optCleanString(it, "title") }.orEmpty(),
             itemWordlistTitle
         )
+        // Only adopt non-generic titles so placeholders like "从表格导入" gracefully fall back to the .teproj filename
         val resolvedTitle = titleCandidates.firstOrNull { cand ->
             cand.isNotBlank() && cand.lowercase(Locale.ROOT) !in GENERIC_IMPORT_TITLES
-        } ?: titleCandidates.firstOrNull { it.isNotBlank() }.orEmpty()
+        }.orEmpty()
 
         val resolvedDesc = listOf(
             optCleanString(root, "wordlist_note"),

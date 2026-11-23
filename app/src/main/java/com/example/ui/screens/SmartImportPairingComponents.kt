@@ -1,10 +1,12 @@
 package com.example.ui.screens
 
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.hoverable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -24,6 +26,7 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -35,10 +38,14 @@ import androidx.compose.material.icons.filled.AudioFile
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Image
+import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.TableChart
 import androidx.compose.material3.ColorScheme
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -49,6 +56,8 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -72,6 +81,8 @@ import com.example.i18n.SSmartImport
 import com.example.i18n.withArgs
 import com.example.ui.components.AdaptiveModalSurface
 import com.example.ui.components.PlatformVerticalScrollbar
+import com.example.ui.components.StudioFilterChip
+import com.example.ui.components.StudioHorizontalScrollStrip
 import com.example.ui.components.StudioModalDialog
 import com.example.ui.components.rememberStudioInteraction
 import com.example.ui.components.studioAnimateItem
@@ -300,133 +311,667 @@ internal fun ArchiveQueuePreviewCard(
     modifier: Modifier = Modifier
 ) {
     if (archiveItems.isEmpty()) return
-    val cs = MaterialTheme.colorScheme
-    Surface(
-        shape = RoundedCornerShape(14.dp),
-        color = cs.tertiaryContainer.copy(alpha = 0.45f),
-        border = BorderStroke(1.dp, cs.tertiary.copy(alpha = 0.35f)),
-        modifier = modifier.fillMaxWidth()
+    Column(
+        modifier = modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
-        Column(
-            modifier = Modifier.padding(12.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp)
-        ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(7.dp)
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Archive,
-                    contentDescription = null,
-                    tint = cs.tertiary,
-                    modifier = Modifier.size(17.dp)
-                )
-                Text(
-                    text = SSmartImport.archiveQueueCardTitle,
-                    fontSize = 12.5.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = cs.onSurface
-                )
+        archiveItems.forEach { arch ->
+            SingleArchivePreviewCard(
+                archiveItem = arch,
+                isSingleArchive = archiveItems.size == 1
+            )
+        }
+    }
+}
+
+@Composable
+private fun SingleArchivePreviewCard(
+    archiveItem: StagedImportItem,
+    isSingleArchive: Boolean
+) {
+    val cs = MaterialTheme.colorScheme
+    val inspect = archiveItem.archiveInspect
+    val allWords = inspect?.previewWords.orEmpty()
+    val projectTitle = inspect?.archiveProjectName?.ifBlank { archiveItem.displayName } ?: archiveItem.displayName
+
+    // Distinct groups in original order with item counts
+    val groupStats = remember(allWords) {
+        val counts = LinkedHashMap<String, Int>()
+        for (w in allWords) {
+            val g = w.groupName.trim()
+            if (g.isNotEmpty()) {
+                counts[g] = (counts[g] ?: 0) + 1
             }
-            archiveItems.forEach { arch ->
-                val inspect = arch.archiveInspect
-                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        }
+        counts.entries.map { it.key to it.value }
+    }
+
+    var selectedGroup by remember(archiveItem.id) { mutableStateOf<String?>(null) }
+    var searchQuery by remember(archiveItem.id) { mutableStateOf("") }
+    var showSearchBar by remember(archiveItem.id) { mutableStateOf(false) }
+
+    val initialLimit = if (isSingleArchive) 8 else 5
+    var visibleLimit by remember(archiveItem.id, selectedGroup, searchQuery) {
+        mutableIntStateOf(initialLimit)
+    }
+    val expandedRemarkIndices = remember(archiveItem.id) { mutableStateMapOf<Int, Boolean>() }
+
+    // Keep original 1-based word numbers even when filtering by group or keyword
+    val indexedFilteredWords = remember(allWords, selectedGroup, searchQuery) {
+        val q = searchQuery.trim().lowercase(Locale.ROOT)
+        allWords.mapIndexedNotNull { idx, pw ->
+            val groupMatch = selectedGroup == null || pw.groupName.trim() == selectedGroup
+            val queryMatch = q.isEmpty() ||
+                pw.text.lowercase(Locale.ROOT).contains(q) ||
+                pw.remark.lowercase(Locale.ROOT).contains(q) ||
+                pw.groupName.lowercase(Locale.ROOT).contains(q)
+            if (groupMatch && queryMatch) (idx + 1) to pw else null
+        }
+    }
+
+    Surface(
+        shape = RoundedCornerShape(16.dp),
+        color = cs.surface,
+        border = BorderStroke(1.dp, cs.outlineVariant.copy(alpha = 0.6f)),
+        modifier = Modifier
+            .fillMaxWidth()
+            .animateContentSize(animationSpec = tween(180))
+    ) {
+        Column(modifier = Modifier.fillMaxWidth()) {
+            // 1. Clean Header Section (project identity, format badge, metrics, speakers)
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(lerp(cs.surfaceContainerLow, cs.primaryContainer, 0.14f))
+                    .padding(horizontal = 18.dp, vertical = 16.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = cs.primaryContainer
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(5.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Archive,
+                                contentDescription = null,
+                                tint = cs.onPrimaryContainer,
+                                modifier = Modifier.size(14.dp)
+                            )
+                            Text(
+                                text = inspect?.formatLabel?.ifBlank { SSmartImport.kindArchiveLabel }
+                                    ?: SSmartImport.kindArchiveLabel,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = cs.onPrimaryContainer
+                            )
+                        }
+                    }
+
+                    if (inspect?.usesLongAudioSlicing == true) {
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = cs.secondaryContainer
+                        ) {
+                            Text(
+                                text = "长音频自动切片",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = cs.onSecondaryContainer,
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.weight(1f))
+
+                    Text(
+                        text = "独立还原为新项目",
+                        fontSize = 11.5.sp,
+                        color = cs.onSurfaceVariant
+                    )
+                }
+
+                Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                    Text(
+                        text = projectTitle,
+                        fontSize = 16.5.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = cs.onSurface,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    if (!projectTitle.equals(archiveItem.displayName.substringBeforeLast('.'), ignoreCase = true)) {
+                        Text(
+                            text = archiveItem.displayName,
+                            fontSize = 11.5.sp,
+                            fontFamily = FontFamily.Monospace,
+                            color = cs.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                }
+
+                // Key Metrics Row
+                if (inspect != null) {
+                    val metricsScroll = rememberScrollState()
+                    StudioHorizontalScrollStrip(
+                        state = metricsScroll,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            modifier = Modifier.horizontalScroll(metricsScroll),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            ArchiveMetricPill(
+                                label = "词条",
+                                value = "${inspect.estimatedWordCount}",
+                                accent = true
+                            )
+                            if (inspect.groupCount > 0) {
+                                ArchiveMetricPill(
+                                    label = "分组",
+                                    value = "${inspect.groupCount}"
+                                )
+                            }
+                            if (inspect.estimatedSpeakerCount > 0) {
+                                ArchiveMetricPill(
+                                    label = "发音人",
+                                    value = "${inspect.estimatedSpeakerCount}"
+                                )
+                            }
+                            ArchiveMetricPill(
+                                label = "录音",
+                                value = "${inspect.estimatedAudioCount}"
+                            )
+                        }
+                    }
+
+                    // Speaker names strip
+                    if (inspect.speakerNames.isNotEmpty()) {
+                        val spkScroll = rememberScrollState()
+                        StudioHorizontalScrollStrip(
+                            state = spkScroll,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(
+                                modifier = Modifier.horizontalScroll(spkScroll),
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Person,
+                                    contentDescription = null,
+                                    tint = cs.onSurfaceVariant,
+                                    modifier = Modifier.size(14.dp)
+                                )
+                                inspect.speakerNames.forEach { spkName ->
+                                    Surface(
+                                        shape = RoundedCornerShape(7.dp),
+                                        color = cs.surface.copy(alpha = 0.85f),
+                                        border = BorderStroke(0.8.dp, cs.outlineVariant.copy(alpha = 0.55f))
+                                    ) {
+                                        Text(
+                                            text = spkName,
+                                            fontSize = 11.5.sp,
+                                            fontWeight = FontWeight.Medium,
+                                            color = cs.onSurface,
+                                            maxLines = 1,
+                                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            HorizontalDivider(color = cs.outlineVariant.copy(alpha = 0.45f))
+
+            // 2. Spacious Expandable Wordlist Inspector Body
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 18.dp, vertical = 14.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                if (allWords.isNotEmpty()) {
+                    // Section Header + Search toggle
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text(
-                            text = inspect?.archiveProjectName?.ifBlank { arch.displayName } ?: arch.displayName,
-                            fontSize = 12.5.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = cs.onSurface,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.weight(1f)
-                        )
-                        if (inspect != null) {
-                            val spkPrefix = if (inspect.estimatedSpeakerCount > 1) "${inspect.estimatedSpeakerCount} 位发音人 · " else ""
+                        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                             Text(
-                                text = spkPrefix + SSmartImport.archiveSummaryMeta.withArgs(
-                                    "words" to inspect.estimatedWordCount,
-                                    "audio" to inspect.estimatedAudioCount
-                                ),
+                                text = "已解析字表预览",
+                                fontSize = 13.5.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = cs.onSurface
+                            )
+                            Text(
+                                text = "点击词条可展开完整备注与元数据",
                                 fontSize = 11.sp,
-                                fontWeight = FontWeight.SemiBold,
                                 color = cs.onSurfaceVariant
                             )
                         }
-                    }
-                    if (inspect != null && inspect.previewWords.isNotEmpty()) {
-                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                            inspect.previewWords.take(8).forEachIndexed { idx, pw ->
-                                Row(
+
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            if (allWords.size > 12) {
+                                IconButton(
+                                    onClick = {
+                                        showSearchBar = !showSearchBar
+                                        if (!showSearchBar) searchQuery = ""
+                                    },
                                     modifier = Modifier
-                                        .fillMaxWidth()
-                                        .clip(RoundedCornerShape(7.dp))
-                                        .background(cs.surface.copy(alpha = 0.85f))
-                                        .padding(horizontal = 8.dp, vertical = 4.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                        .size(34.dp)
+                                        .pointerHoverIcon(PointerIcon.Hand)
+                                ) {
+                                    Icon(
+                                        imageVector = if (showSearchBar) Icons.Default.Close else Icons.Default.Search,
+                                        contentDescription = "搜索词条",
+                                        tint = if (showSearchBar) cs.primary else cs.onSurfaceVariant,
+                                        modifier = Modifier.size(17.dp)
+                                    )
+                                }
+                            }
+
+                            if (indexedFilteredWords.size > initialLimit) {
+                                val isShowingAll = visibleLimit >= indexedFilteredWords.size
+                                TextButton(
+                                    onClick = {
+                                        visibleLimit = if (isShowingAll) {
+                                            initialLimit
+                                        } else {
+                                            minOf(indexedFilteredWords.size, maxOf(visibleLimit + 100, 100))
+                                        }
+                                    },
+                                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                                    modifier = Modifier.pointerHoverIcon(PointerIcon.Hand)
                                 ) {
                                     Text(
-                                        text = String.format(Locale.US, "#%03d", idx + 1),
-                                        fontSize = 10.5.sp,
-                                        fontFamily = FontFamily.Monospace,
-                                        color = cs.onSurfaceVariant
+                                        text = if (isShowingAll) "收起" else "展开全部",
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.SemiBold
                                     )
-                                    if (pw.groupName.isNotBlank()) {
-                                        Surface(
-                                            shape = RoundedCornerShape(4.dp),
-                                            color = cs.secondaryContainer.copy(alpha = 0.7f)
-                                        ) {
-                                            Text(
-                                                text = pw.groupName,
-                                                fontSize = 9.5.sp,
-                                                fontWeight = FontWeight.SemiBold,
-                                                color = cs.onSecondaryContainer,
-                                                maxLines = 1,
-                                                modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp)
-                                            )
+                                    Spacer(modifier = Modifier.width(3.dp))
+                                    Icon(
+                                        imageVector = if (isShowingAll) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    // Optional search box for large wordlists
+                    if (showSearchBar) {
+                        OutlinedTextField(
+                            value = searchQuery,
+                            onValueChange = { searchQuery = it },
+                            singleLine = true,
+                            placeholder = { Text("搜索词条、分组或备注...", fontSize = 12.5.sp) },
+                            leadingIcon = {
+                                Icon(
+                                    imageVector = Icons.Default.Search,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(17.dp)
+                                )
+                            },
+                            trailingIcon = if (searchQuery.isNotEmpty()) {
+                                {
+                                    IconButton(onClick = { searchQuery = "" }) {
+                                        Icon(
+                                            imageVector = Icons.Default.Close,
+                                            contentDescription = S.common.close,
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                    }
+                                }
+                            } else null,
+                            shape = RoundedCornerShape(10.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+
+                    // Group filter chips (when multiple groups exist)
+                    if (groupStats.size > 1) {
+                        val grpScroll = rememberScrollState()
+                        StudioHorizontalScrollStrip(
+                            state = grpScroll,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(
+                                modifier = Modifier.horizontalScroll(grpScroll),
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                StudioFilterChip(
+                                    selected = selectedGroup == null,
+                                    onClick = { selectedGroup = null },
+                                    labelText = "全部 (${allWords.size})"
+                                )
+                                groupStats.forEach { (grpName, count) ->
+                                    StudioFilterChip(
+                                        selected = selectedGroup == grpName,
+                                        onClick = {
+                                            selectedGroup = if (selectedGroup == grpName) null else grpName
+                                        },
+                                        labelText = "$grpName ($count)"
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    // Word items list with comfortable vertical rhythm
+                    if (indexedFilteredWords.isEmpty()) {
+                        Surface(
+                            shape = RoundedCornerShape(10.dp),
+                            color = cs.surfaceContainerLow,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text(
+                                text = "未找到匹配的词条",
+                                fontSize = 12.5.sp,
+                                color = cs.onSurfaceVariant,
+                                modifier = Modifier.padding(horizontal = 14.dp, vertical = 14.dp)
+                            )
+                        }
+                    } else {
+                        val shownRows = indexedFilteredWords.take(visibleLimit)
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            shownRows.forEach { (origIndex, pw) ->
+                                val isRemarkExpanded = expandedRemarkIndices[origIndex] == true
+                                ArchiveWordPreviewItemRow(
+                                    index1Based = origIndex,
+                                    text = pw.text,
+                                    groupName = pw.groupName,
+                                    remark = pw.remark,
+                                    expanded = isRemarkExpanded,
+                                    onToggleExpand = {
+                                        if (pw.remark.isNotBlank()) {
+                                            expandedRemarkIndices[origIndex] = !isRemarkExpanded
                                         }
                                     }
-                                    Text(
-                                        text = pw.text,
-                                        fontSize = 12.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        color = cs.onSurface,
-                                        maxLines = 1
-                                    )
-                                    if (pw.remark.isNotBlank()) {
+                                )
+                            }
+                        }
+
+                        // Prominent bottom Expand / Load More / Collapse action bar
+                        val remaining = indexedFilteredWords.size - shownRows.size
+                        if (remaining > 0 || visibleLimit > initialLimit) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(top = 2.dp),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                if (remaining > 0) {
+                                    val nextStep = minOf(remaining, 100)
+                                    FilledTonalButton(
+                                        onClick = {
+                                            visibleLimit = if (remaining <= 100) {
+                                                indexedFilteredWords.size
+                                            } else {
+                                                visibleLimit + nextStep
+                                            }
+                                        },
+                                        shape = RoundedCornerShape(10.dp),
+                                        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .defaultMinSize(minHeight = 38.dp)
+                                            .pointerHoverIcon(PointerIcon.Hand)
+                                            .testTag("archive_expand_words_${archiveItem.id}")
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.ExpandMore,
+                                            contentDescription = null,
+                                            modifier = Modifier.size(17.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(6.dp))
                                         Text(
-                                            text = pw.remark,
-                                            fontSize = 10.5.sp,
-                                            color = cs.onSurfaceVariant,
+                                            text = if (remaining <= 100) {
+                                                "展开查看全部 ${indexedFilteredWords.size} 个词条（剩余 $remaining 条）"
+                                            } else {
+                                                "继续展开 $nextStep 条（已显示 ${shownRows.size} / ${indexedFilteredWords.size}）"
+                                            },
+                                            fontSize = 12.sp,
+                                            fontWeight = FontWeight.SemiBold,
                                             maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis,
-                                            modifier = Modifier.weight(1f)
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                    }
+                                }
+                                if (visibleLimit > initialLimit) {
+                                    TextButton(
+                                        onClick = { visibleLimit = initialLimit },
+                                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
+                                        modifier = Modifier
+                                            .defaultMinSize(minHeight = 38.dp)
+                                            .pointerHoverIcon(PointerIcon.Hand)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.ExpandLess,
+                                            contentDescription = null,
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        Text(
+                                            text = "收起",
+                                            fontSize = 12.sp,
+                                            fontWeight = FontWeight.SemiBold,
+                                            maxLines = 1,
+                                            softWrap = false
                                         )
                                     }
                                 }
                             }
-                            if (inspect.previewWords.size > 8) {
-                                Text(
-                                    text = "… 其余 ${inspect.previewWords.size - 8} 个词条已解析就绪",
-                                    fontSize = 10.5.sp,
-                                    color = cs.onSurfaceVariant,
-                                    modifier = Modifier.padding(start = 4.dp)
-                                )
-                            }
                         }
-                    } else if (!inspect?.parseErrorHint.isNullOrBlank()) {
+                    }
+                } else if (!inspect?.parseErrorHint.isNullOrBlank()) {
+                    Surface(
+                        shape = RoundedCornerShape(10.dp),
+                        color = cs.errorContainer.copy(alpha = 0.45f),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
                         Text(
                             text = "预检提示：${inspect?.parseErrorHint}",
-                            fontSize = 11.sp,
-                            color = cs.error
+                            fontSize = 12.sp,
+                            color = cs.error,
+                            modifier = Modifier.padding(12.dp)
+                        )
+                    }
+                } else {
+                    Text(
+                        text = "未在压缩包内检测到可预览的字表词条，导入时将尝试从音频或汇总表恢复。",
+                        fontSize = 12.sp,
+                        color = cs.onSurfaceVariant
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ArchiveMetricPill(
+    label: String,
+    value: String,
+    accent: Boolean = false
+) {
+    val cs = MaterialTheme.colorScheme
+    Surface(
+        shape = RoundedCornerShape(9.dp),
+        color = if (accent) cs.primaryContainer.copy(alpha = 0.85f) else cs.surface.copy(alpha = 0.9f),
+        border = BorderStroke(
+            0.8.dp,
+            if (accent) cs.primary.copy(alpha = 0.35f) else cs.outlineVariant.copy(alpha = 0.55f)
+        )
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(5.dp)
+        ) {
+            Text(
+                text = value,
+                fontSize = 13.sp,
+                fontFamily = FontFamily.Monospace,
+                fontWeight = FontWeight.ExtraBold,
+                color = if (accent) cs.onPrimaryContainer else cs.onSurface
+            )
+            Text(
+                text = label,
+                fontSize = 11.5.sp,
+                fontWeight = FontWeight.Medium,
+                color = if (accent) cs.onPrimaryContainer.copy(alpha = 0.85f) else cs.onSurfaceVariant
+            )
+        }
+    }
+}
+
+@Composable
+private fun ArchiveWordPreviewItemRow(
+    index1Based: Int,
+    text: String,
+    groupName: String,
+    remark: String,
+    expanded: Boolean,
+    onToggleExpand: () -> Unit,
+    hasImage: Boolean = false
+) {
+    val cs = MaterialTheme.colorScheme
+    val (hoverSrc, isHoveredState) = rememberStudioInteraction()
+    val isHovered by isHoveredState
+    val hasExpandableRemark = remark.isNotBlank()
+
+    val cardBg by animateColorAsState(
+        targetValue = if (isHovered && hasExpandableRemark) {
+            lerp(cs.surfaceContainerLow, cs.primaryContainer, 0.22f)
+        } else {
+            cs.surfaceContainerLow.copy(alpha = 0.72f)
+        },
+        animationSpec = tween(120),
+        label = "ArchiveWordRowBg"
+    )
+
+    Surface(
+        shape = RoundedCornerShape(11.dp),
+        color = cardBg,
+        border = BorderStroke(
+            0.9.dp,
+            if (expanded) {
+                cs.primary.copy(alpha = 0.45f)
+            } else if (isHovered && hasExpandableRemark) {
+                cs.primary.copy(alpha = 0.3f)
+            } else {
+                cs.outlineVariant.copy(alpha = 0.45f)
+            }
+        ),
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(11.dp))
+            .then(
+                if (hasExpandableRemark) {
+                    Modifier
+                        .hoverable(hoverSrc)
+                        .pointerHoverIcon(PointerIcon.Hand)
+                        .clickable(interactionSource = hoverSrc, indication = null, onClick = onToggleExpand)
+                } else {
+                    Modifier
+                }
+            )
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 12.dp, vertical = 9.dp),
+            verticalArrangement = Arrangement.spacedBy(5.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Text(
+                    text = String.format(Locale.US, "#%03d", index1Based),
+                    fontSize = 11.sp,
+                    fontFamily = FontFamily.Monospace,
+                    fontWeight = FontWeight.Medium,
+                    color = cs.onSurfaceVariant
+                )
+                Text(
+                    text = text,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = cs.onSurface,
+                    maxLines = if (expanded) Int.MAX_VALUE else 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f, fill = false)
+                )
+                Spacer(modifier = Modifier.weight(1f))
+                if (groupName.isNotBlank()) {
+                    Surface(
+                        shape = RoundedCornerShape(6.dp),
+                        color = cs.secondaryContainer.copy(alpha = 0.78f)
+                    ) {
+                        Text(
+                            text = groupName,
+                            fontSize = 10.5.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = cs.onSecondaryContainer,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier
+                                .widthIn(max = 150.dp)
+                                .padding(horizontal = 7.dp, vertical = 2.5.dp)
                         )
                     }
                 }
+                if (hasImage) {
+                    Icon(
+                        imageVector = Icons.Default.Image,
+                        contentDescription = SSmartImport.kindImageLabel,
+                        tint = cs.primary,
+                        modifier = Modifier.size(15.dp)
+                    )
+                }
+                if (hasExpandableRemark && remark.length > 36) {
+                    Icon(
+                        imageVector = if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                        contentDescription = null,
+                        tint = cs.onSurfaceVariant,
+                        modifier = Modifier.size(16.dp)
+                    )
+                }
+            }
+
+            if (remark.isNotBlank()) {
+                Text(
+                    text = remark,
+                    fontSize = 12.sp,
+                    lineHeight = 18.sp,
+                    color = cs.onSurfaceVariant,
+                    maxLines = if (expanded) Int.MAX_VALUE else 2,
+                    overflow = TextOverflow.Ellipsis
+                )
             }
         }
     }
@@ -444,15 +989,21 @@ internal fun WordlistOnlyPreviewCard(
     }
     if (newWords.isEmpty()) return
 
+    val initialLimit = 10
+    var visibleLimit by remember(newWords.size, isMergeMode) { mutableIntStateOf(initialLimit) }
+    val expandedRemarkKeys = remember(newWords.size) { mutableStateMapOf<String, Boolean>() }
+
     Surface(
-        shape = RoundedCornerShape(14.dp),
-        color = cs.surfaceContainerLow,
+        shape = RoundedCornerShape(16.dp),
+        color = cs.surface,
         border = BorderStroke(1.dp, cs.outlineVariant.copy(alpha = 0.55f)),
-        modifier = modifier.fillMaxWidth()
+        modifier = modifier
+            .fillMaxWidth()
+            .animateContentSize(animationSpec = tween(180))
     ) {
         Column(
-            modifier = Modifier.padding(12.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -461,7 +1012,7 @@ internal fun WordlistOnlyPreviewCard(
             ) {
                 Text(
                     text = if (isMergeMode) "待追加词条预览（新增 ${newWords.size} 词）" else "待建词表预览（共 ${newWords.size} 词）",
-                    fontSize = 12.5.sp,
+                    fontSize = 13.5.sp,
                     fontWeight = FontWeight.Bold,
                     color = cs.onSurface
                 )
@@ -470,85 +1021,103 @@ internal fun WordlistOnlyPreviewCard(
                 }
                 if (groupCount > 0) {
                     Surface(
-                        shape = RoundedCornerShape(6.dp),
+                        shape = RoundedCornerShape(7.dp),
                         color = cs.primaryContainer
                     ) {
                         Text(
                             text = "$groupCount 个分组",
-                            fontSize = 10.5.sp,
+                            fontSize = 11.sp,
                             fontWeight = FontWeight.Bold,
                             color = cs.onPrimaryContainer,
-                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
                         )
                     }
                 }
             }
 
-            newWords.take(12).forEach { cw ->
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(8.dp))
-                        .background(cs.surface)
-                        .padding(horizontal = 10.dp, vertical = 6.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Text(
-                        text = String.format(Locale.US, "#%03d", cw.displayIndex),
-                        fontSize = 11.sp,
-                        fontFamily = FontFamily.Monospace,
-                        color = cs.onSurfaceVariant
+            val shown = newWords.take(visibleLimit)
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                shown.forEach { cw ->
+                    val isExp = expandedRemarkKeys[cw.key] == true
+                    ArchiveWordPreviewItemRow(
+                        index1Based = cw.displayIndex,
+                        text = cw.text,
+                        groupName = cw.groupName,
+                        remark = cw.remark,
+                        expanded = isExp,
+                        onToggleExpand = {
+                            if (cw.remark.isNotBlank()) {
+                                expandedRemarkKeys[cw.key] = !isExp
+                            }
+                        },
+                        hasImage = cw.stagedImageFile != null
                     )
-                    if (cw.groupName.isNotBlank()) {
-                        Surface(
-                            shape = RoundedCornerShape(5.dp),
-                            color = cs.secondaryContainer.copy(alpha = 0.7f)
+                }
+            }
+
+            val remaining = newWords.size - shown.size
+            if (remaining > 0 || visibleLimit > initialLimit) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    if (remaining > 0) {
+                        val nextStep = minOf(remaining, 100)
+                        FilledTonalButton(
+                            onClick = {
+                                visibleLimit = if (remaining <= 100) newWords.size else visibleLimit + nextStep
+                            },
+                            shape = RoundedCornerShape(10.dp),
+                            contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
+                            modifier = Modifier
+                                .weight(1f)
+                                .defaultMinSize(minHeight = 38.dp)
+                                .pointerHoverIcon(PointerIcon.Hand)
                         ) {
+                            Icon(
+                                imageVector = Icons.Default.ExpandMore,
+                                contentDescription = null,
+                                modifier = Modifier.size(17.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
                             Text(
-                                text = cw.groupName,
-                                fontSize = 10.sp,
+                                text = if (remaining <= 100) {
+                                    "展开查看全部 ${newWords.size} 个词条（剩余 $remaining 条）"
+                                } else {
+                                    "继续展开 $nextStep 条（已显示 ${shown.size} / ${newWords.size}）"
+                                },
+                                fontSize = 12.sp,
                                 fontWeight = FontWeight.SemiBold,
-                                color = cs.onSecondaryContainer,
-                                modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp)
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
                             )
                         }
                     }
-                    Text(
-                        text = cw.text,
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = cs.onSurface
-                    )
-                    if (cw.remark.isNotBlank()) {
-                        Text(
-                            text = cw.remark,
-                            fontSize = 11.5.sp,
-                            color = cs.onSurfaceVariant,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.weight(1f)
-                        )
-                    } else {
-                        Spacer(modifier = Modifier.weight(1f))
-                    }
-                    if (cw.stagedImageFile != null) {
-                        Icon(
-                            imageVector = Icons.Default.Image,
-                            contentDescription = SSmartImport.kindImageLabel,
-                            tint = cs.primary,
-                            modifier = Modifier.size(15.dp)
-                        )
+                    if (visibleLimit > initialLimit) {
+                        TextButton(
+                            onClick = { visibleLimit = initialLimit },
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
+                            modifier = Modifier
+                                .defaultMinSize(minHeight = 38.dp)
+                                .pointerHoverIcon(PointerIcon.Hand)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.ExpandLess,
+                                contentDescription = null,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(
+                                text = "收起",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                maxLines = 1,
+                                softWrap = false
+                            )
+                        }
                     }
                 }
-            }
-            if (newWords.size > 12) {
-                Text(
-                    text = "… 其余 ${newWords.size - 12} 个词条已就绪",
-                    fontSize = 11.sp,
-                    color = cs.onSurfaceVariant,
-                    modifier = Modifier.padding(start = 4.dp)
-                )
             }
         }
     }

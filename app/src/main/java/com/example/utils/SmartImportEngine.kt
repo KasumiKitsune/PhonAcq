@@ -54,6 +54,10 @@ data class ArchiveQuickInspect(
     val estimatedWordCount: Int,
     val estimatedAudioCount: Int,
     val estimatedSpeakerCount: Int = 0,
+    val speakerNames: List<String> = emptyList(),
+    val groupCount: Int = 0,
+    val usesLongAudioSlicing: Boolean = false,
+    val formatLabel: String = "",
     val previewWords: List<ParsedWord> = emptyList(),
     val parseErrorHint: String? = null
 )
@@ -724,6 +728,23 @@ object SmartImportEngine {
             else -> wavCount
         }
         val resolvedSpeakerCount = teprojDoc?.speakers?.size ?: 0
+        val resolvedSpeakerNames = teprojDoc?.speakers
+            ?.map { it.name.trim() }
+            ?.filter { it.isNotEmpty() }
+            ?.distinct()
+            .orEmpty()
+        val resolvedGroupCount = wordListPreview
+            .map { it.groupName.trim() }
+            .filter { it.isNotEmpty() }
+            .distinct()
+            .size
+        val usesLongAudioSlicing = teprojDoc?.speakers?.any { spk ->
+            spk.items.any { it.hasLongAudioSlice }
+        } == true
+        val formatLabel = when {
+            extLower == "teproj" || (teprojDoc != null && expProjectName.isBlank()) -> "PhonTracer .teproj"
+            else -> "PhonAcq 备份包"
+        }
 
         return ZipContainerNature.PROJECT_ARCHIVE(
             ArchiveQuickInspect(
@@ -731,6 +752,10 @@ object SmartImportEngine {
                 estimatedWordCount = resolvedWordCount,
                 estimatedAudioCount = resolvedAudioCount,
                 estimatedSpeakerCount = resolvedSpeakerCount,
+                speakerNames = resolvedSpeakerNames,
+                groupCount = resolvedGroupCount,
+                usesLongAudioSlicing = usesLongAudioSlicing,
+                formatLabel = formatLabel,
                 previewWords = wordListPreview,
                 parseErrorHint = zipReadError
             )
