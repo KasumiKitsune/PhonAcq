@@ -356,8 +356,42 @@ object DesktopIconRenderer {
         ImageIO.write(img, "png", targetFile)
     }
 
+    private fun writeCenteredRectPng(targetFile: File, widthPx: Int, heightPx: Int, iconSizePx: Int) {
+        val canvas = BufferedImage(widthPx, heightPx, BufferedImage.TYPE_INT_ARGB)
+        val icon = renderIconBufferedImage(iconSizePx)
+        val g = canvas.createGraphics()
+        try {
+            g.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BICUBIC)
+            g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
+            val x = (widthPx - iconSizePx) / 2
+            val y = (heightPx - iconSizePx) / 2
+            g.drawImage(icon, x, y, null)
+        } finally {
+            g.dispose()
+        }
+        targetFile.parentFile?.mkdirs()
+        ImageIO.write(canvas, "png", targetFile)
+    }
+
+    /**
+     * Generates all required Microsoft Store MSIX visual assets (transparent background, crisp pebble logo).
+     * Uses unqualified filenames so makeappx.exe packs cleanly without requiring a separate PRI index.
+     */
+    fun writeMsixAssets(targetDir: File) {
+        targetDir.mkdirs()
+        writePngFile(File(targetDir, "StoreLogo.png"), 50)
+        writePngFile(File(targetDir, "Square44x44Logo.png"), 44)
+        writePngFile(File(targetDir, "Square150x150Logo.png"), 150)
+        writeCenteredRectPng(File(targetDir, "Wide310x150Logo.png"), 310, 150, 120)
+    }
+
     @JvmStatic
     fun main(args: Array<String>) {
+        if (args.firstOrNull() == "--msix-assets") {
+            val outDir = args.getOrNull(1) ?: "build/msix-work/Assets"
+            writeMsixAssets(File(outDir))
+            return
+        }
         val icoPath = args.getOrNull(0) ?: "src/main/resources/phonacq.ico"
         writeIcoFile(File(icoPath))
         val icnsPath = args.getOrNull(1) ?: "src/main/resources/phonacq.icns"

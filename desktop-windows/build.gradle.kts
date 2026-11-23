@@ -13,6 +13,7 @@ import java.io.OutputStream
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.util.Locale
+import java.util.Properties
 import java.util.concurrent.Callable
 import java.util.concurrent.Executors
 import java.util.zip.CRC32
@@ -77,7 +78,8 @@ sourceSets {
             "**/MainActivity.kt",
             "**/data/AppDatabase.kt",
             "**/ui/theme/Theme.kt",
-            "**/utils/SmartImportPlatformBridge.kt"
+            "**/utils/SmartImportPlatformBridge.kt",
+            "**/utils/AppUpdatePlatformBridge.kt"
         )
     }
 }
@@ -670,7 +672,7 @@ compose.desktop {
             description = "PhonAcq 田野语音与方言字表采录系统"
             vendor = "KasumiKitsune"
             // Bundle ONLY the exact JDK modules required by PhonAcq, Compose/Skiko,
-            // JavaSound WAV I/O, SQLite JDBC, XML (.xlsx/.docx), and GBK/GB18030 Chinese wordlist charsets.
+            // JavaSound WAV I/O, SQLite JDBC, XML (.xlsx/.docx), GBK/GB18030 charsets, and HTTPS/TLS updates.
             includeAllModules = false
             modules(
                 "java.datatransfer",
@@ -679,6 +681,7 @@ compose.desktop {
                 "java.prefs",
                 "java.sql",
                 "java.xml",
+                "jdk.crypto.ec",
                 "jdk.unsupported",
                 "jdk.charsets"
             )
@@ -918,6 +921,173 @@ tasks.register("packageWindowsSetup") {
         val rawMbStr = String.format(Locale.US, "%.2f", packStats.totalRawBytes / (1024.0 * 1024.0))
         logger.lifecycle(
             "Built PhonAcq Windows 4-Chunk Parallel Solid-LZMA Installer (${packStats.fileCount} files, raw=$rawMbStr MB -> installer=$mbStr MB): ${finalSetupExe.absolutePath}"
+        )
+    }
+}
+
+tasks.register<JavaExec>("generateMsixAssets") {
+    group = "compose desktop"
+    description = "Generates Microsoft Store MSIX visual PNG assets (50x50, 44x44, 150x150, 310x150) using DesktopIconRenderer"
+    classpath = sourceSets["main"].runtimeClasspath
+    mainClass.set("com.example.DesktopIconRenderer")
+    args(
+        "--msix-assets",
+        layout.buildDirectory.dir("msix-work/Assets").get().asFile.absolutePath
+    )
+    jvmArgs("-Djava.awt.headless=true")
+}
+
+tasks.register("packageMsix") {
+    group = "compose desktop"
+    description = "Packages the Release Windows distributable into an unsigned Microsoft Store .msix bundle (coexists with packageWindowsSetup)"
+    dependsOn("createReleaseDistributable", "generateMsixAssets")
+
+    doLast {
+        val osName = System.getProperty("os.name").lowercase()
+        if (!osName.contains("win")) {
+            throw GradleException("packageMsix requires Windows with Windows 10/11 SDK (makeappx.exe). Current OS: $osName")
+        }
+
+        val releaseAppDir = layout.buildDirectory.dir("compose/binaries/main-release/app/PhonAcq").get().asFile
+        val fallbackAppDir = layout.buildDirectory.dir("compose/binaries/main/app/PhonAcq").get().asFile
+        val appImageDir = if (File(releaseAppDir, "PhonAcq.exe").exists()) releaseAppDir else fallbackAppDir
+        if (!appImageDir.exists() || !File(appImageDir, "PhonAcq.exe").exists()) {
+            throw GradleException("Distributable app image not found at: ${releaseAppDir.absolutePath}")
+        }
+
+        val msixProps = Properties()
+        val msixPropsFile = project.file("msix.properties")
+        if (msixPropsFile.isFile) {
+            FileInputStream(msixPropsFile).use { msixProps.load(it.reader(Charsets.UTF_8)) }
+        }
+        fun resolveMsixProp(cliKey: String, fileKey: String, defaultVal: String): String {
+            return (project.findProperty(cliKey) as? String)?.trim()?.takeIf { it.isNotEmpty() }
+                ?: msixProps.getProperty(fileKey)?.trim()?.takeIf { it.isNotEmpty() }
+                ?: defaultVal
+        }
+        fun xmlEscape(s: String): String = s
+            .replace("&", "&amp;")
+            .replace("<", "&lt;")
+            .replace(">", "&gt;")
+            .replace("\"", "&quot;")
+            .replace("'", "&apos;")
+
+        val identityName = resolveMsixProp("msixIdentityName", "identityName", "KasumiKitsune.PhonAcq")
+        val publisher = resolveMsixProp("msixPublisher", "publisher", "CN=KasumiKitsune")
+        val publisherDisplayName = resolveMsixProp("msixPublisherDisplayName", "publisherDisplayName", "KasumiKitsune")
+        val displayName = resolveMsixProp("msixDisplayName", "displayName", "PhonAcq")
+        val msixVersion = "$nativePkgVersion.0"
+
+        val assetsSrcDir = layout.buildDirectory.dir("msix-work/Assets").get().asFile
+        if (!File(assetsSrcDir, "StoreLogo.png").isFile) {
+            throw GradleException("Missing MSIX visual assets in ${assetsSrcDir.absolutePath}")
+        }
+
+        val stageDir = layout.buildDirectory.dir("msix-work/stage").get().asFile
+        if (stageDir.exists()) stageDir.deleteRecursively()
+        stageDir.mkdirs()
+
+        // 1. Copy release app image under stage/app/ so PhonAcq.exe + runtime/ + app/ stay intact
+        val stageAppDir = File(stageDir, "app")
+        appImageDir.copyRecursively(stageAppDir, overwrite = true)
+
+        // 2. Copy MSIX Store PNG assets under stage/Assets/
+        val stageAssetsDir = File(stageDir, "Assets")
+        assetsSrcDir.copyRecursively(stageAssetsDir, overwrite = true)
+
+        // 3. Write Microsoft Store compliant AppxManifest.xml
+        val manifestXml = """
+            <?xml version="1.0" encoding="utf-8"?>
+            <Package
+              xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
+              xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
+              xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities"
+              IgnorableNamespaces="uap rescap">
+
+              <Identity
+                Name="${xmlEscape(identityName)}"
+                Publisher="${xmlEscape(publisher)}"
+                Version="$msixVersion"
+                ProcessorArchitecture="x64" />
+
+              <Properties>
+                <DisplayName>${xmlEscape(displayName)}</DisplayName>
+                <PublisherDisplayName>${xmlEscape(publisherDisplayName)}</PublisherDisplayName>
+                <Logo>Assets\StoreLogo.png</Logo>
+              </Properties>
+
+              <Dependencies>
+                <TargetDeviceFamily Name="Windows.Desktop" MinVersion="10.0.17763.0" MaxVersionTested="10.0.26100.0" />
+              </Dependencies>
+
+              <Resources>
+                <Resource Language="zh-CN" />
+                <Resource Language="en-US" />
+              </Resources>
+
+              <Applications>
+                <Application
+                  Id="PhonAcq"
+                  Executable="app\PhonAcq.exe"
+                  EntryPoint="Windows.FullTrustApplication">
+                  <uap:VisualElements
+                    DisplayName="${xmlEscape(displayName)}"
+                    Description="PhonAcq 田野语音与方言字表采录系统"
+                    BackgroundColor="transparent"
+                    Square150x150Logo="Assets\Square150x150Logo.png"
+                    Square44x44Logo="Assets\Square44x44Logo.png">
+                    <uap:DefaultTile Wide310x150Logo="Assets\Wide310x150Logo.png" />
+                  </uap:VisualElements>
+                </Application>
+              </Applications>
+
+              <Capabilities>
+                <rescap:Capability Name="runFullTrust" />
+                <Capability Name="privateNetworkClientServer" />
+                <DeviceCapability Name="microphone" />
+              </Capabilities>
+            </Package>
+        """.trimIndent() + "\n"
+        File(stageDir, "AppxManifest.xml").writeText(manifestXml, Charsets.UTF_8)
+
+        // 4. Locate makeappx.exe from Windows 10/11 SDK
+        val sdkBinRoot = File("C:\\Program Files (x86)\\Windows Kits\\10\\bin")
+        val makeAppxExe = sdkBinRoot
+            .takeIf { it.isDirectory }
+            ?.listFiles()
+            ?.filter { it.isDirectory && it.name.startsWith("10.") }
+            ?.sortedByDescending { it.name }
+            ?.map { File(it, "x64\\makeappx.exe") }
+            ?.firstOrNull { it.isFile }
+            ?.absolutePath
+            ?: "makeappx.exe"
+
+        val outDir = layout.buildDirectory.dir("msix").get().asFile
+        outDir.mkdirs()
+        val finalMsix = File(outDir, "PhonAcq-v${rawAppVersion}-windows-x64.msix")
+        if (finalMsix.exists()) finalMsix.delete()
+
+        val cmd = listOf(
+            makeAppxExe,
+            "pack",
+            "/v",
+            "/h", "SHA256",
+            "/d", stageDir.absolutePath,
+            "/p", finalMsix.absolutePath
+        )
+        val proc = ProcessBuilder(cmd)
+            .directory(stageDir)
+            .redirectErrorStream(true)
+            .start()
+        val toolOut = proc.inputStream.bufferedReader(Charsets.UTF_8).readText()
+        val exitCode = proc.waitFor()
+        if (exitCode != 0 || !finalMsix.isFile) {
+            throw GradleException("makeappx.exe failed (exit=$exitCode):\n$toolOut")
+        }
+
+        val mbStr = String.format(Locale.US, "%.2f", finalMsix.length() / (1024.0 * 1024.0))
+        logger.lifecycle(
+            "Built PhonAcq Microsoft Store MSIX ($mbStr MB, Identity=$identityName, Publisher=$publisher, Version=$msixVersion): ${finalMsix.absolutePath}"
         )
     }
 }
