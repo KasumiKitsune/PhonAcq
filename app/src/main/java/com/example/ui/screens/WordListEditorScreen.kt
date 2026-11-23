@@ -409,11 +409,8 @@ fun WordListEditorScreen(
         if (uri != null) {
             scope.launch {
                 try {
-                    val fileName = runCatching {
-                        java.net.URLDecoder.decode(uri.toString(), "UTF-8")
-                            .substringAfterLast('/')
-                            .substringAfterLast('\\')
-                    }.getOrNull()
+                    val fileName = WordImageManager.getUriDisplayName(context, uri)
+                        .takeIf { it.isNotBlank() }
                     val bytes = withContext(Dispatchers.IO) {
                         context.contentResolver.openInputStream(uri)?.use { stream ->
                             stream.readBytes()

@@ -127,7 +127,8 @@ object WordImageManager {
                 }
             }
         }
-        val raw = runCatching { URLDecoder.decode(uri.toString(), "UTF-8") }.getOrDefault(uri.toString())
+        val uriText = uri.toString()
+        val raw = runCatching { URLDecoder.decode(uriText.replace("+", "%2B"), "UTF-8") }.getOrDefault(uriText)
         return raw.substringAfterLast('/').substringAfterLast('\\').substringBefore('?').trim()
     }
 

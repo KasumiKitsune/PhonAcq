@@ -3,6 +3,7 @@ package com.example.utils
 import android.content.Context
 import com.example.audio.AcousticAnalyzer
 import com.example.audio.CorpusPhonologyAnalyzer
+import com.example.audio.SpeechQualityEvaluator
 import com.example.audio.VowelGlideType
 import com.example.data.ParsedWord
 import com.example.data.Project
@@ -72,7 +73,8 @@ data class ImportArchiveSummary(
     val wordCount: Int = 0,
     val wavCount: Int = 0,
     val speakerCount: Int = 0,
-    val message: String = ""
+    val message: String = "",
+    val primarySpeakerId: Long = -1L
 )
 
 object ZipUtility {
@@ -1824,91 +1826,192 @@ object ZipUtility {
 
     /**
      * Imports a previously exported PhonAcq `.zip` archive OR PhonTracer `.teproj` archive,
-     * restoring the project metadata, speakers, word list, and `.wav` recordings into local storage and Room.
+     * restoring the project metadata, speakers, word list, prompt images, and `.wav` recordings
+     * (including both independent WAVs and long-audio time-sliced WAVs) into local storage and Room.
      */
     suspend fun importProjectArchiveZip(
         context: Context,
         repository: ProjectRepository,
-        inputStream: InputStream
+        inputStream: InputStream,
+        fallbackProjectName: String? = null
     ): ImportArchiveSummary {
-        val tempDir = File(context.cacheDir, "zip_import_${System.currentTimeMillis()}")
+        val tempDir = File(context.cacheDir, "zip_import_${System.currentTimeMillis()}_${kotlin.random.Random.nextInt(1000, 9999)}")
         tempDir.mkdirs()
 
         var experimentJsonStr: String? = null
+        var experimentDepth = Int.MAX_VALUE
         var speakerJsonStr: String? = null
+        var speakerDepth = Int.MAX_VALUE
         var wordListStr: String? = null
+        var wordListDepth = Int.MAX_VALUE
         var analysisJsonStr: String? = null
+        var analysisDepth = Int.MAX_VALUE
         var teprojJsonStr: String? = null
+        var teprojDepth = Int.MAX_VALUE
         var simpleSummaryXlsxBytes: ByteArray? = null
+        var simpleSummaryXlsxDepth = Int.MAX_VALUE
         var simpleSummaryCsvStr: String? = null
-        val stagedWavFiles = mutableMapOf<String, File>()
+        var simpleSummaryCsvDepth = Int.MAX_VALUE
+
+        val stagedWavByRelPath = LinkedHashMap<String, File>()
+        val stagedWavByLowerRelPath = LinkedHashMap<String, File>()
+        val stagedWavByBaseName = LinkedHashMap<String, File>()
+        val stagedWavByLowerBaseName = LinkedHashMap<String, File>()
+        val extractedWavEntries = mutableListOf<Pair<String, File>>()
+
         val stagedImageFiles = mutableMapOf<String, File>()
         val extractedImageEntries = mutableListOf<Pair<String, File>>()
         val supportedImgExtensions = setOf("jpg", "jpeg", "png", "webp", "bmp")
 
+        val createdSpeakerIds = mutableListOf<Long>()
+        var createdProjectId: Long? = null
+
         try {
-            ZipInputStream(BufferedInputStream(inputStream)).use { zis ->
-                val buffer = ByteArray(8192)
-                var entry = zis.nextEntry
-                while (entry != null) {
-                    if (!entry.isDirectory) {
-                        val rawName = entry.name.replace('\\', '/')
-                        val baseName = rawName.substringAfterLast('/')
-                        val extLower = baseName.substringAfterLast('.', "").lowercase(Locale.US)
-                        val isHiddenMacMeta = baseName.startsWith("._") || rawName.startsWith("__MACOSX/")
-                        when {
-                            isHiddenMacMeta -> Unit
-                            baseName.equals("project.json", ignoreCase = true) -> {
-                                teprojJsonStr = zis.readBytes().toString(Charsets.UTF_8)
-                            }
-                            baseName.equals("experiment_profile.json", ignoreCase = true) -> {
-                                experimentJsonStr = zis.readBytes().toString(Charsets.UTF_8)
-                            }
-                            baseName.equals("speaker_profile.json", ignoreCase = true) -> {
-                                speakerJsonStr = zis.readBytes().toString(Charsets.UTF_8)
-                            }
-                            baseName.equals("word_list.txt", ignoreCase = true) -> {
-                                wordListStr = zis.readBytes().toString(Charsets.UTF_8)
-                            }
-                            baseName.equals("analysis_results.json", ignoreCase = true) -> {
-                                analysisJsonStr = zis.readBytes().toString(Charsets.UTF_8)
-                            }
-                            baseName.equals("录音汇总表.xlsx", ignoreCase = true) -> {
-                                simpleSummaryXlsxBytes = zis.readBytes()
-                            }
-                            baseName.equals("录音汇总表.csv", ignoreCase = true) -> {
-                                simpleSummaryCsvStr = zis.readBytes().toString(Charsets.UTF_8)
-                            }
-                            extLower == "wav" -> {
-                                if (!rawName.contains("/takes/", ignoreCase = true)) {
-                                    val outWav = File(tempDir, "${stagedWavFiles.size}_$baseName")
-                                    FileOutputStream(outWav).use { fos ->
-                                        var len: Int
-                                        while (zis.read(buffer).also { len = it } > 0) {
-                                            fos.write(buffer, 0, len)
-                                        }
-                                    }
-                                    stagedWavFiles.putIfAbsent(baseName, outWav)
-                                    stagedWavFiles[rawName] = outWav
-                                }
-                            }
-                            extLower in supportedImgExtensions -> {
-                                val safeLocalName = sanitizeFileNameComponent(baseName.substringBeforeLast('.'), "img") + "." + extLower
-                                val outImg = File(tempDir, "img_${extractedImageEntries.size}_$safeLocalName")
-                                FileOutputStream(outImg).use { fos ->
-                                    var len: Int
-                                    while (zis.read(buffer).also { len = it } > 0) {
-                                        fos.write(buffer, 0, len)
-                                    }
-                                }
-                                stagedImageFiles[rawName] = outImg
-                                stagedImageFiles.putIfAbsent(baseName, outImg)
-                                extractedImageEntries.add(rawName to outImg)
-                            }
+            // Spool incoming stream to a temp archive file and guarantee immediate stream closure.
+            // This enables UTF-8 -> GB18030/GBK charset fallback even on non-resettable SAF content:// streams.
+            val archiveCopyFile = File(tempDir, "_incoming_archive.zip")
+            inputStream.use { ins ->
+                TeprojParser.copyEntryToFileBounded(
+                    input = ins,
+                    destFile = archiveCopyFile,
+                    maxBytes = TeprojParser.MAX_TOTAL_EXTRACT_BYTES
+                )
+            }
+            if (!archiveCopyFile.exists() || archiveCopyFile.length() <= 0L) {
+                return ImportArchiveSummary(
+                    success = false,
+                    message = S.zip.importFailedMissingContent
+                )
+            }
+
+            val mediaDir = File(tempDir, "media").apply { mkdirs() }
+            var totalExtractedBytes = 0L
+
+            fun resetExtractionState() {
+                experimentJsonStr = null; experimentDepth = Int.MAX_VALUE
+                speakerJsonStr = null; speakerDepth = Int.MAX_VALUE
+                wordListStr = null; wordListDepth = Int.MAX_VALUE
+                analysisJsonStr = null; analysisDepth = Int.MAX_VALUE
+                teprojJsonStr = null; teprojDepth = Int.MAX_VALUE
+                simpleSummaryXlsxBytes = null; simpleSummaryXlsxDepth = Int.MAX_VALUE
+                simpleSummaryCsvStr = null; simpleSummaryCsvDepth = Int.MAX_VALUE
+                stagedWavByRelPath.clear()
+                stagedWavByLowerRelPath.clear()
+                stagedWavByBaseName.clear()
+                stagedWavByLowerBaseName.clear()
+                extractedWavEntries.clear()
+                stagedImageFiles.clear()
+                extractedImageEntries.clear()
+                totalExtractedBytes = 0L
+                runCatching {
+                    mediaDir.deleteRecursively()
+                    mediaDir.mkdirs()
+                }
+            }
+
+            TeprojParser.forEachZipEntryResilient(
+                zipFile = archiveCopyFile,
+                onBeforeRetry = { resetExtractionState() }
+            ) { entry, zis ->
+                if (entry.isDirectory) return@forEachZipEntryResilient
+                val rawName = TeprojParser.normalizeArchivePath(entry.name)
+                if (rawName.isEmpty()) return@forEachZipEntryResilient
+                val baseName = rawName.substringAfterLast('/')
+                val extLower = baseName.substringAfterLast('.', "").lowercase(Locale.US)
+                val isHiddenMacMeta = baseName.startsWith("._") || rawName.startsWith("__MACOSX/")
+                if (isHiddenMacMeta) return@forEachZipEntryResilient
+
+                val depth = rawName.count { it == '/' }
+
+                when {
+                    baseName.equals("project.json", ignoreCase = true) -> {
+                        if (depth < teprojDepth || teprojJsonStr == null) {
+                            teprojJsonStr = TeprojParser.decodeTextClean(
+                                TeprojParser.readBytesBounded(zis, TeprojParser.MAX_METADATA_ENTRY_BYTES)
+                            )
+                            teprojDepth = depth
                         }
                     }
-                    zis.closeEntry()
-                    entry = zis.nextEntry
+                    baseName.equals("experiment_profile.json", ignoreCase = true) -> {
+                        if (depth < experimentDepth || experimentJsonStr == null) {
+                            experimentJsonStr = TeprojParser.decodeTextClean(
+                                TeprojParser.readBytesBounded(zis, TeprojParser.MAX_METADATA_ENTRY_BYTES)
+                            )
+                            experimentDepth = depth
+                        }
+                    }
+                    baseName.equals("speaker_profile.json", ignoreCase = true) -> {
+                        if (depth < speakerDepth || speakerJsonStr == null) {
+                            speakerJsonStr = TeprojParser.decodeTextClean(
+                                TeprojParser.readBytesBounded(zis, TeprojParser.MAX_METADATA_ENTRY_BYTES)
+                            )
+                            speakerDepth = depth
+                        }
+                    }
+                    baseName.equals("word_list.txt", ignoreCase = true) -> {
+                        if (depth < wordListDepth || wordListStr == null) {
+                            wordListStr = TeprojParser.decodeTextClean(
+                                TeprojParser.readBytesBounded(zis, TeprojParser.MAX_METADATA_ENTRY_BYTES)
+                            )
+                            wordListDepth = depth
+                        }
+                    }
+                    baseName.equals("analysis_results.json", ignoreCase = true) -> {
+                        if (depth < analysisDepth || analysisJsonStr == null) {
+                            analysisJsonStr = TeprojParser.decodeTextClean(
+                                TeprojParser.readBytesBounded(zis, TeprojParser.MAX_METADATA_ENTRY_BYTES)
+                            )
+                            analysisDepth = depth
+                        }
+                    }
+                    baseName.equals("录音汇总表.xlsx", ignoreCase = true) -> {
+                        if (depth < simpleSummaryXlsxDepth || simpleSummaryXlsxBytes == null) {
+                            simpleSummaryXlsxBytes = TeprojParser.readBytesBounded(zis, TeprojParser.MAX_METADATA_ENTRY_BYTES)
+                            simpleSummaryXlsxDepth = depth
+                        }
+                    }
+                    baseName.equals("录音汇总表.csv", ignoreCase = true) -> {
+                        if (depth < simpleSummaryCsvDepth || simpleSummaryCsvStr == null) {
+                            simpleSummaryCsvStr = TeprojParser.decodeTextClean(
+                                TeprojParser.readBytesBounded(zis, TeprojParser.MAX_METADATA_ENTRY_BYTES)
+                            )
+                            simpleSummaryCsvDepth = depth
+                        }
+                    }
+                    extLower == "wav" -> {
+                        if (!rawName.contains("/takes/", ignoreCase = true)) {
+                            val remainingBudget = (TeprojParser.MAX_TOTAL_EXTRACT_BYTES - totalExtractedBytes)
+                                .coerceAtLeast(0L)
+                            val safeWavStem = sanitizeFileNameComponent(baseName.substringBeforeLast('.'), "wav").take(48)
+                            val outWav = File(mediaDir, "w_${extractedWavEntries.size}_${safeWavStem}.wav")
+                            val written = TeprojParser.copyEntryToFileBounded(
+                                input = zis,
+                                destFile = outWav,
+                                maxBytes = minOf(TeprojParser.MAX_SINGLE_MEDIA_ENTRY_BYTES, remainingBudget)
+                            )
+                            totalExtractedBytes += written
+                            stagedWavByRelPath[rawName] = outWav
+                            stagedWavByLowerRelPath[rawName.lowercase(Locale.ROOT)] = outWav
+                            stagedWavByBaseName.putIfAbsent(baseName, outWav)
+                            stagedWavByLowerBaseName.putIfAbsent(baseName.lowercase(Locale.ROOT), outWav)
+                            extractedWavEntries.add(rawName to outWav)
+                        }
+                    }
+                    extLower in supportedImgExtensions -> {
+                        val remainingBudget = (TeprojParser.MAX_TOTAL_EXTRACT_BYTES - totalExtractedBytes)
+                            .coerceAtLeast(0L)
+                        val safeLocalName = sanitizeFileNameComponent(baseName.substringBeforeLast('.'), "img").take(48) + "." + extLower
+                        val outImg = File(mediaDir, "img_${extractedImageEntries.size}_$safeLocalName")
+                        val written = TeprojParser.copyEntryToFileBounded(
+                            input = zis,
+                            destFile = outImg,
+                            maxBytes = minOf(64L * 1024L * 1024L, remainingBudget)
+                        )
+                        totalExtractedBytes += written
+                        stagedImageFiles[rawName] = outImg
+                        stagedImageFiles.putIfAbsent(baseName, outImg)
+                        extractedImageEntries.add(rawName to outImg)
+                    }
                 }
             }
 
@@ -1917,7 +2020,7 @@ object ZipUtility {
                 wordListStr == null &&
                 simpleSummaryXlsxBytes == null &&
                 simpleSummaryCsvStr == null &&
-                stagedWavFiles.isEmpty() &&
+                extractedWavEntries.isEmpty() &&
                 extractedImageEntries.isEmpty()
             ) {
                 return ImportArchiveSummary(
@@ -1926,38 +2029,38 @@ object ZipUtility {
                 )
             }
 
-            // 1. Parse Project Metadata
-            var projectName = S.zip.importDefaultProjectName
-            var projectDesc = S.zip.importDefaultProjectDesc
+            // 1. Parse Project Metadata (pure in-memory, zero DB writes yet!)
+            val teprojDoc = teprojJsonStr?.let { TeprojParser.parseProjectJson(it) }
+            var projectName = ""
+            var projectDesc = ""
             var speakerGroupName = ""
             var rawAssignedSpeakerIds = ""
             var enablePicturePrompts = false
+
             experimentJsonStr?.let { jsonStr ->
-                try {
+                runCatching {
                     val obj = JSONObject(jsonStr)
-                    projectName = obj.optString("name", projectName).ifBlank { projectName }
-                    projectDesc = obj.optString("description", projectDesc)
-                    speakerGroupName = obj.optString("speaker_group_name", "")
-                    rawAssignedSpeakerIds = obj.optString("assigned_speaker_ids", "")
+                    val expName = obj.optString("name", obj.optString("project_name", "")).trim()
+                    if (expName.isNotEmpty()) projectName = expName
+                    val expDesc = obj.optString("description", "").trim()
+                    if (expDesc.isNotEmpty()) projectDesc = expDesc
+                    speakerGroupName = obj.optString("speaker_group_name", "").trim()
+                    rawAssignedSpeakerIds = obj.optString("assigned_speaker_ids", "").trim()
                     if (obj.optBoolean("enable_picture_prompts", false)) {
                         enablePicturePrompts = true
                     }
-                } catch (ignored: Exception) {}
+                }
             }
-            if (teprojJsonStr != null) {
-                try {
-                    val obj = JSONObject(teprojJsonStr!!)
-                    val wlMeta = obj.optJSONObject("wordlist_meta")
-                    if (wlMeta != null) {
-                        if (experimentJsonStr == null) {
-                            projectName = wlMeta.optString("title", projectName).ifBlank { projectName }
-                            projectDesc = wlMeta.optString("note", projectDesc)
-                        }
-                        if (wlMeta.optBoolean("enable_picture_prompts", false)) {
-                            enablePicturePrompts = true
-                        }
-                    }
-                } catch (ignored: Exception) {}
+            if (teprojDoc != null) {
+                if (projectName.isBlank() && teprojDoc.title.isNotBlank()) {
+                    projectName = teprojDoc.title
+                }
+                if (projectDesc.isBlank() && teprojDoc.description.isNotBlank()) {
+                    projectDesc = teprojDoc.description
+                }
+                if (teprojDoc.enablePicturePrompts) {
+                    enablePicturePrompts = true
+                }
             }
 
             val simpleSheetsMap: Map<String, List<List<String>>> = simpleSummaryXlsxBytes?.let { bytes ->
@@ -1965,80 +2068,52 @@ object ZipUtility {
             } ?: emptyMap()
             val simpleWordlistSheetRows = simpleSheetsMap[S.zip.simpleXlsxWordlistSheet]
                 ?: simpleSheetsMap.entries.firstOrNull { it.key.contains("字表") || it.key.contains("词表") }?.value
-            if (experimentJsonStr == null && teprojJsonStr == null && simpleWordlistSheetRows != null && simpleWordlistSheetRows.size >= 2) {
+            if (simpleWordlistSheetRows != null && simpleWordlistSheetRows.size >= 2) {
                 val firstDataRow = simpleWordlistSheetRows[1]
                 val sheetProjName = firstDataRow.getOrNull(5)?.trim().orEmpty()
                 val sheetProjDesc = firstDataRow.getOrNull(6)?.trim().orEmpty()
-                if (sheetProjName.isNotEmpty()) projectName = sheetProjName
-                if (sheetProjDesc.isNotEmpty()) projectDesc = sheetProjDesc
+                if (projectName.isBlank() && sheetProjName.isNotEmpty()) projectName = sheetProjName
+                if (projectDesc.isBlank() && sheetProjDesc.isNotEmpty()) projectDesc = sheetProjDesc
             }
 
-            val existingProjects = repository.allProjects.firstOrNull() ?: emptyList()
-            if (existingProjects.any { it.name == projectName }) {
-                projectName = "$projectName${S.zip.importSuffix}"
+            if (projectName.isBlank()) {
+                projectName = fallbackProjectName?.trim()?.takeIf { it.isNotBlank() }
+                    ?: S.zip.importDefaultProjectName
+            }
+            if (projectDesc.isBlank()) {
+                projectDesc = S.zip.importDefaultProjectDesc
             }
 
-            // 2. Parse & Restore Speakers
-            val existingSpeakers = (repository.allSpeakers.firstOrNull() ?: emptyList()).toMutableList()
-            val speakerCodeToId = mutableMapOf<String, Long>()
-            val speakerNameToId = mutableMapOf<String, Long>()
-            val oldSpeakerIdToLocalId = mutableMapOf<Long, Long>()
-            val spPrefs = context.getSharedPreferences("speaker_prefs", Context.MODE_PRIVATE)
+            // 2. Collect Pending Speakers in Memory (deferred DB creation until wordlist is confirmed non-empty)
+            data class PendingSpeakerSpec(
+                val oldId: Long = -1L,
+                val code: String = "",
+                val name: String,
+                val gender: String = "",
+                val age: Int = -1,
+                val dialect: String = "",
+                val group: String = "",
+                val notes: String = "",
+                val f0Min: Float = -1f,
+                val f0Max: Float = -1f,
+                val isActive: Boolean = false
+            )
+            val pendingSpeakers = mutableListOf<PendingSpeakerSpec>()
+            val seenPendingSpeakerCodes = HashSet<String>()
+            val seenPendingSpeakerNames = HashSet<String>()
 
-            suspend fun registerOrMatchSpeaker(
-                code: String,
-                name: String,
-                gender: String,
-                age: Int,
-                dialect: String,
-                group: String,
-                notes: String,
-                f0Min: Float = -1f,
-                f0Max: Float = -1f
-            ): Long {
-                val cleanName = name.trim().ifEmpty { S.zip.importDefaultSpeakerName }
-                val cleanGroup = group.trim().ifEmpty { speakerGroupName }
-                val matched = existingSpeakers.find {
-                    it.name.equals(cleanName, ignoreCase = true) &&
-                        (it.dialect.equals(dialect.trim(), ignoreCase = true) || dialect.isBlank())
-                }
-                val spkId = if (matched != null) {
-                    matched.id
-                } else {
-                    val newId = repository.createSpeaker(
-                        name = cleanName,
-                        gender = gender.ifBlank { "未设" },
-                        age = age.coerceIn(1, 120),
-                        dialect = dialect.ifBlank { "普通话" },
-                        notes = notes,
-                        groupName = cleanGroup
-                    )
-                    existingSpeakers.add(
-                        Speaker(
-                            id = newId,
-                            name = cleanName,
-                            gender = gender.ifBlank { "未设" },
-                            age = age.coerceIn(1, 120),
-                            dialect = dialect.ifBlank { "普通话" },
-                            notes = notes,
-                            groupName = cleanGroup
-                        )
-                    )
-                    newId
-                }
-                if (code.isNotBlank()) speakerCodeToId[code.uppercase(Locale.US)] = spkId
-                speakerNameToId[cleanName] = spkId
-                if (f0Min > 40f && f0Max > f0Min + 15f) {
-                    spPrefs.edit()
-                        .putFloat("pitch_min_$spkId", f0Min)
-                        .putFloat("pitch_max_$spkId", f0Max)
-                        .apply()
-                }
-                return spkId
+            fun enqueuePendingSpeaker(spec: PendingSpeakerSpec) {
+                val upperCode = spec.code.trim().uppercase(Locale.US)
+                val cleanName = spec.name.trim().ifEmpty { S.zip.importDefaultSpeakerName }
+                if (upperCode.isNotEmpty() && upperCode in seenPendingSpeakerCodes) return
+                if (upperCode.isEmpty() && cleanName in seenPendingSpeakerNames) return
+                if (upperCode.isNotEmpty()) seenPendingSpeakerCodes.add(upperCode)
+                seenPendingSpeakerNames.add(cleanName)
+                pendingSpeakers.add(spec.copy(name = cleanName))
             }
 
             speakerJsonStr?.let { sJson ->
-                try {
+                runCatching {
                     val trimmed = sJson.trim()
                     val arr = if (trimmed.startsWith("{")) {
                         val rootObj = JSONObject(trimmed)
@@ -2051,28 +2126,28 @@ object ZipUtility {
                         JSONArray(trimmed)
                     }
                     for (i in 0 until arr.length()) {
-                        val spObj = arr.getJSONObject(i)
+                        val spObj = arr.optJSONObject(i) ?: continue
                         val oldId = spObj.optLong("id", (i + 1).toLong())
                         val code = spObj.optString("speaker_code", String.format(Locale.US, "SPK%02d", oldId))
-                        val mappedLocalId = registerOrMatchSpeaker(
-                            code = code,
-                            name = spObj.optString("name", S.zip.importDefaultSpeakerName),
-                            gender = spObj.optString("gender_identity", "男"),
-                            age = spObj.optInt("age", 25),
-                            dialect = spObj.optString("dialect", "普通话"),
-                            group = spObj.optString("group_name", speakerGroupName),
-                            notes = spObj.optString("notes", ""),
-                            f0Min = spObj.optDouble("calibrated_f0_min_hz", -1.0).toFloat(),
-                            f0Max = spObj.optDouble("calibrated_f0_max_hz", -1.0).toFloat()
+                        enqueuePendingSpeaker(
+                            PendingSpeakerSpec(
+                                oldId = oldId,
+                                code = code,
+                                name = spObj.optString("name", S.zip.importDefaultSpeakerName),
+                                gender = spObj.optString("gender_identity", "男"),
+                                age = spObj.optInt("age", 25),
+                                dialect = spObj.optString("dialect", ""),
+                                group = spObj.optString("group_name", speakerGroupName),
+                                notes = spObj.optString("notes", ""),
+                                f0Min = spObj.optDouble("calibrated_f0_min_hz", -1.0).toFloat(),
+                                f0Max = spObj.optDouble("calibrated_f0_max_hz", -1.0).toFloat()
+                            )
                         )
-                        if (oldId > 0L) {
-                            oldSpeakerIdToLocalId[oldId] = mappedLocalId
-                        }
                     }
-                } catch (ignored: Exception) {}
+                }
             }
 
-            // 3. Parse Analysis Results (or PhonTracer project.json) for accurate Word & Audio linking
+            // 3. Parse Analysis Results / PhonTracer Speakers & Audio Records
             data class AnalysisRecordMeta(
                 val index1Based: Int,
                 val speakerCode: String,
@@ -2083,163 +2158,135 @@ object ZipUtility {
                 val remark: String,
                 val speakerNote: String,
                 val wordGroup: String,
-                val wavFileName: String,
-                val durationMs: Long,
-                val qualityStatus: String
+                val wavRelPath: String,
+                val longAudioRelPath: String = "",
+                val sliceStartSec: Double? = null,
+                val sliceEndSec: Double? = null,
+                val durationMs: Long = 0L,
+                val explicitQualityStatus: String = "",
+                val occurrenceInGroupLabel: Int = 0,
+                val occurrenceInLabel: Int = 0
             )
             val analysisRecords = mutableListOf<AnalysisRecordMeta>()
             analysisJsonStr?.let { aJson ->
-                try {
+                runCatching {
                     val arr = JSONArray(aJson)
+                    val glOcc = HashMap<Triple<String, String, String>, Int>()
+                    val lOcc = HashMap<Pair<String, String>, Int>()
                     for (i in 0 until arr.length()) {
-                        val obj = arr.getJSONObject(i)
+                        val obj = arr.optJSONObject(i) ?: continue
+                        val wText = obj.optString("word_text", "").trim()
+                        if (wText.isBlank()) continue
+                        val spkCode = obj.optString("speaker_code", "SPK01").trim()
+                        val spkName = obj.optString("speaker_name", S.common.defaultSpeakerFallback).trim()
+                        val wGroup = TeprojParser.normalizeGroupName(obj.optString("word_group", ""))
+                        val gKey = Triple(spkCode, wGroup, wText)
+                        val gIdx = glOcc[gKey] ?: 0
+                        glOcc[gKey] = gIdx + 1
+                        val lKey = spkCode to wText
+                        val lIdx = lOcc[lKey] ?: 0
+                        lOcc[lKey] = lIdx + 1
+
                         val meta = AnalysisRecordMeta(
                             index1Based = obj.optInt("index", i + 1),
-                            speakerCode = obj.optString("speaker_code", "SPK01"),
-                            speakerName = obj.optString("speaker_name", S.common.defaultSpeakerFallback),
+                            speakerCode = spkCode,
+                            speakerName = spkName,
                             speakerGender = obj.optString("speaker_gender_identity", "男"),
                             speakerGroup = obj.optString("speaker_group", speakerGroupName),
-                            wordText = obj.optString("word_text", ""),
+                            wordText = wText,
                             remark = obj.optString("remark", ""),
                             speakerNote = obj.optString("speaker_note", ""),
-                            wordGroup = obj.optString("word_group", ""),
-                            wavFileName = obj.optString("file", ""),
+                            wordGroup = wGroup,
+                            wavRelPath = TeprojParser.normalizeArchivePath(obj.optString("file", "")),
                             durationMs = obj.optLong("duration_ms", 0L),
-                            qualityStatus = obj.optString("quality_status", "正常")
+                            explicitQualityStatus = obj.optString("quality_status", "").trim(),
+                            occurrenceInGroupLabel = gIdx,
+                            occurrenceInLabel = lIdx
                         )
-                        if (meta.wordText.isNotBlank()) {
-                            analysisRecords.add(meta)
-                            if (!speakerCodeToId.containsKey(meta.speakerCode.uppercase(Locale.US)) &&
-                                !speakerNameToId.containsKey(meta.speakerName)
-                            ) {
-                                registerOrMatchSpeaker(
-                                    code = meta.speakerCode,
-                                    name = meta.speakerName,
-                                    gender = meta.speakerGender,
-                                    age = 25,
-                                    dialect = "普通话",
-                                    group = meta.speakerGroup,
-                                    notes = ""
-                                )
-                            }
-                        }
+                        analysisRecords.add(meta)
+                        enqueuePendingSpeaker(
+                            PendingSpeakerSpec(
+                                code = meta.speakerCode,
+                                name = meta.speakerName,
+                                gender = meta.speakerGender,
+                                age = 25,
+                                dialect = "",
+                                group = meta.speakerGroup
+                            )
+                        )
                     }
-                } catch (ignored: Exception) {}
+                }
             }
 
-            // Also parse PhonTracer `project.json` speakers and groups if present
+            // Parse PhonTracer `project.json` speakers, wordlist, and ALL speakers' audio records (independent + long-audio slices)
             val teprojParsedWords = mutableListOf<ParsedWord>()
             val teprojBaseRemarkByIid = mutableMapOf<String, String>()
+            val teprojSeqByIid = mutableMapOf<String, Int>()
             val teprojImagePathBySeqIndex = mutableMapOf<Int, String>()
             val teprojImagePathByWordText = mutableMapOf<String, String>()
-            teprojJsonStr?.let { pJson ->
-                try {
-                    val root = JSONObject(pJson)
-                    val groupsArr = root.optJSONArray("groups")
-                    val itemIdToSeqIndex = mutableMapOf<String, Int>()
-                    if (groupsArr != null) {
-                        var runningIdx = 1
-                        for (g in 0 until groupsArr.length()) {
-                            val gObj = groupsArr.getJSONObject(g)
-                            val rawGroupName = gObj.optString("name", "")
-                            val cleanGroup = if (rawGroupName == "默认组" || rawGroupName == S.common.defaultGroupFallback) "" else rawGroupName
-                            val itemsArr = gObj.optJSONArray("items")
-                            if (itemsArr != null) {
-                                for (k in 0 until itemsArr.length()) {
-                                    val itemObj = itemsArr.getJSONObject(k)
-                                    val iid = itemObj.optString("id", String.format(Locale.US, "%03d", runningIdx))
-                                    val label = itemObj.optString("label", itemObj.optString("text", "")).trim()
-                                    val note = itemObj.optString("note", "").trim()
-                                    val itemImgRel = itemObj.optString("image_path", "").trim().ifEmpty {
-                                        itemObj.optJSONObject("meta")?.optString("image_path", "")?.trim().orEmpty()
-                                    }
-                                    if (label.isNotEmpty()) {
-                                        itemIdToSeqIndex[iid] = runningIdx
-                                        teprojBaseRemarkByIid[iid] = note
-                                        if (itemImgRel.isNotEmpty()) {
-                                            teprojImagePathBySeqIndex[runningIdx] = itemImgRel
-                                            teprojImagePathByWordText.putIfAbsent(label, itemImgRel)
-                                        }
-                                        teprojParsedWords.add(
-                                            ParsedWord(
-                                                text = label,
-                                                remark = note,
-                                                groupName = cleanGroup,
-                                                imagePath = itemImgRel
-                                            )
-                                        )
-                                        runningIdx++
-                                    }
-                                }
-                            }
-                        }
-                    }
 
-                    val speakersObj = root.optJSONObject("speakers")
-                    if (speakersObj != null) {
-                        val spkKeys = speakersObj.keys()
-                        while (spkKeys.hasNext()) {
-                            val spkKey = spkKeys.next()
-                            val spkObj = speakersObj.optJSONObject(spkKey) ?: continue
-                            val spkCode = spkObj.optString("id", spkKey)
-                            val spkName = spkObj.optString("name", spkCode)
-                            if (!speakerCodeToId.containsKey(spkCode.uppercase(Locale.US)) &&
-                                !speakerNameToId.containsKey(spkName)
-                            ) {
-                                registerOrMatchSpeaker(
-                                    code = spkCode,
-                                    name = spkName,
-                                    gender = "男",
-                                    age = 25,
-                                    dialect = "普通话",
-                                    group = speakerGroupName,
-                                    notes = ""
+            if (teprojDoc != null) {
+                teprojParsedWords.addAll(teprojDoc.words)
+                for (slot in teprojDoc.wordSlots) {
+                    teprojSeqByIid[slot.itemId] = slot.seqIndex1Based
+                    teprojBaseRemarkByIid[slot.itemId] = slot.remark
+                    if (slot.imagePath.isNotBlank()) {
+                        teprojImagePathBySeqIndex[slot.seqIndex1Based] = slot.imagePath
+                        teprojImagePathByWordText.putIfAbsent(slot.label, slot.imagePath)
+                    }
+                }
+
+                // IMPORTANT: Evaluate BEFORE looping speakers so ALL speakers' recordings are imported!
+                val shouldPopulateFromTeproj = analysisRecords.isEmpty()
+                for (spk in teprojDoc.speakers) {
+                    enqueuePendingSpeaker(
+                        PendingSpeakerSpec(
+                            code = spk.code,
+                            name = spk.name,
+                            gender = spk.gender,
+                            age = spk.age,
+                            dialect = spk.dialect, // Keep empty if absent so existing local dialect speaker matches!
+                            group = spk.group.ifBlank { speakerGroupName },
+                            notes = spk.notes,
+                            isActive = spk.isActive
+                        )
+                    )
+                    if (shouldPopulateFromTeproj) {
+                        for (item in spk.items) {
+                            if (!item.hasAnyAudio) continue
+                            val seqIdx = teprojSeqByIid[item.itemId]
+                                ?: item.importIndex?.let { it + 1 }
+                                ?: item.itemId.toIntOrNull()
+                                ?: 1
+                            val baseRmk = teprojBaseRemarkByIid[item.itemId].orEmpty()
+                            val resolvedSpkNote = when {
+                                item.speakerNote.isNotBlank() && item.speakerNote != baseRmk -> item.speakerNote
+                                else -> ""
+                            }
+                            analysisRecords.add(
+                                AnalysisRecordMeta(
+                                    index1Based = seqIdx,
+                                    speakerCode = spk.code,
+                                    speakerName = spk.name,
+                                    speakerGender = spk.gender,
+                                    speakerGroup = spk.group.ifBlank { speakerGroupName },
+                                    wordText = item.label,
+                                    remark = baseRmk.ifEmpty { item.baseRemark },
+                                    speakerNote = resolvedSpkNote,
+                                    wordGroup = item.groupName,
+                                    wavRelPath = item.audioPath,
+                                    longAudioRelPath = item.longAudioPath,
+                                    sliceStartSec = item.sliceStartSec,
+                                    sliceEndSec = item.sliceEndSec,
+                                    durationMs = item.durationMs,
+                                    explicitQualityStatus = "",
+                                    occurrenceInGroupLabel = item.occurrenceInGroupLabel,
+                                    occurrenceInLabel = item.occurrenceInLabel
                                 )
-                            }
-                            if (analysisRecords.isEmpty()) {
-                                val itemsObj = spkObj.optJSONObject("items")
-                                if (itemsObj != null) {
-                                    val itemKeys = itemsObj.keys()
-                                    while (itemKeys.hasNext()) {
-                                        val iid = itemKeys.next()
-                                        val itemObj = itemsObj.optJSONObject(iid) ?: continue
-                                        val pathStr = itemObj.optString("path", "").trim()
-                                        val label = itemObj.optString("label", "").trim()
-                                        if (pathStr.isNotEmpty() && label.isNotEmpty()) {
-                                            val macroEnd = itemObj.optDouble("macro_end", 0.0)
-                                            val durMs = if (macroEnd.isFinite() && macroEnd > 0.0) (macroEnd * 1000.0).toLong() else 0L
-                                            val seqIdx = itemIdToSeqIndex[iid] ?: iid.toIntOrNull() ?: 1
-                                            val baseRmk = teprojBaseRemarkByIid[iid].orEmpty()
-                                            val itemNote = itemObj.optString("note", "").trim()
-                                            val explicitSpkNote = itemObj.optString("speaker_note", "").trim()
-                                            val resolvedSpkNote = when {
-                                                explicitSpkNote.isNotEmpty() -> explicitSpkNote
-                                                itemNote.isNotEmpty() && itemNote != baseRmk -> itemNote
-                                                else -> ""
-                                            }
-                                            analysisRecords.add(
-                                                AnalysisRecordMeta(
-                                                    index1Based = seqIdx,
-                                                    speakerCode = spkCode,
-                                                    speakerName = spkName,
-                                                    speakerGender = "男",
-                                                    speakerGroup = speakerGroupName,
-                                                    wordText = label,
-                                                    remark = baseRmk.ifEmpty { itemNote },
-                                                    speakerNote = resolvedSpkNote,
-                                                    wordGroup = itemObj.optString("group", "").let { if (it == "默认组" || it == S.common.defaultGroupFallback) "" else it },
-                                                    wavFileName = pathStr.substringAfterLast('/'),
-                                                    durationMs = durMs,
-                                                    qualityStatus = "正常"
-                                                )
-                                            )
-                                        }
-                                    }
-                                }
-                            }
+                            )
                         }
                     }
-                } catch (ignored: Exception) {}
+                }
             }
 
             // Also parse Simple Mode `录音汇总表.xlsx` / `录音汇总表.csv` when present
@@ -2247,11 +2294,10 @@ object ZipUtility {
             if (simpleWordlistSheetRows != null && simpleWordlistSheetRows.size >= 2) {
                 for (rIdx in 1 until simpleWordlistSheetRows.size) {
                     val row = simpleWordlistSheetRows[rIdx]
-                    val rawGrp = row.getOrNull(1)?.trim().orEmpty()
-                    val cleanGrp = if (rawGrp == "默认组" || rawGrp == S.common.defaultGroupFallback) "" else rawGrp
+                    val cleanGrp = TeprojParser.normalizeGroupName(row.getOrNull(1).orEmpty())
                     val wText = row.getOrNull(2)?.trim().orEmpty()
                     val wRmk = row.getOrNull(3)?.trim().orEmpty()
-                    val wImgRel = row.getOrNull(4)?.trim().orEmpty()
+                    val wImgRel = TeprojParser.normalizeArchivePath(row.getOrNull(4).orEmpty())
                     if (wText.isNotEmpty()) {
                         if (wImgRel.isNotEmpty()) enablePicturePrompts = true
                         simpleParsedWords.add(
@@ -2274,31 +2320,37 @@ object ZipUtility {
                 else -> emptyList()
             }
             if (analysisRecords.isEmpty() && simpleSummaryRows.size >= 2) {
+                val glOcc = HashMap<Triple<String, String, String>, Int>()
+                val lOcc = HashMap<Pair<String, String>, Int>()
                 for (rIdx in 1 until simpleSummaryRows.size) {
                     val row = simpleSummaryRows[rIdx]
                     val seqIdx = row.getOrNull(0)?.trim()?.toIntOrNull() ?: rIdx
-                    val rawGrp = row.getOrNull(1)?.trim().orEmpty()
-                    val cleanGrp = if (rawGrp == "默认组" || rawGrp == S.common.defaultGroupFallback) "" else rawGrp
+                    val cleanGrp = TeprojParser.normalizeGroupName(row.getOrNull(1).orEmpty())
                     val wText = row.getOrNull(2)?.trim().orEmpty()
                     val wRmk = row.getOrNull(3)?.trim().orEmpty()
                     val spkNote = row.getOrNull(4)?.trim().orEmpty()
                     val spkName = row.getOrNull(5)?.trim().orEmpty().ifEmpty { S.common.defaultSpeakerFallback }
                     val spkDialect = row.getOrNull(6)?.trim().orEmpty()
                     val durSec = row.getOrNull(7)?.trim()?.toDoubleOrNull() ?: 0.0
-                    val relAudio = row.getOrNull(8)?.trim().orEmpty().replace('\\', '/')
+                    val relAudio = TeprojParser.normalizeArchivePath(row.getOrNull(8).orEmpty())
                     if (wText.isNotEmpty()) {
-                        if (!speakerNameToId.containsKey(spkName)) {
-                            registerOrMatchSpeaker(
-                                code = "",
+                        enqueuePendingSpeaker(
+                            PendingSpeakerSpec(
                                 name = spkName,
                                 gender = "未设",
                                 age = 25,
-                                dialect = spkDialect.ifEmpty { "普通话" },
-                                group = speakerGroupName,
-                                notes = ""
+                                dialect = spkDialect,
+                                group = speakerGroupName
                             )
-                        }
+                        )
                         if (relAudio.isNotEmpty()) {
+                            val gKey = Triple(spkName, cleanGrp, wText)
+                            val gIdx = glOcc[gKey] ?: 0
+                            glOcc[gKey] = gIdx + 1
+                            val lKey = spkName to wText
+                            val lIdx = lOcc[lKey] ?: 0
+                            lOcc[lKey] = lIdx + 1
+
                             analysisRecords.add(
                                 AnalysisRecordMeta(
                                     index1Based = seqIdx,
@@ -2310,20 +2362,16 @@ object ZipUtility {
                                     remark = wRmk,
                                     speakerNote = spkNote,
                                     wordGroup = cleanGrp,
-                                    wavFileName = relAudio,
+                                    wavRelPath = relAudio,
                                     durationMs = if (durSec > 0.0) (durSec * 1000.0).toLong() else 0L,
-                                    qualityStatus = "正常"
+                                    occurrenceInGroupLabel = gIdx,
+                                    occurrenceInLabel = lIdx
                                 )
                             )
                         }
                     }
                 }
             }
-
-            val defaultSpeakerId = speakerCodeToId.values.firstOrNull()
-                ?: speakerNameToId.values.firstOrNull()
-                ?: existingSpeakers.firstOrNull()?.id
-                ?: repository.createSpeaker(S.common.defaultSpeakerFallback, "男", 25, "普通话", "", speakerGroupName)
 
             fun resolveExtractedImageFileForWord(
                 explicitRelPath: String,
@@ -2335,8 +2383,9 @@ object ZipUtility {
                     teprojImagePathBySeqIndex[index1Based] ?: teprojImagePathByWordText[wordText].orEmpty()
                 }
                 if (candidateRel.isNotBlank()) {
-                    stagedImageFiles[candidateRel]?.let { return it }
-                    stagedImageFiles[candidateRel.substringAfterLast('/')]?.let { return it }
+                    val normCand = TeprojParser.normalizeArchivePath(candidateRel)
+                    stagedImageFiles[normCand]?.let { return it }
+                    stagedImageFiles[normCand.substringAfterLast('/')]?.let { return it }
                 }
                 val idx3d = String.format(Locale.US, "%03d_", index1Based)
                 val safeWord = sanitizeFileNameComponent(wordText, "")
@@ -2356,13 +2405,14 @@ object ZipUtility {
                 return null
             }
 
-            // 4. Reconstruct Word List
+            // 4. Reconstruct Word List (still zero DB writes!)
             val parsedWords = mutableListOf<ParsedWord>()
             if (!wordListStr.isNullOrBlank()) {
                 var currentGroup = ""
                 val lines = wordListStr!!.lines()
+                val leadingIndexRegex = Regex("^\\d{1,4}(?:\\s*[\\t.、)）]\\s*|\\s+-\\s+)")
                 for (rawLine in lines) {
-                    val line = rawLine.trim().removePrefix("\uFEFF")
+                    val line = rawLine.removePrefix("\uFEFF").trim()
                     if (line.isEmpty() || line.startsWith("#") || line.startsWith("//")) continue
                     if ((line.startsWith("【") && line.endsWith("】")) ||
                         (line.startsWith("[") && line.endsWith("]"))
@@ -2370,8 +2420,7 @@ object ZipUtility {
                         currentGroup = line.substring(1, line.length - 1).trim()
                         continue
                     }
-                    // Strip leading "001\t" or "001 " index if exported by PhonAcq
-                    val withoutLeadingIndex = line.replace(Regex("^\\d{1,4}\\s*[\\t.\\-、]\\s*"), "")
+                    val withoutLeadingIndex = line.replaceFirst(leadingIndexRegex, "").trim()
                     val (wText, wRemark) = repository.parseWordAndRemark(withoutLeadingIndex)
                     if (wText.isNotBlank()) {
                         parsedWords.add(
@@ -2395,24 +2444,35 @@ object ZipUtility {
 
             if (parsedWords.isEmpty() && analysisRecords.isNotEmpty()) {
                 analysisRecords
-                    .distinctBy { it.index1Based to it.wordText }
+                    .distinctBy { Triple(it.wordGroup, it.wordText, it.occurrenceInGroupLabel) }
                     .sortedBy { it.index1Based }
                     .forEach { rec ->
                         parsedWords.add(
                             ParsedWord(
                                 text = rec.wordText,
                                 remark = rec.remark,
-                                groupName = if (rec.wordGroup == "默认组" || rec.wordGroup == S.common.defaultGroupFallback) "" else rec.wordGroup
+                                groupName = TeprojParser.normalizeGroupName(rec.wordGroup)
                             )
                         )
                     }
             }
 
-            if (parsedWords.isEmpty() && stagedWavFiles.isNotEmpty()) {
-                stagedWavFiles.keys
-                    .filter { !it.contains('/') }
-                    .sorted()
-                    .forEach { wavName ->
+            val teprojLongAudioLowerSet = teprojDoc?.longAudioPaths
+                ?.map { it.lowercase(Locale.ROOT) }
+                ?.toSet()
+                ?: emptySet()
+
+            // Only derive words from raw WAV filenames if NOT a long-audio-only teproj
+            if (parsedWords.isEmpty() && extractedWavEntries.isNotEmpty()) {
+                extractedWavEntries
+                    .filter { (rel, _) ->
+                        val lower = rel.lowercase(Locale.ROOT)
+                        lower !in teprojLongAudioLowerSet &&
+                            lower.substringAfterLast('/') !in teprojLongAudioLowerSet.map { it.substringAfterLast('/') }
+                    }
+                    .sortedBy { it.first }
+                    .forEach { (rel, _) ->
+                        val wavName = rel.substringAfterLast('/')
                         val stem = wavName.substringBeforeLast('.')
                         val cleaned = stem
                             .replace(Regex("^SPK\\d+_\\d+_"), "")
@@ -2423,15 +2483,13 @@ object ZipUtility {
                     }
             }
 
-            // Support importing a plain ZIP pack of pictures directly into a Picture Wordlist project!
+            // Support importing a plain ZIP pack of pictures directly into a Picture Wordlist project
             if (parsedWords.isEmpty() && extractedImageEntries.isNotEmpty()) {
                 enablePicturePrompts = true
                 if (experimentJsonStr == null && teprojJsonStr == null) {
-                    projectName = S.zip.importPicProjectName
+                    projectName = fallbackProjectName?.trim()?.takeIf { it.isNotBlank() }
+                        ?: S.zip.importPicProjectName
                     projectDesc = S.zip.importPicProjectDesc
-                    if (existingProjects.any { it.name == projectName }) {
-                        projectName = "$projectName (${existingProjects.size + 1})"
-                    }
                 }
                 extractedImageEntries
                     .sortedBy { it.first }
@@ -2463,7 +2521,6 @@ object ZipUtility {
                         }
                     }
             } else if (extractedImageEntries.isNotEmpty()) {
-                // Stage and bind extracted word images for reconstructed wordlists
                 for (i in parsedWords.indices) {
                     val pw = parsedWords[i]
                     if (pw.imagePath.startsWith("staged:")) continue
@@ -2488,10 +2545,99 @@ object ZipUtility {
                 )
             }
 
+            // Deduplicate project name cleanly (supports multiple re-imports without duplicate titles)
+            val existingProjects = repository.allProjects.firstOrNull() ?: emptyList()
+            val existingNames = existingProjects.map { it.name }.toSet()
+            if (projectName in existingNames) {
+                val baseWithSuffix = "$projectName${S.zip.importSuffix}"
+                if (baseWithSuffix !in existingNames) {
+                    projectName = baseWithSuffix
+                } else {
+                    var counter = 2
+                    while ("$baseWithSuffix ($counter)" in existingNames) {
+                        counter++
+                    }
+                    projectName = "$baseWithSuffix ($counter)"
+                }
+            }
+
+            // 5. Commit Speakers, Project, Words, and Recordings (with rollback on exception)
+            val existingSpeakers = (repository.allSpeakers.firstOrNull() ?: emptyList()).toMutableList()
+            val speakerCodeToId = mutableMapOf<String, Long>()
+            val speakerNameToId = mutableMapOf<String, Long>()
+            val oldSpeakerIdToLocalId = mutableMapOf<Long, Long>()
+            val spPrefs = context.getSharedPreferences("speaker_prefs", Context.MODE_PRIVATE)
+            var activeImportedSpeakerId: Long? = null
+
+            suspend fun materializeSpeaker(spec: PendingSpeakerSpec): Long {
+                val cleanName = spec.name.trim().ifEmpty { S.zip.importDefaultSpeakerName }
+                val cleanGroup = spec.group.trim().ifEmpty { speakerGroupName }
+                val cleanDialect = spec.dialect.trim()
+                val matched = existingSpeakers.find {
+                    it.name.equals(cleanName, ignoreCase = true) &&
+                        (cleanDialect.isEmpty() || it.dialect.equals(cleanDialect, ignoreCase = true))
+                }
+                val spkId = if (matched != null) {
+                    matched.id
+                } else {
+                    val resolvedGender = spec.gender.ifBlank { "未设" }
+                    val resolvedAge = if (spec.age in 1..120) spec.age else 25
+                    val resolvedDialect = cleanDialect.ifBlank { "普通话" }
+                    val newId = repository.createSpeaker(
+                        name = cleanName,
+                        gender = resolvedGender,
+                        age = resolvedAge,
+                        dialect = resolvedDialect,
+                        notes = spec.notes,
+                        groupName = cleanGroup
+                    )
+                    createdSpeakerIds.add(newId)
+                    existingSpeakers.add(
+                        Speaker(
+                            id = newId,
+                            name = cleanName,
+                            gender = resolvedGender,
+                            age = resolvedAge,
+                            dialect = resolvedDialect,
+                            notes = spec.notes,
+                            groupName = cleanGroup
+                        )
+                    )
+                    newId
+                }
+                if (spec.code.isNotBlank()) {
+                    speakerCodeToId[spec.code.trim().uppercase(Locale.US)] = spkId
+                }
+                speakerNameToId[cleanName] = spkId
+                if (spec.oldId > 0L) {
+                    oldSpeakerIdToLocalId[spec.oldId] = spkId
+                }
+                if (spec.isActive) {
+                    activeImportedSpeakerId = spkId
+                }
+                if (spec.f0Min > 40f && spec.f0Max > spec.f0Min + 15f) {
+                    spPrefs.edit()
+                        .putFloat("pitch_min_$spkId", spec.f0Min)
+                        .putFloat("pitch_max_$spkId", spec.f0Max)
+                        .apply()
+                }
+                return spkId
+            }
+
+            for (spec in pendingSpeakers) {
+                materializeSpeaker(spec)
+            }
+
+            val defaultSpeakerId = activeImportedSpeakerId
+                ?: speakerCodeToId.values.firstOrNull()
+                ?: speakerNameToId.values.firstOrNull()
+                ?: existingSpeakers.firstOrNull()?.id
+                ?: repository.createSpeaker(S.common.defaultSpeakerFallback, "未设", 25, "普通话", "", speakerGroupName).also {
+                    createdSpeakerIds.add(it)
+                }
+
             val finalEnablePicturePrompts = enablePicturePrompts || parsedWords.any { it.imagePath.isNotBlank() }
 
-            // Map exported assigned_speaker_ids safely to local speaker IDs when available;
-            // legacy archives without assigned_speaker_ids gracefully fall back to "".
             val resolvedAssignedSpeakerIds = if (rawAssignedSpeakerIds.isNotBlank()) {
                 val mapped = com.example.data.parseAssignedSpeakerIds(rawAssignedSpeakerIds)
                     .mapNotNull { oldId -> oldSpeakerIdToLocalId[oldId] }
@@ -2500,7 +2646,6 @@ object ZipUtility {
                 ""
             }
 
-            // 5. Create Project & Fetch Inserted Words
             val newProjectId = repository.createProjectWithParsedWords(
                 name = projectName,
                 description = projectDesc,
@@ -2511,64 +2656,197 @@ object ZipUtility {
                 context = context,
                 assignedSpeakerIds = resolvedAssignedSpeakerIds
             )
+            createdProjectId = newProjectId
+
             val insertedWords = repository.getWordsForProjectSync(newProjectId).sortedBy { it.originalIndex }
             val restoredImageCount = insertedWords.count { it.imagePath.isNotBlank() }
             val projectDir = File(context.getExternalFilesDir(null), "project_$newProjectId")
             projectDir.mkdirs()
 
-            var importedWavCount = 0
-            val importedSpeakerIds = mutableSetOf<Long>()
-            val consumedStagedFiles = HashSet<File>()
+            // Index inserted words by (group, text, occ) and (text, occ) for duplicate-safe matching
+            val insertedByGroupTextOcc = HashMap<Triple<String, String, Int>, Word>(insertedWords.size * 2)
+            val insertedByTextOcc = HashMap<Pair<String, Int>, Word>(insertedWords.size * 2)
+            val insGlCounter = HashMap<Pair<String, String>, Int>()
+            val insLCounter = HashMap<String, Int>()
+            for (w in insertedWords) {
+                val gNorm = TeprojParser.normalizeGroupName(w.groupName)
+                val gKey = gNorm to w.text
+                val gOcc = insGlCounter[gKey] ?: 0
+                insGlCounter[gKey] = gOcc + 1
+                insertedByGroupTextOcc[Triple(gNorm, w.text, gOcc)] = w
 
-            // 6A. Match WAVs using analysis_results.json / project.json / 录音汇总表.xlsx first
-            for (rec in analysisRecords) {
-                val stagedFile = stagedWavFiles[rec.wavFileName]
-                    ?: stagedWavFiles["${S.zip.simpleAudioFolder}/${rec.wavFileName}"]
-                    ?: stagedWavFiles["audio/${rec.wavFileName}"]
-                    ?: stagedWavFiles.entries.firstOrNull { it.key.endsWith("/${rec.wavFileName}", ignoreCase = true) }?.value
-                    ?: continue
-                val targetWord = insertedWords.getOrNull(rec.index1Based - 1)
-                    ?.takeIf { it.text == rec.wordText }
-                    ?: insertedWords.find { it.text == rec.wordText }
-                    ?: continue
-                val spkId = speakerCodeToId[rec.speakerCode.uppercase(Locale.US)]
-                    ?: speakerNameToId[rec.speakerName]
-                    ?: defaultSpeakerId
+                val lOcc = insLCounter[w.text] ?: 0
+                insLCounter[w.text] = lOcc + 1
+                insertedByTextOcc[w.text to lOcc] = w
+            }
 
-                val destFileName = "word_${targetWord.id}_speaker_${spkId}_${System.currentTimeMillis()}_${importedWavCount}.wav"
-                val destFile = File(projectDir, destFileName)
-                stagedFile.copyTo(destFile, overwrite = true)
-                consumedStagedFiles.add(stagedFile)
+            fun findStagedWav(rawRelOrBase: String): File? {
+                val norm = TeprojParser.normalizeArchivePath(rawRelOrBase)
+                if (norm.isEmpty()) return null
+                val normLower = norm.lowercase(Locale.ROOT)
+                stagedWavByRelPath[norm]?.let { return it }
+                stagedWavByLowerRelPath[normLower]?.let { return it }
+                stagedWavByLowerRelPath["audio/$normLower"]?.let { return it }
+                stagedWavByLowerRelPath["${S.zip.simpleAudioFolder.lowercase(Locale.ROOT)}/$normLower"]?.let { return it }
+                stagedWavByLowerRelPath.entries.firstOrNull { it.key.endsWith("/$normLower") }?.value?.let { return it }
+                val base = norm.substringAfterLast('/')
+                stagedWavByBaseName[base]?.let { return it }
+                return stagedWavByLowerBaseName[base.lowercase(Locale.ROOT)]
+            }
 
-                val durMs = if (rec.durationMs > 0L) {
-                    rec.durationMs
-                } else {
-                    (AcousticAnalyzer.getExactWavDurationSec(destFile) * 1000.0).toLong().coerceAtLeast(100L)
+            val normalizedLongAudioCache = HashMap<File, File>()
+            val longAudioSourceFiles = HashSet<File>()
+            for (longRel in teprojDoc?.longAudioPaths.orEmpty()) {
+                findStagedWav(longRel)?.let { longAudioSourceFiles.add(it) }
+            }
+
+            fun resolveNormalizedLongAudio(rawLongWav: File): File? {
+                normalizedLongAudioCache[rawLongWav]?.let { return it }
+                val info = AudioWavNormalizer.inspectWavHeader(rawLongWav)
+                if (info != null && info.isCanonicalMono16Pcm) {
+                    normalizedLongAudioCache[rawLongWav] = rawLongWav
+                    return rawLongWav
                 }
+                val normFile = File(tempDir, "norm_long_${normalizedLongAudioCache.size}.wav")
+                val ok = AudioWavNormalizer.tryNormalizeRiffOrAiffToMono16Wav(rawLongWav, normFile)
+                return if (ok && normFile.exists() && normFile.length() > 44L) {
+                    normalizedLongAudioCache[rawLongWav] = normFile
+                    normFile
+                } else {
+                    null
+                }
+            }
+
+            var importedWavCount = 0
+            val importedSpeakerIds = LinkedHashSet<Long>()
+            val consumedStagedFiles = HashSet<File>()
+            val claimedWordForSpeaker = HashSet<Pair<Long, Long>>()
+
+            suspend fun persistImportedWav(
+                destFile: File,
+                destFileName: String,
+                targetWord: Word,
+                spkId: Long,
+                fallbackDurationMs: Long,
+                explicitQualityStatus: String,
+                speakerNote: String
+            ) {
+                val report = runCatching { SpeechQualityEvaluator.evaluate(destFile) }.getOrNull()
+                val durMs = when {
+                    report != null && report.totalDurationMs > 20 -> report.totalDurationMs.toLong()
+                    fallbackDurationMs > 0L -> fallbackDurationMs
+                    else -> (AcousticAnalyzer.getExactWavDurationSec(destFile) * 1000.0).toLong().coerceAtLeast(100L)
+                }
+                val avgRms = report?.avgSpeechRms?.takeIf { it.isFinite() && it >= 0f } ?: 0f
+                val peakAmp = report?.peakAmplitude?.coerceIn(0, 32767) ?: 0
+                val qualityStatus = explicitQualityStatus.ifBlank { report?.primaryStatus ?: "正常" }
+
                 repository.saveSpeakerRecording(
                     wordId = targetWord.id,
                     speakerId = spkId,
                     recordingFile = destFileName,
                     durationMs = durMs,
-                    qualityStatus = rec.qualityStatus.ifBlank { "正常" },
-                    avgRms = 1200f,
-                    peakAmplitude = 12000
+                    qualityStatus = qualityStatus,
+                    avgRms = avgRms,
+                    peakAmplitude = peakAmp
                 )
-                if (rec.speakerNote.isNotBlank()) {
-                    repository.saveSpeakerWordNote(targetWord.id, spkId, rec.speakerNote)
+                if (speakerNote.isNotBlank()) {
+                    repository.saveSpeakerWordNote(targetWord.id, spkId, speakerNote)
                 }
+                claimedWordForSpeaker.add(spkId to targetWord.id)
                 importedWavCount++
                 importedSpeakerIds.add(spkId)
             }
 
-            // 6B. Fallback filename matcher for WAVs not covered by analysis_results.json
-            val uniqueRemainingWavs = stagedWavFiles.entries
-                .filter { !it.key.contains('/') && it.value !in consumedStagedFiles }
+            // 6A. Match WAVs using analysis_results.json / project.json (both independent & long-audio sliced) / 录音汇总表.xlsx
+            for (rec in analysisRecords) {
+                val spkId = speakerCodeToId[rec.speakerCode.trim().uppercase(Locale.US)]
+                    ?: speakerNameToId[rec.speakerName.trim()]
+                    ?: defaultSpeakerId
+
+                val recGroupNorm = TeprojParser.normalizeGroupName(rec.wordGroup)
+                val targetWord = insertedByGroupTextOcc[Triple(recGroupNorm, rec.wordText, rec.occurrenceInGroupLabel)]
+                    ?: insertedByTextOcc[rec.wordText to rec.occurrenceInLabel]
+                    ?: insertedWords.getOrNull(rec.index1Based - 1)?.takeIf { it.text == rec.wordText }
+                    ?: insertedWords.firstOrNull {
+                        TeprojParser.normalizeGroupName(it.groupName) == recGroupNorm &&
+                            it.text == rec.wordText &&
+                            (spkId to it.id) !in claimedWordForSpeaker
+                    }
+                    ?: insertedWords.firstOrNull {
+                        it.text == rec.wordText && (spkId to it.id) !in claimedWordForSpeaker
+                    }
+                    ?: insertedWords.find { it.text == rec.wordText }
+                    ?: continue
+
+                val destFileName = "word_${targetWord.id}_speaker_${spkId}_${System.currentTimeMillis()}_${importedWavCount}.wav"
+                val destFile = File(projectDir, destFileName)
+
+                val writtenOk: Boolean = if (rec.wavRelPath.isNotBlank()) {
+                    val stagedFile = findStagedWav(rec.wavRelPath)
+                    if (stagedFile != null && stagedFile.exists() && stagedFile.length() > 44L) {
+                        consumedStagedFiles.add(stagedFile)
+                        val normalized = AudioWavNormalizer.tryNormalizeRiffOrAiffToMono16Wav(stagedFile, destFile)
+                        if (normalized && destFile.exists() && destFile.length() > 44L) {
+                            true
+                        } else {
+                            stagedFile.copyTo(destFile, overwrite = true)
+                            destFile.exists() && destFile.length() > 44L
+                        }
+                    } else {
+                        false
+                    }
+                } else if (rec.longAudioRelPath.isNotBlank() &&
+                    rec.sliceStartSec != null &&
+                    rec.sliceEndSec != null &&
+                    rec.sliceEndSec > rec.sliceStartSec + 0.005
+                ) {
+                    val rawLongFile = findStagedWav(rec.longAudioRelPath)
+                    if (rawLongFile != null && rawLongFile.exists() && rawLongFile.length() > 44L) {
+                        consumedStagedFiles.add(rawLongFile)
+                        longAudioSourceFiles.add(rawLongFile)
+                        val normLong = resolveNormalizedLongAudio(rawLongFile)
+                        if (normLong != null) {
+                            AudioWavNormalizer.sliceCanonicalMono16Wav(
+                                canonicalWavFile = normLong,
+                                startSec = rec.sliceStartSec,
+                                endSec = rec.sliceEndSec,
+                                outputWavFile = destFile
+                            )
+                        } else {
+                            false
+                        }
+                    } else {
+                        false
+                    }
+                } else {
+                    false
+                }
+
+                if (writtenOk) {
+                    persistImportedWav(
+                        destFile = destFile,
+                        destFileName = destFileName,
+                        targetWord = targetWord,
+                        spkId = spkId,
+                        fallbackDurationMs = rec.durationMs,
+                        explicitQualityStatus = rec.explicitQualityStatus,
+                        speakerNote = rec.speakerNote
+                    )
+                } else {
+                    runCatching { destFile.delete() }
+                }
+            }
+
+            // 6B. Fallback filename matcher for WAVs not covered by structured metadata (excluding long-audio source files)
+            val remainingWavs = extractedWavEntries
+                .filter { (_, f) -> f !in consumedStagedFiles && f !in longAudioSourceFiles && f.length() > 44L }
             val codeIndexRegex = Regex("^(SPK\\d+)_(\\d{1,4})_([^._]+).*\\.wav$", RegexOption.IGNORE_CASE)
             val nameIndexRegex = Regex("^([^_]+)_(\\d{1,4})_([^._]+).*\\.wav$", RegexOption.IGNORE_CASE)
             val indexWordRegex = Regex("^(\\d{1,4})_([^._]+).*\\.wav$", RegexOption.IGNORE_CASE)
 
-            for ((wavName, stagedFile) in uniqueRemainingWavs) {
+            for ((rawRelPath, stagedFile) in remainingWavs) {
+                val wavName = rawRelPath.substringAfterLast('/')
                 var matchedWord: Word? = null
                 var matchedSpeakerId: Long = defaultSpeakerId
 
@@ -2582,19 +2860,22 @@ object ZipUtility {
                         val idx1 = m1.groupValues[2].toIntOrNull() ?: 1
                         val wText = m1.groupValues[3]
                         matchedSpeakerId = speakerCodeToId[spkCode] ?: defaultSpeakerId
-                        matchedWord = insertedWords.getOrNull(idx1 - 1) ?: insertedWords.find { it.text == wText }
+                        matchedWord = insertedWords.getOrNull(idx1 - 1)?.takeIf { it.text == wText }
+                            ?: insertedWords.find { it.text == wText }
                     }
                     m2 != null -> {
                         val spkName = m2.groupValues[1]
                         val idx1 = m2.groupValues[2].toIntOrNull() ?: 1
                         val wText = m2.groupValues[3]
                         matchedSpeakerId = speakerNameToId[spkName] ?: defaultSpeakerId
-                        matchedWord = insertedWords.getOrNull(idx1 - 1) ?: insertedWords.find { it.text == wText }
+                        matchedWord = insertedWords.getOrNull(idx1 - 1)?.takeIf { it.text == wText }
+                            ?: insertedWords.find { it.text == wText }
                     }
                     m3 != null -> {
                         val idx1 = m3.groupValues[1].toIntOrNull() ?: 1
                         val wText = m3.groupValues[2]
-                        matchedWord = insertedWords.getOrNull(idx1 - 1) ?: insertedWords.find { it.text == wText }
+                        matchedWord = insertedWords.getOrNull(idx1 - 1)?.takeIf { it.text == wText }
+                            ?: insertedWords.find { it.text == wText }
                     }
                     else -> {
                         val stem = wavName.substringBeforeLast('.')
@@ -2605,19 +2886,33 @@ object ZipUtility {
                 if (matchedWord != null) {
                     val destFileName = "word_${matchedWord.id}_speaker_${matchedSpeakerId}_${System.currentTimeMillis()}_${importedWavCount}.wav"
                     val destFile = File(projectDir, destFileName)
-                    stagedFile.copyTo(destFile, overwrite = true)
-                    val durMs = (AcousticAnalyzer.getExactWavDurationSec(destFile) * 1000.0).toLong().coerceAtLeast(100L)
-                    repository.saveSpeakerRecording(
-                        wordId = matchedWord.id,
-                        speakerId = matchedSpeakerId,
-                        recordingFile = destFileName,
-                        durationMs = durMs,
-                        qualityStatus = "正常",
-                        avgRms = 1200f,
-                        peakAmplitude = 12000
-                    )
-                    importedWavCount++
-                    importedSpeakerIds.add(matchedSpeakerId)
+                    val normalized = AudioWavNormalizer.tryNormalizeRiffOrAiffToMono16Wav(stagedFile, destFile)
+                    if (!normalized || !destFile.exists() || destFile.length() <= 44L) {
+                        stagedFile.copyTo(destFile, overwrite = true)
+                    }
+                    if (destFile.exists() && destFile.length() > 44L) {
+                        persistImportedWav(
+                            destFile = destFile,
+                            destFileName = destFileName,
+                            targetWord = matchedWord,
+                            spkId = matchedSpeakerId,
+                            fallbackDurationMs = 0L,
+                            explicitQualityStatus = "",
+                            speakerNote = ""
+                        )
+                    }
+                }
+            }
+
+            val resolvedPrimarySpeakerId = when {
+                activeImportedSpeakerId != null && (importedSpeakerIds.isEmpty() || activeImportedSpeakerId in importedSpeakerIds) ->
+                    activeImportedSpeakerId!!
+                importedSpeakerIds.isNotEmpty() -> importedSpeakerIds.first()
+                else -> defaultSpeakerId
+            }
+            if (resolvedPrimarySpeakerId != defaultSpeakerId) {
+                repository.getProjectById(newProjectId)?.let { proj ->
+                    repository.updateProject(proj.copy(speakerId = resolvedPrimarySpeakerId))
                 }
             }
 
@@ -2635,13 +2930,21 @@ object ZipUtility {
                     "words" to insertedWords.size,
                     "imgSuffix" to imgSuffix,
                     "wavs" to importedWavCount
-                )
+                ),
+                primarySpeakerId = resolvedPrimarySpeakerId
             )
         } catch (e: Exception) {
             e.printStackTrace()
+            // Rollback any partially created project & newly created speakers so no dirty records remain
+            createdProjectId?.let { pid ->
+                runCatching { repository.deleteProject(pid, context) }
+            }
+            for (spkId in createdSpeakerIds) {
+                runCatching { repository.deleteSpeaker(spkId) }
+            }
             return ImportArchiveSummary(
                 success = false,
-                message = S.zip.importArchiveFailed.withArgs("msg" to (e.localizedMessage ?: S.common.unknownError))
+                message = S.zip.importArchiveFailed.withArgs("msg" to (e.localizedMessage ?: e.javaClass.simpleName))
             )
         } finally {
             try {

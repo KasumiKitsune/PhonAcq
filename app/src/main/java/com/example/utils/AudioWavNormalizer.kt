@@ -480,4 +480,59 @@ object AudioWavNormalizer {
         bb.putInt(pcmDataBytes)
         return bb.array()
     }
+
+    /**
+     * Slices `[startSec, endSec]` from an already-normalized 44-byte canonical 16-bit mono PCM WAV
+     * into [outputWavFile] in O(1) seek time without loading the full long audio into memory.
+     */
+    fun sliceCanonicalMono16Wav(
+        canonicalWavFile: File,
+        startSec: Double,
+        endSec: Double,
+        outputWavFile: File
+    ): Boolean {
+        if (!canonicalWavFile.exists() || !canonicalWavFile.isFile || canonicalWavFile.length() <= 44L) {
+            return false
+        }
+        if (!startSec.isFinite() || !endSec.isFinite() || endSec <= startSec) {
+            return false
+        }
+        val info = inspectWavHeader(canonicalWavFile) ?: return false
+        if (!info.isCanonicalMono16Pcm || info.sampleRate <= 0) return false
+
+        val totalDataBytes = (canonicalWavFile.length() - 44L).coerceAtLeast(0L)
+        val totalFrames = totalDataBytes / 2L
+        if (totalFrames <= 0L) return false
+
+        val startFrame = kotlin.math.floor(startSec.coerceAtLeast(0.0) * info.sampleRate).toLong()
+            .coerceIn(0L, totalFrames)
+        val endFrame = kotlin.math.ceil(endSec.coerceAtLeast(0.0) * info.sampleRate).toLong()
+            .coerceIn(startFrame, totalFrames)
+        val sliceFrames = endFrame - startFrame
+        if (sliceFrames < 16L) return false
+
+        val sliceBytesLong = sliceFrames * 2L
+        if (sliceBytesLong > Int.MAX_VALUE.toLong() - 64L) return false
+        val sliceBytes = sliceBytesLong.toInt()
+
+        return runCatching {
+            outputWavFile.parentFile?.mkdirs()
+            RandomAccessFile(canonicalWavFile, "r").use { raf ->
+                raf.seek(44L + startFrame * 2L)
+                BufferedOutputStream(FileOutputStream(outputWavFile), 65536).use { bos ->
+                    bos.write(buildCanonicalWavHeader(sliceBytes, info.sampleRate))
+                    val buf = ByteArray(16384)
+                    var remaining = sliceBytes
+                    while (remaining > 0) {
+                        val toRead = min(buf.size, remaining)
+                        val n = raf.read(buf, 0, toRead)
+                        if (n <= 0) break
+                        bos.write(buf, 0, n)
+                        remaining -= n
+                    }
+                }
+            }
+            outputWavFile.exists() && outputWavFile.length() > 44L
+        }.getOrDefault(false)
+    }
 }

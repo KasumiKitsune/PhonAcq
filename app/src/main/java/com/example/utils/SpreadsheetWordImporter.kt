@@ -144,21 +144,47 @@ object SpreadsheetWordImporter {
         fallbackTextParser: (String) -> List<ParsedWord>
     ): WordFileImportResult {
         val entries = LinkedHashMap<String, ByteArray>()
+        var teprojJsonBytes: ByteArray? = null
+        var teprojDepth = Int.MAX_VALUE
+        var wordListTxtBytes: ByteArray? = null
+        var wordListDepth = Int.MAX_VALUE
+
         try {
-            ZipInputStream(ByteArrayInputStream(bytes)).use { zis ->
-                var entry = zis.nextEntry
-                while (entry != null) {
-                    if (!entry.isDirectory) {
-                        val name = entry.name.replace('\\', '/')
-                        if (name == "xl/sharedStrings.xml" ||
-                            (name.startsWith("xl/worksheets/sheet") && name.endsWith(".xml")) ||
-                            name == "word/document.xml"
-                        ) {
-                            entries[name] = zis.readBytes()
+            TeprojParser.forEachZipBytesResilient(
+                bytes = bytes,
+                onBeforeRetry = {
+                    entries.clear()
+                    teprojJsonBytes = null
+                    teprojDepth = Int.MAX_VALUE
+                    wordListTxtBytes = null
+                    wordListDepth = Int.MAX_VALUE
+                }
+            ) { entry, zis ->
+                if (entry.isDirectory) return@forEachZipBytesResilient
+                val name = TeprojParser.normalizeArchivePath(entry.name)
+                if (name.isEmpty()) return@forEachZipBytesResilient
+                val base = name.substringAfterLast('/')
+                if (base.startsWith("._") || name.startsWith("__MACOSX/")) return@forEachZipBytesResilient
+                val depth = name.count { it == '/' }
+                when {
+                    name == "xl/workbook.xml" ||
+                        name == "xl/sharedStrings.xml" ||
+                        (name.startsWith("xl/worksheets/sheet") && name.endsWith(".xml")) ||
+                        name == "word/document.xml" -> {
+                        entries[name] = TeprojParser.readBytesBounded(zis, TeprojParser.MAX_METADATA_ENTRY_BYTES)
+                    }
+                    base.equals("project.json", ignoreCase = true) -> {
+                        if (depth < teprojDepth || teprojJsonBytes == null) {
+                            teprojDepth = depth
+                            teprojJsonBytes = TeprojParser.readBytesBounded(zis, TeprojParser.MAX_METADATA_ENTRY_BYTES)
                         }
                     }
-                    zis.closeEntry()
-                    entry = zis.nextEntry
+                    base.equals("word_list.txt", ignoreCase = true) -> {
+                        if (depth < wordListDepth || wordListTxtBytes == null) {
+                            wordListDepth = depth
+                            wordListTxtBytes = TeprojParser.readBytesBounded(zis, TeprojParser.MAX_METADATA_ENTRY_BYTES)
+                        }
+                    }
                 }
             }
         } catch (e: Exception) {
@@ -184,8 +210,21 @@ object SpreadsheetWordImporter {
                 emptyList()
             }
 
+            // When a multi-sheet workbook has a dedicated wordlist sheet (e.g. PhonAcq's `录音汇总表.xlsx`),
+            // prioritize that sheet so summary rows + wordlist rows are not concatenated into duplicates.
+            val sheetNamesInOrder = entries["xl/workbook.xml"]?.let { parseXlsxSheetNames(it) }.orEmpty()
+            val dedicatedWordlistSheets = if (sheetEntries.size > 1 && sheetNamesInOrder.size == sheetEntries.size) {
+                sheetEntries.filterIndexed { idx, _ ->
+                    val sName = sheetNamesInOrder[idx]
+                    sName.contains("字表") || sName.contains("词表") || sName.contains("wordlist", ignoreCase = true)
+                }
+            } else {
+                emptyList()
+            }
+            val targetSheets = if (dedicatedWordlistSheets.isNotEmpty()) dedicatedWordlistSheets else sheetEntries
+
             val allParsed = ArrayList<ParsedWord>()
-            for (sheetName in sheetEntries) {
+            for (sheetName in targetSheets) {
                 val sheetBytes = entries[sheetName] ?: continue
                 val rows = parseXlsxWorksheetRows(sheetBytes, sharedStrings)
                 val sheetWords = parseTabularRowsToParsedWords(rows)
@@ -208,10 +247,39 @@ object SpreadsheetWordImporter {
             }
         }
 
+        // Support importing wordlist directly from PhonTracer `.teproj` or PhonAcq `.zip` archives!
+        if (teprojJsonBytes != null) {
+            val doc = TeprojParser.parseProjectJson(TeprojParser.decodeTextClean(teprojJsonBytes!!))
+            if (doc != null && doc.words.isNotEmpty()) {
+                return WordFileImportResult(doc.words, sourceSummary = "PhonTracer .teproj")
+            }
+        }
+        if (wordListTxtBytes != null) {
+            val wlWords = fallbackTextParser(TeprojParser.decodeTextClean(wordListTxtBytes!!))
+            if (wlWords.isNotEmpty()) {
+                return WordFileImportResult(wlWords, sourceSummary = S.wordEditor.importSourceText)
+            }
+        }
+
         return WordFileImportResult(
             emptyList(),
             errorMessage = S.wordEditor.importErrZipNoExcel
         )
+    }
+
+    private fun parseXlsxSheetNames(workbookXmlBytes: ByteArray): List<String> {
+        return try {
+            val doc = createSafeDocumentBuilder().parse(ByteArrayInputStream(workbookXmlBytes))
+            val sheetNodes = doc.getElementsByTagName("sheet")
+            val names = ArrayList<String>(sheetNodes.length)
+            for (i in 0 until sheetNodes.length) {
+                val el = sheetNodes.item(i) as? Element ?: continue
+                names.add(el.getAttribute("name").orEmpty().trim())
+            }
+            names
+        } catch (_: Exception) {
+            emptyList()
+        }
     }
 
     private fun createSafeDocumentBuilder() = DocumentBuilderFactory.newInstance().apply {

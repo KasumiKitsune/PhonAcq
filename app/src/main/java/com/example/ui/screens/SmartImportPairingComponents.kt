@@ -163,13 +163,20 @@ internal fun StagedImportFileRow(
                 ImportItemKind.WORDLIST_DOC -> add("${item.parsedWords.size} 词")
                 ImportItemKind.PROJECT_ARCHIVE -> {
                     val ins = item.archiveInspect
-                    if (ins != null && (ins.estimatedWordCount > 0 || ins.estimatedAudioCount > 0)) {
-                        add(
-                            SSmartImport.archiveSummaryMeta.withArgs(
-                                "words" to ins.estimatedWordCount,
-                                "audio" to ins.estimatedAudioCount
+                    if (ins != null) {
+                        if (ins.estimatedSpeakerCount > 1) {
+                            add("${ins.estimatedSpeakerCount} 位发音人")
+                        }
+                        if (ins.estimatedWordCount > 0 || ins.estimatedAudioCount > 0) {
+                            add(
+                                SSmartImport.archiveSummaryMeta.withArgs(
+                                    "words" to ins.estimatedWordCount,
+                                    "audio" to ins.estimatedAudioCount
+                                )
                             )
-                        )
+                        } else if (!ins.parseErrorHint.isNullOrBlank()) {
+                            add(ins.parseErrorHint)
+                        }
                     }
                 }
                 ImportItemKind.AUDIO_CLIP -> {
@@ -323,28 +330,100 @@ internal fun ArchiveQueuePreviewCard(
             }
             archiveItems.forEach { arch ->
                 val inspect = arch.archiveInspect
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = inspect?.archiveProjectName?.ifBlank { arch.displayName } ?: arch.displayName,
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        color = cs.onSurface,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f)
-                    )
-                    if (inspect != null) {
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
                         Text(
-                            text = SSmartImport.archiveSummaryMeta.withArgs(
-                                "words" to inspect.estimatedWordCount,
-                                "audio" to inspect.estimatedAudioCount
-                            ),
+                            text = inspect?.archiveProjectName?.ifBlank { arch.displayName } ?: arch.displayName,
+                            fontSize = 12.5.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = cs.onSurface,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f)
+                        )
+                        if (inspect != null) {
+                            val spkPrefix = if (inspect.estimatedSpeakerCount > 1) "${inspect.estimatedSpeakerCount} 位发音人 · " else ""
+                            Text(
+                                text = spkPrefix + SSmartImport.archiveSummaryMeta.withArgs(
+                                    "words" to inspect.estimatedWordCount,
+                                    "audio" to inspect.estimatedAudioCount
+                                ),
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = cs.onSurfaceVariant
+                            )
+                        }
+                    }
+                    if (inspect != null && inspect.previewWords.isNotEmpty()) {
+                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            inspect.previewWords.take(8).forEachIndexed { idx, pw ->
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clip(RoundedCornerShape(7.dp))
+                                        .background(cs.surface.copy(alpha = 0.85f))
+                                        .padding(horizontal = 8.dp, vertical = 4.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    Text(
+                                        text = String.format(Locale.US, "#%03d", idx + 1),
+                                        fontSize = 10.5.sp,
+                                        fontFamily = FontFamily.Monospace,
+                                        color = cs.onSurfaceVariant
+                                    )
+                                    if (pw.groupName.isNotBlank()) {
+                                        Surface(
+                                            shape = RoundedCornerShape(4.dp),
+                                            color = cs.secondaryContainer.copy(alpha = 0.7f)
+                                        ) {
+                                            Text(
+                                                text = pw.groupName,
+                                                fontSize = 9.5.sp,
+                                                fontWeight = FontWeight.SemiBold,
+                                                color = cs.onSecondaryContainer,
+                                                maxLines = 1,
+                                                modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp)
+                                            )
+                                        }
+                                    }
+                                    Text(
+                                        text = pw.text,
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = cs.onSurface,
+                                        maxLines = 1
+                                    )
+                                    if (pw.remark.isNotBlank()) {
+                                        Text(
+                                            text = pw.remark,
+                                            fontSize = 10.5.sp,
+                                            color = cs.onSurfaceVariant,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
+                                            modifier = Modifier.weight(1f)
+                                        )
+                                    }
+                                }
+                            }
+                            if (inspect.previewWords.size > 8) {
+                                Text(
+                                    text = "… 其余 ${inspect.previewWords.size - 8} 个词条已解析就绪",
+                                    fontSize = 10.5.sp,
+                                    color = cs.onSurfaceVariant,
+                                    modifier = Modifier.padding(start = 4.dp)
+                                )
+                            }
+                        }
+                    } else if (!inspect?.parseErrorHint.isNullOrBlank()) {
+                        Text(
+                            text = "预检提示：${inspect?.parseErrorHint}",
                             fontSize = 11.sp,
-                            color = cs.onSurfaceVariant
+                            color = cs.error
                         )
                     }
                 }

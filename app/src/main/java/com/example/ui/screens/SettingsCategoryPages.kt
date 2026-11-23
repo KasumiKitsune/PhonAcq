@@ -1338,16 +1338,22 @@ internal fun ExportStorageCategoryContent(
         contract = ActivityResultContracts.OpenDocument()
     ) { uri ->
         if (uri != null && !isImportingBackupZip) {
+            var openedStream: java.io.InputStream? = null
             try {
+                val displayName = com.example.utils.WordImageManager.getUriDisplayName(context, uri)
+                val fallbackName = displayName.substringBeforeLast('.').trim().ifBlank { null }
                 val ins = context.contentResolver.openInputStream(uri)
                 if (ins != null) {
+                    openedStream = ins
                     isImportingBackupZip = true
-                    viewModel.importProjectZip(ins) { summary ->
+                    viewModel.importProjectZip(ins, fallbackProjectName = fallbackName) { summary ->
                         isImportingBackupZip = false
                         Toast.makeText(context, summary.message, Toast.LENGTH_LONG).show()
                     }
+                    openedStream = null // ownership transferred to viewModel.importProjectZip
                 }
             } catch (e: Exception) {
+                runCatching { openedStream?.close() }
                 isImportingBackupZip = false
                 Toast.makeText(context, S.common.errorOccurred.withArgs("msg" to e.message), Toast.LENGTH_LONG).show()
             }

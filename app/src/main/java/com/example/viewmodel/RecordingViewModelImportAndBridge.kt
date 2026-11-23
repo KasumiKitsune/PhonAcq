@@ -45,20 +45,33 @@ private val WHITESPACE_SPLIT_REGEX = Regex("\\s+")
 
 internal fun RecordingViewModel.executeImportProjectZip(
     inputStream: InputStream,
+    fallbackProjectName: String? = null,
     onFinished: (ImportArchiveSummary) -> Unit
 ) {
     viewModelScope.launch(Dispatchers.IO) {
-        val summary = ZipUtility.importProjectArchiveZip(
-            context = context,
-            repository = repository,
-            inputStream = inputStream
-        )
+        val summary = try {
+            ZipUtility.importProjectArchiveZip(
+                context = context,
+                repository = repository,
+                inputStream = inputStream,
+                fallbackProjectName = fallbackProjectName
+            )
+        } finally {
+            runCatching { inputStream.close() }
+        }
         if (summary.success && summary.projectId > 0L) {
-            forceRefreshCounts()
+            notifyExternalAudioImported(summary.projectId)
             val importedProject = repository.getProjectById(summary.projectId)
+            val importedSpeaker = summary.primarySpeakerId
+                .takeIf { it > 0L }
+                ?.let { repository.getSpeakerById(it) }
             withContext(Dispatchers.Main) {
                 if (importedProject != null) {
-                    selectProject(importedProject)
+                    if (importedSpeaker != null) {
+                        selectProjectAndSpeaker(importedProject, importedSpeaker)
+                    } else {
+                        selectProject(importedProject)
+                    }
                 }
                 onFinished(summary)
             }
@@ -179,29 +192,12 @@ internal fun parseImportTextToParsedWordsImpl(text: String): List<ParsedWord> {
     if (trimmedText.isEmpty()) return list
 
     if (trimmedText.startsWith("{")) {
-        try {
-            val obj = org.json.JSONObject(trimmedText)
-            if (obj.has("groups")) {
-                val groupsArr = obj.getJSONArray("groups")
-                for (i in 0 until groupsArr.length()) {
-                    val groupObj = groupsArr.getJSONObject(i)
-                    val groupId = groupObj.optString("id", (i + 1).toString())
-                    val groupName = groupObj.optString("name", S.recording.groupFallbackName.withArgs("id" to groupId))
-                    val itemsArr = groupObj.optJSONArray("items")
-                    if (itemsArr != null) {
-                        for (j in 0 until itemsArr.length()) {
-                            val itemObj = itemsArr.getJSONObject(j)
-                            val wText = itemObj.optString("text", itemObj.optString("label", "")).trim()
-                            val wNote = itemObj.optString("note", itemObj.optString("remark", "")).trim()
-                            if (wText.isNotEmpty()) {
-                                list.add(ParsedWord(text = wText, remark = wNote, groupName = groupName))
-                            }
-                        }
-                    }
-                }
-                return list
-            }
-        } catch (_: Exception) {}
+        // Supports PhonTracer project.json / .ptwl / PhonAcq JSON; if valid JSON object with no wordlist,
+        // return emptyList() instead of misparsing JSON syntax lines as garbage colon-separated words.
+        val parsedJsonWords = com.example.utils.TeprojParser.parseWordlistJsonIfValidObject(trimmedText)
+        if (parsedJsonWords != null) {
+            return parsedJsonWords
+        }
     }
 
     return SpreadsheetWordImporter.parseSmartClipboardOrText(trimmedText, ::parseUnstructuredTextToParsedWords)

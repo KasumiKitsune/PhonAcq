@@ -3213,8 +3213,9 @@ class RecordingViewModel(
 
     fun importProjectZip(
         inputStream: InputStream,
+        fallbackProjectName: String? = null,
         onFinished: (ImportArchiveSummary) -> Unit
-    ) = executeImportProjectZip(inputStream, onFinished)
+    ) = executeImportProjectZip(inputStream, fallbackProjectName, onFinished)
 
     fun exportProjectAsZip(
         project: Project,

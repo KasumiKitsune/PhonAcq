@@ -52,7 +52,10 @@ enum class PairingMatchKind {
 data class ArchiveQuickInspect(
     val archiveProjectName: String,
     val estimatedWordCount: Int,
-    val estimatedAudioCount: Int
+    val estimatedAudioCount: Int,
+    val estimatedSpeakerCount: Int = 0,
+    val previewWords: List<ParsedWord> = emptyList(),
+    val parseErrorHint: String? = null
 )
 
 data class StagedImportItem(
@@ -153,7 +156,8 @@ object SmartImportEngine {
     const val OVERRIDE_AUTO_CREATE = "__AUTO_CREATE__"
     const val OVERRIDE_SKIP = "__SKIP__"
 
-    private val WORDLIST_EXTENSIONS = setOf("xlsx", "csv", "tsv", "txt", "docx", "json", "md")
+    private val WORDLIST_EXTENSIONS = setOf("xlsx", "csv", "tsv", "txt", "docx", "json", "md", "ptwl")
+    private val stagedItemSeqCounter = java.util.concurrent.atomic.AtomicLong(0L)
     private val AUDIO_EXTENSIONS = setOf("wav", "mp3", "m4a", "aac", "flac", "ogg", "opus", "aiff", "aif", "wma")
     private val IMAGE_EXTENSIONS = setOf("png", "jpg", "jpeg", "webp", "bmp")
     private val GENERIC_AUDIO_STEMS = setOf(
@@ -203,7 +207,12 @@ object SmartImportEngine {
             seenKeys.add(item.dedupKey)
         }
 
-        var nextSeq = existingStaged.size + 1
+        // Monotonically increasing sequence IDs prevent LazyColumn key collisions when users remove and re-add files
+        val existingMaxSeq = existingStaged.mapNotNull { item ->
+            Regex("""^item_(\d+)""").find(item.id)?.groupValues?.getOrNull(1)?.toLongOrNull()
+        }.maxOrNull() ?: 0L
+        stagedItemSeqCounter.updateAndGet { cur -> maxOf(cur, existingMaxSeq) }
+        fun nextSeqInt(): Int = stagedItemSeqCounter.incrementAndGet().toInt()
 
         for (uri in uris) {
             if (SmartImportPlatformBridge.isDirectoryUri(context, uri)) {
@@ -214,7 +223,7 @@ object SmartImportEngine {
                     val inspected = stageAndClassifySingleSource(
                         context = context,
                         sessionDir = sessionDir,
-                        seqNumber = nextSeq++,
+                        seqNumber = nextSeqInt(),
                         dedupKey = dedupKey,
                         sourceUri = doc.uri,
                         displayName = doc.displayName,
@@ -236,7 +245,7 @@ object SmartImportEngine {
                 val inspected = stageAndClassifySingleSource(
                     context = context,
                     sessionDir = sessionDir,
-                    seqNumber = nextSeq++,
+                    seqNumber = nextSeqInt(),
                     dedupKey = dedupKey,
                     sourceUri = uri,
                     displayName = displayName,
@@ -335,12 +344,50 @@ object SmartImportEngine {
         val isZipMagic = magicLen >= 4 &&
             magic[0] == 'P'.code.toByte() &&
             magic[1] == 'K'.code.toByte() &&
-            magic[2] == 3.toByte() &&
-            magic[3] == 4.toByte()
+            ((magic[2] == 3.toByte() && magic[3] == 4.toByte()) ||
+                (magic[2] == 5.toByte() && magic[3] == 6.toByte()) ||
+                (magic[2] == 7.toByte() && magic[3] == 8.toByte()))
 
         // 1. Handle .teproj or .zip containers (distinguishing OOXML .xlsx/.docx, Project Archive, and Plain Asset Bundle)
+        if (extLower == "teproj" && !isZipMagic) {
+            // Handle non-ZIP .teproj (e.g., plain JSON wordlist or corrupt file) cleanly instead of masking as 0-word archive
+            val rawBytes = runCatching { tempFile.readBytes() }.getOrNull()
+            val plainDoc = rawBytes?.let { TeprojParser.parseProjectJson(TeprojParser.decodeTextClean(it)) }
+            if (plainDoc != null && plainDoc.words.isNotEmpty()) {
+                return listOf(
+                    StagedImportItem(
+                        id = seqPrefix,
+                        dedupKey = dedupKey,
+                        displayName = displayName,
+                        relativeFolder = relativeFolder,
+                        rootOriginName = rootOriginName,
+                        sizeBytes = actualSize,
+                        extensionLower = "teproj",
+                        kind = ImportItemKind.WORDLIST_DOC,
+                        localTempFile = tempFile,
+                        parsedWords = plainDoc.words,
+                        wordlistSummary = "PhonTracer JSON"
+                    )
+                )
+            }
+            return listOf(
+                StagedImportItem(
+                    id = seqPrefix,
+                    dedupKey = dedupKey,
+                    displayName = displayName,
+                    relativeFolder = relativeFolder,
+                    rootOriginName = rootOriginName,
+                    sizeBytes = actualSize,
+                    extensionLower = "teproj",
+                    kind = ImportItemKind.UNSUPPORTED,
+                    localTempFile = null.also { runCatching { tempFile.delete() } },
+                    errorHint = "该 .teproj 不是有效的 ZIP 工程包"
+                )
+            )
+        }
+
         if (extLower == "teproj" || extLower == "zip" || (isZipMagic && extLower !in setOf("xlsx", "docx"))) {
-            val zipNature = classifyZipContainer(tempFile, extLower)
+            val zipNature = classifyZipContainer(tempFile, displayName, extLower)
             when (zipNature) {
                 ZipContainerNature.OOXML_DOCUMENT -> {
                     return listOf(
@@ -523,80 +570,171 @@ object SmartImportEngine {
         object PLAIN_ASSET_BUNDLE : ZipContainerNature
     }
 
-    private fun classifyZipContainer(file: File, extLower: String): ZipContainerNature {
+    private fun classifyZipContainer(file: File, displayName: String, extLower: String): ZipContainerNature {
+        val fallbackName = displayName.substringBeforeLast('.').trim().ifBlank { displayName }
         var hasContentTypesXml = false
         var hasXlOrWordDir = false
         var hasProjectMarker = extLower == "teproj"
-        var projectName = file.nameWithoutExtension
-        var wordCount = 0
+        var expProjectName = ""
+        var expWordCount = 0
+        var expDepth = Int.MAX_VALUE
+        var teprojJsonStr: String? = null
+        var teprojDepth = Int.MAX_VALUE
+        var wordListText: String? = null
+        var wordListDepth = Int.MAX_VALUE
+        var simpleSummaryXlsxBytes: ByteArray? = null
+        var simpleSummaryDepth = Int.MAX_VALUE
         var wavCount = 0
+        var zipReadError: String? = null
 
-        runCatching {
-            ZipInputStream(BufferedInputStream(FileInputStream(file))).use { zis ->
-                var entry = zis.nextEntry
-                while (entry != null) {
-                    if (!entry.isDirectory) {
-                        val norm = entry.name.replace('\\', '/')
-                        val base = norm.substringAfterLast('/')
-                        val isHidden = base.startsWith("._") || norm.startsWith("__MACOSX/")
-                        if (!isHidden) {
-                            if (norm.equals("[Content_Types].xml", ignoreCase = true)) {
-                                hasContentTypesXml = true
-                            } else if (norm.startsWith("xl/", ignoreCase = true) || norm.startsWith("word/", ignoreCase = true)) {
-                                hasXlOrWordDir = true
-                            } else if (base.equals("experiment_profile.json", ignoreCase = true)) {
-                                hasProjectMarker = true
-                                val txt = zis.readBytes().toString(Charsets.UTF_8)
-                                runCatching {
-                                    val obj = JSONObject(txt)
-                                    val pn = obj.optString("project_name", obj.optString("name", "")).trim()
-                                    if (pn.isNotEmpty()) projectName = pn
-                                    val wc = obj.optInt("total_words", 0)
-                                    if (wc > 0) wordCount = wc
-                                }
-                            } else if (base.equals("project.json", ignoreCase = true)) {
-                                hasProjectMarker = true
-                                val txt = zis.readBytes().toString(Charsets.UTF_8)
-                                runCatching {
-                                    val obj = JSONObject(txt)
-                                    val pn = obj.optString("name", obj.optString("projectName", "")).trim()
-                                    if (pn.isNotEmpty()) projectName = pn
-                                    val items = obj.optJSONArray("words") ?: obj.optJSONArray("items")
-                                    if (items != null && items.length() > wordCount) wordCount = items.length()
-                                }
-                            } else if (base.equals("word_list.txt", ignoreCase = true)) {
-                                hasProjectMarker = true
-                                val lines = zis.readBytes().toString(Charsets.UTF_8)
-                                    .lines()
-                                    .count { it.isNotBlank() && !it.trim().startsWith("#") }
-                                if (lines > wordCount) wordCount = lines
-                            } else if (base.equals("录音汇总表.xlsx", ignoreCase = true) ||
-                                base.equals("录音汇总表.csv", ignoreCase = true) ||
-                                base.equals("speaker_profile.json", ignoreCase = true)
-                            ) {
-                                hasProjectMarker = true
-                            } else if (base.endsWith(".wav", ignoreCase = true) && !norm.contains("/takes/", ignoreCase = true)) {
-                                wavCount++
+        fun resetScan() {
+            hasContentTypesXml = false
+            hasXlOrWordDir = false
+            hasProjectMarker = extLower == "teproj"
+            expProjectName = ""
+            expWordCount = 0
+            expDepth = Int.MAX_VALUE
+            teprojJsonStr = null
+            teprojDepth = Int.MAX_VALUE
+            wordListText = null
+            wordListDepth = Int.MAX_VALUE
+            simpleSummaryXlsxBytes = null
+            simpleSummaryDepth = Int.MAX_VALUE
+            wavCount = 0
+        }
+
+        try {
+            TeprojParser.forEachZipEntryResilient(
+                zipFile = file,
+                onBeforeRetry = { resetScan() }
+            ) { entry, zis ->
+                if (entry.isDirectory) return@forEachZipEntryResilient
+                val norm = TeprojParser.normalizeArchivePath(entry.name)
+                if (norm.isEmpty()) return@forEachZipEntryResilient
+                val base = norm.substringAfterLast('/')
+                val isHidden = base.startsWith("._") || norm.startsWith("__MACOSX/")
+                if (isHidden) return@forEachZipEntryResilient
+
+                val depth = norm.count { it == '/' }
+                when {
+                    norm.equals("[Content_Types].xml", ignoreCase = true) -> {
+                        hasContentTypesXml = true
+                    }
+                    norm.startsWith("xl/", ignoreCase = true) || norm.startsWith("word/", ignoreCase = true) -> {
+                        hasXlOrWordDir = true
+                    }
+                    base.equals("experiment_profile.json", ignoreCase = true) -> {
+                        hasProjectMarker = true
+                        if (depth < expDepth) {
+                            expDepth = depth
+                            val txt = TeprojParser.decodeTextClean(
+                                TeprojParser.readBytesBounded(zis, TeprojParser.MAX_METADATA_ENTRY_BYTES)
+                            )
+                            runCatching {
+                                val obj = JSONObject(txt)
+                                val pn = obj.optString("project_name", obj.optString("name", "")).trim()
+                                if (pn.isNotEmpty()) expProjectName = pn
+                                val wc = obj.optInt("total_words", 0)
+                                if (wc > 0) expWordCount = wc
                             }
                         }
                     }
-                    zis.closeEntry()
-                    entry = zis.nextEntry
+                    base.equals("project.json", ignoreCase = true) -> {
+                        hasProjectMarker = true
+                        if (depth < teprojDepth || teprojJsonStr == null) {
+                            teprojDepth = depth
+                            teprojJsonStr = TeprojParser.decodeTextClean(
+                                TeprojParser.readBytesBounded(zis, TeprojParser.MAX_METADATA_ENTRY_BYTES)
+                            )
+                        }
+                    }
+                    base.equals("word_list.txt", ignoreCase = true) -> {
+                        hasProjectMarker = true
+                        if (depth < wordListDepth || wordListText == null) {
+                            wordListDepth = depth
+                            wordListText = TeprojParser.decodeTextClean(
+                                TeprojParser.readBytesBounded(zis, TeprojParser.MAX_METADATA_ENTRY_BYTES)
+                            )
+                        }
+                    }
+                    base.equals("录音汇总表.xlsx", ignoreCase = true) -> {
+                        hasProjectMarker = true
+                        if (depth < simpleSummaryDepth || simpleSummaryXlsxBytes == null) {
+                            simpleSummaryDepth = depth
+                            simpleSummaryXlsxBytes = TeprojParser.readBytesBounded(zis, TeprojParser.MAX_METADATA_ENTRY_BYTES)
+                        }
+                    }
+                    base.equals("录音汇总表.csv", ignoreCase = true) ||
+                        base.equals("speaker_profile.json", ignoreCase = true) -> {
+                        hasProjectMarker = true
+                    }
+                    base.endsWith(".wav", ignoreCase = true) && !norm.contains("/takes/", ignoreCase = true) -> {
+                        wavCount++
+                    }
                 }
             }
+        } catch (e: Exception) {
+            zipReadError = e.localizedMessage ?: e.javaClass.simpleName
         }
 
-        return when {
-            hasContentTypesXml && hasXlOrWordDir -> ZipContainerNature.OOXML_DOCUMENT
-            hasProjectMarker -> ZipContainerNature.PROJECT_ARCHIVE(
-                ArchiveQuickInspect(
-                    archiveProjectName = projectName,
-                    estimatedWordCount = wordCount,
-                    estimatedAudioCount = wavCount
-                )
-            )
-            else -> ZipContainerNature.PLAIN_ASSET_BUNDLE
+        if (hasContentTypesXml && hasXlOrWordDir) {
+            return ZipContainerNature.OOXML_DOCUMENT
         }
+        if (!hasProjectMarker) {
+            return ZipContainerNature.PLAIN_ASSET_BUNDLE
+        }
+
+        val teprojDoc = teprojJsonStr?.let { TeprojParser.parseProjectJson(it) }
+        val wordListPreview: List<ParsedWord> = when {
+            !wordListText.isNullOrBlank() -> {
+                parseImportTextToParsedWordsImpl(wordListText!!)
+            }
+            teprojDoc != null && teprojDoc.words.isNotEmpty() -> {
+                teprojDoc.words
+            }
+            simpleSummaryXlsxBytes != null -> {
+                val sheets = runCatching { XlsxSpreadsheetWriter.readAllSheets(simpleSummaryXlsxBytes!!) }.getOrDefault(emptyMap())
+                val wlRows = sheets.entries.firstOrNull { it.key.contains("字表") || it.key.contains("词表") }?.value
+                if (wlRows != null && wlRows.size >= 2) {
+                    wlRows.drop(1).mapNotNull { row ->
+                        val t = row.getOrNull(2)?.trim().orEmpty()
+                        if (t.isEmpty()) null else ParsedWord(
+                            text = t,
+                            remark = row.getOrNull(3)?.trim().orEmpty(),
+                            groupName = TeprojParser.normalizeGroupName(row.getOrNull(1).orEmpty())
+                        )
+                    }
+                } else {
+                    emptyList()
+                }
+            }
+            else -> emptyList()
+        }
+
+        val resolvedName = expProjectName
+            .ifBlank { teprojDoc?.title.orEmpty() }
+            .ifBlank { fallbackName }
+        val resolvedWordCount = maxOf(
+            wordListPreview.size,
+            teprojDoc?.words?.size ?: 0,
+            expWordCount
+        )
+        val resolvedAudioCount = when {
+            teprojDoc != null && teprojDoc.totalAudioCandidates > 0 -> teprojDoc.totalAudioCandidates
+            else -> wavCount
+        }
+        val resolvedSpeakerCount = teprojDoc?.speakers?.size ?: 0
+
+        return ZipContainerNature.PROJECT_ARCHIVE(
+            ArchiveQuickInspect(
+                archiveProjectName = resolvedName,
+                estimatedWordCount = resolvedWordCount,
+                estimatedAudioCount = resolvedAudioCount,
+                estimatedSpeakerCount = resolvedSpeakerCount,
+                previewWords = wordListPreview,
+                parseErrorHint = zipReadError
+            )
+        )
     }
 
     private fun unpackPlainZipBundle(
@@ -606,46 +744,53 @@ object SmartImportEngine {
         zipDisplayName: String
     ): List<StagedImportItem> {
         val results = ArrayList<StagedImportItem>()
+        val createdTemps = ArrayList<File>()
         var subIdx = 1
+        var totalBytes = 0L
+
         runCatching {
-            ZipInputStream(BufferedInputStream(FileInputStream(zipFile))).use { zis ->
-                val buf = ByteArray(16384)
-                var entry = zis.nextEntry
-                while (entry != null && subIdx <= 2000) {
-                    if (!entry.isDirectory) {
-                        val norm = entry.name.replace('\\', '/').trim('/')
-                        val base = norm.substringAfterLast('/')
-                        val relFolder = if (norm.contains('/')) norm.substringBeforeLast('/') else ""
-                        val isHidden = base.startsWith(".") || base.startsWith("._") || norm.startsWith("__MACOSX/")
-                        if (!isHidden && base.isNotBlank()) {
-                            val safeBase = base.replace(Regex("""[\\/:*?"<>|]"""), "_")
-                            val outTemp = File(sessionDir, "${seqPrefix}_u${subIdx}_$safeBase")
-                            FileOutputStream(outTemp).use { fos ->
-                                while (true) {
-                                    val n = zis.read(buf)
-                                    if (n <= 0) break
-                                    fos.write(buf, 0, n)
-                                }
-                            }
-                            if (outTemp.length() > 0L) {
-                                val subItems = inspectLocalTempFile(
-                                    sessionDir = sessionDir,
-                                    seqPrefix = "${seqPrefix}_u$subIdx",
-                                    dedupKey = "zip:$zipDisplayName/$norm:${outTemp.length()}",
-                                    tempFile = outTemp,
-                                    displayName = base,
-                                    relativeFolder = relFolder,
-                                    rootOriginName = zipDisplayName
-                                )
-                                results.addAll(subItems.filter { it.kind != ImportItemKind.UNSUPPORTED })
-                                subIdx++
-                            } else {
-                                runCatching { outTemp.delete() }
-                            }
-                        }
+            TeprojParser.forEachZipEntryResilient(
+                zipFile = zipFile,
+                onBeforeRetry = {
+                    results.clear()
+                    createdTemps.forEach { runCatching { it.delete() } }
+                    createdTemps.clear()
+                    subIdx = 1
+                    totalBytes = 0L
+                }
+            ) { entry, zis ->
+                if (entry.isDirectory || subIdx > 2000) return@forEachZipEntryResilient
+                val norm = TeprojParser.normalizeArchivePath(entry.name)
+                if (norm.isEmpty()) return@forEachZipEntryResilient
+                val base = norm.substringAfterLast('/')
+                val relFolder = if (norm.contains('/')) norm.substringBeforeLast('/') else ""
+                val isHidden = base.startsWith(".") || base.startsWith("._") || norm.startsWith("__MACOSX/")
+                if (!isHidden && base.isNotBlank()) {
+                    val safeBase = base.replace(Regex("""[\\/:*?"<>|\u0000-\u001F]"""), "_").take(120)
+                    val outTemp = File(sessionDir, "${seqPrefix}_u${subIdx}_$safeBase")
+                    val remaining = (TeprojParser.MAX_TOTAL_EXTRACT_BYTES - totalBytes).coerceAtLeast(0L)
+                    val written = TeprojParser.copyEntryToFileBounded(
+                        input = zis,
+                        destFile = outTemp,
+                        maxBytes = minOf(TeprojParser.MAX_SINGLE_MEDIA_ENTRY_BYTES, remaining)
+                    )
+                    totalBytes += written
+                    if (outTemp.length() > 0L) {
+                        createdTemps.add(outTemp)
+                        val subItems = inspectLocalTempFile(
+                            sessionDir = sessionDir,
+                            seqPrefix = "${seqPrefix}_u$subIdx",
+                            dedupKey = "zip:$zipDisplayName/$norm:${outTemp.length()}",
+                            tempFile = outTemp,
+                            displayName = base,
+                            relativeFolder = relFolder,
+                            rootOriginName = zipDisplayName
+                        )
+                        results.addAll(subItems.filter { it.kind != ImportItemKind.UNSUPPORTED })
+                        subIdx++
+                    } else {
+                        runCatching { outTemp.delete() }
                     }
-                    zis.closeEntry()
-                    entry = zis.nextEntry
                 }
             }
         }
@@ -1231,6 +1376,9 @@ object SmartImportEngine {
     ): SmartImportResult = withContext(Dispatchers.IO) {
         var importedArchives = 0
         var lastArchiveProjectId: Long? = null
+        var lastArchiveSpeakerId: Long? = null
+        var lastArchiveSummaryMsg: String? = null
+        val archiveFailureMessages = mutableListOf<String>()
         var skippedFiles = plan.unsupportedItems.size + plan.unassignedAudioCount
 
         val totalSteps = (plan.archiveItems.size + 1 + plan.readyAudioCount).coerceAtLeast(1)
@@ -1241,6 +1389,7 @@ object SmartImportEngine {
             val f = arch.localTempFile
             if (f == null || !f.exists()) {
                 skippedFiles++
+                archiveFailureMessages.add("${arch.displayName}：临时文件不可读")
                 continue
             }
             currentStep++
@@ -1250,26 +1399,42 @@ object SmartImportEngine {
                     stageMessage = SSmartImport.progressImportingArchive.withArgs("name" to arch.displayName)
                 )
             )
-            val summary = runCatching {
+            val fallbackName = arch.displayName.substringBeforeLast('.').trim().ifBlank { null }
+            val summaryResult = runCatching {
                 FileInputStream(f).use { fis ->
-                    ZipUtility.importProjectArchiveZip(context, repository, fis)
+                    ZipUtility.importProjectArchiveZip(
+                        context = context,
+                        repository = repository,
+                        inputStream = fis,
+                        fallbackProjectName = fallbackName
+                    )
                 }
-            }.getOrNull()
+            }
+            val summary = summaryResult.getOrNull()
             if (summary != null && summary.success && summary.projectId > 0L) {
                 importedArchives++
                 lastArchiveProjectId = summary.projectId
+                if (summary.primarySpeakerId > 0L) {
+                    lastArchiveSpeakerId = summary.primarySpeakerId
+                }
+                lastArchiveSummaryMsg = summary.message
             } else {
                 skippedFiles++
+                val errMsg = summary?.message?.takeIf { it.isNotBlank() }
+                    ?: summaryResult.exceptionOrNull()?.localizedMessage
+                    ?: "压缩包解析失败"
+                archiveFailureMessages.add("${arch.displayName}：$errMsg")
             }
         }
 
         val hasCorpusPayload = plan.candidateWords.isNotEmpty() || plan.readyAudioCount > 0
         if (!hasCorpusPayload) {
             val ok = importedArchives > 0
-            val baseMsg = if (ok) {
-                SSmartImport.resultSuccessArchivesOnly.withArgs("count" to importedArchives)
-            } else {
-                "没有可导入的有效内容"
+            val baseMsg = when {
+                ok && importedArchives == 1 && !lastArchiveSummaryMsg.isNullOrBlank() -> lastArchiveSummaryMsg!!
+                ok -> SSmartImport.resultSuccessArchivesOnly.withArgs("count" to importedArchives)
+                archiveFailureMessages.isNotEmpty() -> archiveFailureMessages.joinToString("；")
+                else -> "没有可导入的有效内容"
             }
             val finalMsg = if (skippedFiles > 0 && ok) {
                 baseMsg + SSmartImport.resultPartialSkippedSuffix.withArgs("skipped" to skippedFiles)
@@ -1278,7 +1443,7 @@ object SmartImportEngine {
             return@withContext SmartImportResult(
                 success = ok,
                 primaryProjectId = lastArchiveProjectId,
-                primarySpeakerId = defaultSpeakerId,
+                primarySpeakerId = lastArchiveSpeakerId ?: defaultSpeakerId,
                 importedArchiveCount = importedArchives,
                 createdOrAddedWordCount = 0,
                 importedAudioCount = 0,
@@ -1286,6 +1451,26 @@ object SmartImportEngine {
                 summaryMessage = finalMsg
             )
         }
+
+        // Validate merge target BEFORE creating any speakers or mutating database state
+        val mergeTargetProject = if (config.targetMode == ImportTargetMode.MERGE_EXISTING_PROJECT) {
+            val resolved = existingProjects.firstOrNull { it.id == config.mergeTargetProjectId }
+                ?: config.mergeTargetProjectId?.let { repository.getProjectById(it) }
+            if (resolved == null) {
+                val errMsg = "导入失败：所选并入目标项目已不存在，请重新选择目标项目"
+                return@withContext SmartImportResult(
+                    success = importedArchives > 0,
+                    primaryProjectId = lastArchiveProjectId,
+                    primarySpeakerId = lastArchiveSpeakerId ?: defaultSpeakerId,
+                    importedArchiveCount = importedArchives,
+                    createdOrAddedWordCount = 0,
+                    importedAudioCount = 0,
+                    skippedCount = skippedFiles,
+                    summaryMessage = errMsg
+                )
+            }
+            resolved
+        } else null
 
         // 2. Resolve Speakers (matching existing by name or creating new speakers when subfolder/prefix speakers detected)
         val speakerIdByName = HashMap<String, Long>()
@@ -1333,10 +1518,6 @@ object SmartImportEngine {
         var targetProjectName: String
         var newlyCreatedOrAddedWords = 0
         val wordIdByCandidateKey = HashMap<String, Long>(plan.candidateWords.size * 2)
-
-        val mergeTargetProject = if (config.targetMode == ImportTargetMode.MERGE_EXISTING_PROJECT) {
-            existingProjects.firstOrNull { it.id == config.mergeTargetProjectId } ?: existingProjects.firstOrNull()
-        } else null
 
         if (mergeTargetProject != null) {
             targetProjectId = mergeTargetProject.id
@@ -1508,7 +1689,12 @@ object SmartImportEngine {
             importedAudioCount++
         }
 
-        val baseMessage = if (mergeTargetProject != null) {
+        val archivePrefix = if (importedArchives > 0) {
+            "已还原 $importedArchives 个项目包；"
+        } else {
+            ""
+        }
+        val baseMessage = archivePrefix + if (mergeTargetProject != null) {
             SSmartImport.resultSuccessMerged.withArgs(
                 "name" to targetProjectName,
                 "words" to newlyCreatedOrAddedWords,

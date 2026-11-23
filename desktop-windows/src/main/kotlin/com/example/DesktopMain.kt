@@ -274,16 +274,26 @@ fun main(args: Array<String>) = application {
             val f = java.io.File(launchPath)
             val ext = f.extension.lowercase()
             if (f.isFile && (ext == "teproj" || ext == "zip")) {
+                var openedStream: java.io.FileInputStream? = null
                 try {
-                    viewModel.importProjectZip(java.io.FileInputStream(f)) { summary ->
+                    val fis = java.io.FileInputStream(f)
+                    openedStream = fis
+                    viewModel.importProjectZip(fis, fallbackProjectName = f.nameWithoutExtension) { summary ->
                         val msg = if (summary.success) {
                             "已打开工程：${summary.projectName}"
                         } else {
-                            "无法导入工程文件：${f.name}"
+                            summary.message.ifBlank { "无法导入工程文件：${f.name}" }
                         }
-                        Toast.makeText(appContext, msg, Toast.LENGTH_SHORT).show()
+                        Toast.makeText(appContext, msg, Toast.LENGTH_LONG).show()
                     }
-                } catch (_: Exception) {
+                    openedStream = null
+                } catch (e: Exception) {
+                    runCatching { openedStream?.close() }
+                    Toast.makeText(
+                        appContext,
+                        "无法导入工程文件：${f.name}（${e.localizedMessage ?: "读取失败"}）",
+                        Toast.LENGTH_LONG
+                    ).show()
                 }
             }
         }

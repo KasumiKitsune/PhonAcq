@@ -257,7 +257,7 @@ object DesktopFilePickerController {
                     id = "supported_all",
                     label = "全部支持格式",
                     extensions = listOf(
-                        "xlsx", "csv", "tsv", "txt", "docx", "json",
+                        "xlsx", "csv", "tsv", "txt", "docx", "json", "ptwl",
                         "wav", "mp3", "m4a", "aac", "flac", "ogg", "aiff",
                         "zip", "teproj",
                         "png", "jpg", "jpeg", "webp", "bmp",
@@ -266,8 +266,8 @@ object DesktopFilePickerController {
                 ),
                 FileFilterCategory(
                     id = "spreadsheets",
-                    label = "字表 (.xlsx/.csv/.txt/.docx)",
-                    extensions = listOf("xlsx", "csv", "tsv", "txt", "docx", "json")
+                    label = "字表 (.xlsx/.csv/.txt/.docx/.ptwl)",
+                    extensions = listOf("xlsx", "csv", "tsv", "txt", "docx", "json", "ptwl")
                 ),
                 FileFilterCategory(
                     id = "audio",

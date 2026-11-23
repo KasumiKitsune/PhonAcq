@@ -173,9 +173,19 @@ fun SmartImportWorkspaceScreen(
     val currentProject by viewModel.currentProject.collectAsState()
 
     val sessionStagingDir = remember { SmartImportEngine.createSessionStagingDir(context) }
+    val stagingCleanupGuard = remember {
+        object {
+            var isImportRunning: Boolean = false
+            var cleanupRequestedOnDispose: Boolean = false
+        }
+    }
     DisposableEffect(Unit) {
         onDispose {
-            SmartImportEngine.cleanupSessionStagingDir(sessionStagingDir)
+            if (stagingCleanupGuard.isImportRunning) {
+                stagingCleanupGuard.cleanupRequestedOnDispose = true
+            } else {
+                SmartImportEngine.cleanupSessionStagingDir(sessionStagingDir)
+            }
         }
     }
 
@@ -215,6 +225,8 @@ fun SmartImportWorkspaceScreen(
     var previewFilter by remember { mutableStateOf(PairingPreviewFilter.ALL) }
     var rebindTargetRow by remember { mutableStateOf<AudioWordPairingRow?>(null) }
     var mobilePairingsExpanded by remember { mutableStateOf(false) }
+    var mobileStagedExpanded by remember { mutableStateOf(false) }
+    var mobileShowAllPairings by remember { mutableStateOf(false) }
     var isDragHovering by remember { mutableStateOf(false) }
 
     val backVisualState = rememberPredictiveBackVisualState()
@@ -237,18 +249,36 @@ fun SmartImportWorkspaceScreen(
         }
     }
 
+    // Serialize URI staging batches so rapid drops/picks never overwrite each other
+    val stagingQueueState = remember {
+        object {
+            val pendingBatches = ArrayDeque<List<Uri>>()
+            var draining: Boolean = false
+        }
+    }
+
     fun appendUris(uris: List<Uri>) {
         if (uris.isEmpty() || isExecutingImport) return
+        stagingQueueState.pendingBatches.addLast(uris)
+        if (stagingQueueState.draining) return
+        stagingQueueState.draining = true
+        isScanningFiles = true
         scope.launch {
-            isScanningFiles = true
-            val updated = SmartImportEngine.stageUrisIntoPool(
-                context = context,
-                sessionDir = sessionStagingDir,
-                existingStaged = stagedItems,
-                uris = uris
-            )
-            stagedItems = updated
-            isScanningFiles = false
+            try {
+                while (stagingQueueState.pendingBatches.isNotEmpty()) {
+                    val batch = stagingQueueState.pendingBatches.removeFirst()
+                    val updated = SmartImportEngine.stageUrisIntoPool(
+                        context = context,
+                        sessionDir = sessionStagingDir,
+                        existingStaged = stagedItems,
+                        uris = batch
+                    )
+                    stagedItems = updated
+                }
+            } finally {
+                stagingQueueState.draining = false
+                isScanningFiles = false
+            }
         }
     }
 
@@ -334,6 +364,7 @@ fun SmartImportWorkspaceScreen(
     fun triggerImportExecution() {
         if (!canStartImport) return
         isExecutingImport = true
+        stagingCleanupGuard.isImportRunning = true
         activeProgress = SmartImportProgress(0.05f, SSmartImport.progressScanningFiles)
         viewModel.executeSmartImportPlan(
             plan = plan,
@@ -341,6 +372,10 @@ fun SmartImportWorkspaceScreen(
             defaultSpeakerId = selectedSpeakerObj?.id,
             onProgress = { prog -> activeProgress = prog },
             onFinished = { result ->
+                stagingCleanupGuard.isImportRunning = false
+                if (stagingCleanupGuard.cleanupRequestedOnDispose) {
+                    SmartImportEngine.cleanupSessionStagingDir(sessionStagingDir)
+                }
                 isExecutingImport = false
                 activeProgress = null
                 Toast.makeText(context, result.summaryMessage, Toast.LENGTH_LONG).show()
@@ -362,13 +397,17 @@ fun SmartImportWorkspaceScreen(
         if (stagedItems.isEmpty()) {
             SSmartImport.footerEmptySummary
         } else {
-            val newWordCount = if (targetMode == ImportTargetMode.MERGE_EXISTING_PROJECT) {
+            val corpusWordCount = if (targetMode == ImportTargetMode.MERGE_EXISTING_PROJECT) {
                 plan.candidateWords.count { it.existingWordId == null }
             } else {
                 plan.candidateWords.size
             }
+            val archiveWordCount = plan.archiveItems.sumOf { it.archiveInspect?.estimatedWordCount ?: 0 }
+            val archiveAudioCount = plan.archiveItems.sumOf { it.archiveInspect?.estimatedAudioCount ?: 0 }
+            val totalWords = corpusWordCount + archiveWordCount
+            val totalAudio = plan.readyAudioCount + archiveAudioCount
             val projPart = if (plan.archiveItems.isNotEmpty()) "${plan.archiveItems.size} 个项目包 · " else ""
-            "就绪：${projPart}${newWordCount} 个词条 · ${plan.readyAudioCount} 条录音"
+            "就绪：${projPart}${totalWords} 个词条 · ${totalAudio} 条录音"
         }
     }
 
@@ -903,7 +942,8 @@ fun SmartImportWorkspaceScreen(
                         )
 
                         Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                            stagedItems.take(6).forEach { item ->
+                            val visibleStaged = if (mobileStagedExpanded) stagedItems else stagedItems.take(6)
+                            visibleStaged.forEach { item ->
                                 StagedImportFileRow(
                                     item = item,
                                     enabled = !isExecutingImport,
@@ -914,12 +954,20 @@ fun SmartImportWorkspaceScreen(
                                 )
                             }
                             if (stagedItems.size > 6) {
-                                Text(
-                                    text = "… 等共 ${stagedItems.size} 个文件已加入待导入列表",
-                                    fontSize = 11.5.sp,
-                                    color = cs.onSurfaceVariant,
-                                    modifier = Modifier.padding(start = 4.dp)
-                                )
+                                TextButton(
+                                    onClick = { mobileStagedExpanded = !mobileStagedExpanded },
+                                    contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp)
+                                ) {
+                                    Text(
+                                        text = if (mobileStagedExpanded) {
+                                            "收起已添加列表（共 ${stagedItems.size} 个文件）"
+                                        } else {
+                                            "展开查看全部 ${stagedItems.size} 个已添加文件（还有 ${stagedItems.size - 6} 个）"
+                                        },
+                                        fontSize = 11.5.sp,
+                                        color = cs.primary
+                                    )
+                                }
                             }
                         }
                     }
@@ -1015,12 +1063,29 @@ fun SmartImportWorkspaceScreen(
                                     exit = StudioMotion.verticalPanelExit
                                 ) {
                                     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                                        plan.audioPairings.take(80).forEach { row ->
+                                        val visiblePairings = if (mobileShowAllPairings) plan.audioPairings else plan.audioPairings.take(80)
+                                        visiblePairings.forEach { row ->
                                             AudioPairingPreviewRow(
                                                 row = row,
                                                 enabled = !isExecutingImport,
                                                 onClickRebind = { rebindTargetRow = row }
                                             )
+                                        }
+                                        if (plan.audioPairings.size > 80) {
+                                            TextButton(
+                                                onClick = { mobileShowAllPairings = !mobileShowAllPairings },
+                                                contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp)
+                                            ) {
+                                                Text(
+                                                    text = if (mobileShowAllPairings) {
+                                                        "收起其余 ${plan.audioPairings.size - 80} 条配对明细"
+                                                    } else {
+                                                        "显示全部 ${plan.audioPairings.size} 条配对明细（当前仅展示前 80 条）"
+                                                    },
+                                                    fontSize = 11.5.sp,
+                                                    color = cs.primary
+                                                )
+                                            }
                                         }
                                     }
                                 }
