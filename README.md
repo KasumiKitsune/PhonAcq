@@ -4,13 +4,13 @@
   <p>田野语音与方言字表采录系统 · 面向方言调查、民族语记音与语音学实验</p>
 
   <p>
-    <a href="https://github.com/KasumiKitsune/PhonAcq/releases/download/v2.0.2/PhonAcq-v2.0.2-windows-x64-setup.exe" title="下载 PhonAcq Windows 桌面版 (64 位 .exe)"><img src="docs/images/download-windows.svg" alt="Windows 桌面版" height="40" /></a>
+    <a href="https://github.com/KasumiKitsune/PhonAcq/releases/download/v2.0.3/PhonAcq-v2.0.3-windows-x64-setup.exe" title="下载 PhonAcq Windows 桌面版 (64 位 .exe)"><img src="docs/images/download-windows.svg" alt="Windows 桌面版" height="40" /></a>
     &nbsp;
-    <a href="https://github.com/KasumiKitsune/PhonAcq/releases/download/v2.0.2/PhonAcq-v2.0.2-macos-arm64.dmg" title="下载 PhonAcq macOS 桌面版 (Apple Silicon .dmg)"><img src="docs/images/download-macos.svg" alt="macOS Apple Silicon 桌面版" height="40" /></a>
+    <a href="https://github.com/KasumiKitsune/PhonAcq/releases/download/v2.0.3/PhonAcq-v2.0.3-macos-arm64.dmg" title="下载 PhonAcq macOS 桌面版 (Apple Silicon .dmg)"><img src="docs/images/download-macos.svg" alt="macOS Apple Silicon 桌面版" height="40" /></a>
     &nbsp;
-    <a href="https://github.com/KasumiKitsune/PhonAcq/releases/download/v2.0.2/PhonAcq-v2.0.2-macos-x64.dmg" title="下载 PhonAcq macOS 桌面版 (Intel 芯片 .dmg)"><img src="docs/images/download-macos-intel.svg" alt="macOS Intel 桌面版" height="40" /></a>
+    <a href="https://github.com/KasumiKitsune/PhonAcq/releases/download/v2.0.3/PhonAcq-v2.0.3-macos-x64.dmg" title="下载 PhonAcq macOS 桌面版 (Intel 芯片 .dmg)"><img src="docs/images/download-macos-intel.svg" alt="macOS Intel 桌面版" height="40" /></a>
     &nbsp;
-    <a href="https://github.com/KasumiKitsune/PhonAcq/releases/download/v2.0.2/PhonAcq-v2.0.2-android.apk" title="下载 PhonAcq Android 移动版 (Android 7.0+ .apk)"><img src="docs/images/download-android.svg" alt="Android 移动版" height="40" /></a>
+    <a href="https://github.com/KasumiKitsune/PhonAcq/releases/download/v2.0.3/PhonAcq-v2.0.3-android.apk" title="下载 PhonAcq Android 移动版 (Android 7.0+ .apk)"><img src="docs/images/download-android.svg" alt="Android 移动版" height="40" /></a>
   </p>
 </div>
 
@@ -90,10 +90,10 @@ PhonAcq 由 [KasumiKitsune](https://github.com/KasumiKitsune) 开发维护，可
 
 普通用户可直接点击页面顶部的平台下载卡片，或前往本仓库 **[Releases](https://github.com/KasumiKitsune/PhonAcq/releases)** 页面下载对应平台安装包：
 
-- **Windows（64 位）**：`PhonAcq-v2.0.2-windows-x64-setup.exe`（Windows 10 / 11 简体中文安装程序，支持同版本/跨版本直接覆盖更新）
-- **macOS（Apple Silicon）**：`PhonAcq-v2.0.2-macos-arm64.dmg`（适用于 M1 / M2 / M3 / M4 系列芯片 Mac）
-- **macOS（Intel 芯片）**：`PhonAcq-v2.0.2-macos-x64.dmg`（适用于 Intel 处理器款 Mac）
-- **Android（手机 / 平板）**：`PhonAcq-v2.0.2-android.apk`（Android 7.0+ 通用）
+- **Windows（64 位）**：`PhonAcq-v2.0.3-windows-x64-setup.exe`（Windows 10 / 11 简体中文安装程序，支持同版本/跨版本直接覆盖更新）
+- **macOS（Apple Silicon）**：`PhonAcq-v2.0.3-macos-arm64.dmg`（适用于 M1 / M2 / M3 / M4 系列芯片 Mac）
+- **macOS（Intel 芯片）**：`PhonAcq-v2.0.3-macos-x64.dmg`（适用于 Intel 处理器款 Mac）
+- **Android（手机 / 平板）**：`PhonAcq-v2.0.3-android.apk`（Android 7.0+ 通用）
 
 > [!TIP]
 > **macOS 首次打开提示说明**
@@ -109,13 +109,13 @@ PhonAcq 由 [KasumiKitsune](https://github.com/KasumiKitsune) 开发维护，可
 1. 确保本地已安装 **JDK 17 或更高版本** 及 **Gradle 8.7+**。
 2. 在仓库根目录执行以下命令：
    - 直接启动桌面端：`gradle -p desktop-windows run`
-   - 打包 Windows 图形化安装程序 (`.exe`)：`gradle -p desktop-windows packageWindowsSetup -PappVersion=2.0.2`
-   - 打包当前架构 macOS 镜像 (`.dmg`)：`gradle -p desktop-windows packageDmg -PappVersion=2.0.2`
+   - 打包 Windows 图形化安装程序 (`.exe`)：`gradle -p desktop-windows packageWindowsSetup -PappVersion=2.0.3`
+   - 打包当前架构 macOS 镜像 (`.dmg`)：`gradle -p desktop-windows packageDmg -PappVersion=2.0.3`
 
 ### 手动触发多端自动发版（GitHub Actions）
 仓库内置手动发版工作流 `.github/workflows/release.yml`（不会在日常 `git push` 时自动运行）：
 1. 在 GitHub 仓库顶部进入 **Actions → Release PhonAcq (Android APK · Windows EXE · macOS DMG)**，点击 **Run workflow**，填写版本号（如 `2.0.2`）与更新说明即可一键并行构建并发布 Release。
-2. **可选 Android 正式签名配置**：在仓库 **Settings → Secrets and variables → Actions** 中添加以下三个 Secret，工作流即会自动产出正式签名版 `PhonAcq-v2.0.2-android.apk`（未配置时自动回退生成可安装的测试签名版）：
+2. **可选 Android 正式签名配置**：在仓库 **Settings → Secrets and variables → Actions** 中添加以下三个 Secret，工作流即会自动产出正式签名版 `PhonAcq-v2.0.3-android.apk`（未配置时自动回退生成可安装的测试签名版）：
    - `ANDROID_KEYSTORE_BASE64`：别名为 `upload` 的 `.jks` 签名文件经 Base64 编码后的单行文本（可通过 `keytool -genkeypair -v -keystore upload-key.jks -alias upload -keyalg RSA -keysize 2048 -validity 10000` 生成后执行 `base64 -w 0 upload-key.jks` 获取）
    - `STORE_PASSWORD`：Keystore 密码
    - `KEY_PASSWORD`：`upload` 密钥密码

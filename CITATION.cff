@@ -9,8 +9,8 @@ authors:
 abstract: "PhonAcq 是一款面向汉语方言调查、民族语记音与实验语音学课堂训练的田野语音与方言字表采录系统，支持看图发音引导、局域网双设备无线联动、声学实时参考与 Praat / PhonTracer 规范导出。"
 repository-code: "https://github.com/KasumiKitsune/PhonAcq"
 url: "https://kasumikitsune.github.io/PhonAcq/"
-version: "2.0.2"
-date-released: "2026-11-19"
+version: "2.0.3"
+date-released: "2026-11-23"
 keywords:
   - phonetics
   - dialectology
