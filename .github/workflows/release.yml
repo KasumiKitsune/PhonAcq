@@ -4,9 +4,9 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: '发布版本号（如 2.0.2 或 v2.0.2）'
+        description: '发布版本号（如 2.0.3 或 v2.0.3）'
         required: true
-        default: '2.0.2'
+        default: '2.0.3'
         type: string
       release_notes:
         description: '本次版本更新说明（支持 Markdown；留空则自动生成变更记录）'

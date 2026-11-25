@@ -593,50 +593,79 @@ private fun EncyclopediaCanvasHelper.draw21ZipExtractWorkflow() {
 }
 
 // -------------------------------------------------------------------------
-// #22 .wav、.csv、.TextGrid 与 .Collection 格式说明
+// #22 .wav、.csv、.TextGrid 与 .Collection 格式说明（Dual-Scale 双尺度谱面结构）
 // -------------------------------------------------------------------------
 private fun EncyclopediaCanvasHelper.draw22WavTextGridCollection() {
-    // Left stacked synchronized architecture
-    // 1. Top: .TextGrid annotation tier
-    drawPanel(16f, 14f, 214f, 50f, p.primaryContainer.copy(alpha = 0.55f), p.primary.copy(alpha = 0.5f), radius = 11f)
-    scope.drawLine(p.primary, pt(76f, 32f), pt(76f, 60f), strokeWidth = u(1.6f))
-    scope.drawLine(p.primary, pt(168f, 32f), pt(168f, 60f), strokeWidth = u(1.6f))
-    drawLabel("0.12s", 52f, 46f, p.onSurfaceVariant, 7.6f, monospace = true)
-    drawPill("巴 · [pa⁵⁵]", 122f, 46f, p.surface, p.primary, fontPx = 8.4f)
-    drawLabel("0.48s", 194f, 46f, p.onSurfaceVariant, 7.6f, monospace = true)
-    drawPill(".TextGrid 纯文本标注层", 123f, 23f, p.primary, p.onPrimary, fontPx = 7.3f, padH = 5.5f, padV = 1.2f)
+    // Left: Dual-Scale Speech Score Architecture (.wav + 1:1/elastic bridge + IntervalTier + TextTier)
+    drawPanel(12f, 10f, 224f, 118f, p.surface, p.primary.copy(alpha = 0.42f), radius = 12f)
 
-    // Alignment connector dashed lines into .wav
-    scope.drawLine(p.primary.copy(alpha = 0.45f), pt(76f, 60f), pt(76f, 72f), strokeWidth = u(1.3f), pathEffect = dashFine)
-    scope.drawLine(p.primary.copy(alpha = 0.45f), pt(168f, 60f), pt(168f, 72f), strokeWidth = u(1.3f), pathEffect = dashFine)
-
-    // 2. Middle: .wav lossless waveform
-    drawPanel(16f, 72f, 214f, 48f, p.secondaryContainer.copy(alpha = 0.5f), p.secondary.copy(alpha = 0.45f), radius = 11f)
-    for (wx in 34..210 step 6) {
-        val h = if (wx in 78..166) 13f * sin(((wx - 76f) / 92f) * PI).toFloat() + 3f else 2f
-        scope.drawLine(p.secondary, pt(wx.toFloat(), 98f - h), pt(wx.toFloat(), 98f + h), strokeWidth = u(2.2f), cap = StrokeCap.Round)
+    // 1. Acoustic Strip: Waveform + Wideband Spectrogram band (.wav)
+    drawPanel(18f, 16f, 212f, 34f, p.secondaryContainer.copy(alpha = 0.42f), p.secondary.copy(alpha = 0.4f), radius = 7f)
+    for (wx in 28..220 step 5) {
+        val env = if (wx in 62..182) sin(((wx - 60f) / 124f) * PI).toFloat() else 0.14f
+        val h = (11f * env + 1.8f)
+        scope.drawLine(p.secondary, pt(wx.toFloat(), 30f - h), pt(wx.toFloat(), 30f + h), strokeWidth = u(1.7f), cap = StrokeCap.Round)
     }
-    drawPill(".wav 无损音频波形", 178f, 81f, p.secondary, p.surfaceLowest, fontPx = 7.2f, padH = 5f, padV = 1.1f)
+    // Subtle formant bands inside lower acoustic strip
+    scope.drawLine(p.tertiary.copy(alpha = 0.55f), pt(76f, 43f), pt(168f, 41f), strokeWidth = u(2.4f), cap = StrokeCap.Round)
+    scope.drawLine(p.primary.copy(alpha = 0.5f), pt(76f, 47f), pt(168f, 46f), strokeWidth = u(2.2f), cap = StrokeCap.Round)
+    drawPill(".wav 波形与语谱", 184f, 22f, p.secondary, p.surfaceLowest, fontPx = 6.6f, padH = 4.5f, padV = 1f)
 
-    // 3. Bottom: .csv data spreadsheet
-    drawPanel(16f, 128f, 214f, 50f, p.surface, p.outlineVariant, radius = 11f)
-    scope.drawLine(p.outlineVariant, pt(24f, 154f), pt(222f, 154f), strokeWidth = u(1f))
-    listOf(72f, 124f, 174f).forEach { cx ->
-        scope.drawLine(p.outlineVariant, pt(cx, 138f), pt(cx, 173f), strokeWidth = u(1f))
+    // 2. Dual-Scale Time Bridge (1:1 true-time bar -> slanted connectors -> elastic ruler ticks)
+    // 1:1 bar at y=54..58
+    scope.drawRoundRect(p.outlineVariant.copy(alpha = 0.45f), topLeft = pt(22f, 54f), size = sz(204f, 4.5f), cornerRadius = cr(2f))
+    scope.drawRoundRect(p.primary.copy(alpha = 0.65f), topLeft = pt(68f, 54f), size = sz(102f, 4.5f), cornerRadius = cr(2f))
+    // Slanted elastic mapping lines (1:1 boundaries -> expanded annotation boundaries)
+    scope.drawLine(p.primary.copy(alpha = 0.55f), pt(68f, 58.5f), pt(54f, 70f), strokeWidth = u(1.2f), pathEffect = dashFine)
+    scope.drawLine(p.primary.copy(alpha = 0.55f), pt(118f, 58.5f), pt(124f, 70f), strokeWidth = u(1.2f), pathEffect = dashFine)
+    scope.drawLine(p.primary.copy(alpha = 0.55f), pt(170f, 58.5f), pt(194f, 70f), strokeWidth = u(1.2f), pathEffect = dashFine)
+    // Time ruler ticks
+    drawLabel("0.00", 28f, 66f, p.onSurfaceVariant, 6.4f, monospace = true)
+    drawLabel("0.12s", 54f, 66f, p.primary, 6.5f, FontWeight.Bold, monospace = true)
+    drawLabel("0.30s", 124f, 66f, p.primary, 6.5f, FontWeight.Bold, monospace = true)
+    drawLabel("0.48s", 194f, 66f, p.primary, 6.5f, FontWeight.Bold, monospace = true)
+
+    // 3. Multi-tier .TextGrid: IntervalTier (top track) + TextTier / Point tier (bottom track)
+    // IntervalTier (words / syllables)
+    drawPanel(18f, 72f, 212f, 24f, p.primaryContainer.copy(alpha = 0.48f), p.primary.copy(alpha = 0.48f), radius = 6f)
+    scope.drawLine(p.primary, pt(54f, 73f), pt(54f, 95f), strokeWidth = u(1.5f))
+    scope.drawLine(p.primary, pt(124f, 73f), pt(124f, 95f), strokeWidth = u(1.5f))
+    scope.drawLine(p.primary, pt(194f, 73f), pt(194f, 95f), strokeWidth = u(1.5f))
+    drawLabel("区间层", 35f, 84f, p.onSurfaceVariant, 6.5f, FontWeight.Bold)
+    drawLabel("中 [tʂʊŋ]", 89f, 84f, p.primary, 7.2f, FontWeight.ExtraBold)
+    drawLabel("国 [kuo]", 159f, 84f, p.primary, 7.2f, FontWeight.ExtraBold)
+    drawLabel("∅", 211f, 84f, p.outline, 7.2f, monospace = true)
+
+    // TextTier (Point tier: stems + diamond markers)
+    drawPanel(18f, 100f, 212f, 22f, p.tertiaryContainer.copy(alpha = 0.36f), p.tertiary.copy(alpha = 0.45f), radius = 6f)
+    scope.drawLine(p.tertiary.copy(alpha = 0.45f), pt(52f, 111f), pt(224f, 111f), strokeWidth = u(1f), pathEffect = dashFine)
+    drawLabel("点层", 35f, 111f, p.tertiary, 6.5f, FontWeight.Bold)
+    listOf(88f to "T55", 158f to "T35").forEach { (px, tag) ->
+        scope.drawLine(p.tertiary, pt(px, 102f), pt(px, 120f), strokeWidth = u(1.3f))
+        scope.drawCircle(p.tertiary, radius = u(2.8f), center = pt(px, 111f))
+        drawPill(tag, px + 18f, 111f, p.surface, p.tertiary, fontPx = 6.4f, padH = 3.5f, padV = 0.8f)
     }
-    drawLabel("词条  |  调值  |  F1   |  F2", 123f, 146f, p.onSurfaceVariant, 7.6f, monospace = true)
-    drawLabel("001_巴 |  55   | 780Hz | 1240Hz", 123f, 165f, p.tertiary, 7.6f, monospace = true)
-    drawPill(".csv 统计表", 50f, 128f, p.tertiaryContainer, p.tertiary, fontPx = 7.2f, padH = 5f, padV = 1.1f)
+
+    // 4. Bottom: .csv / .xlsx acoustic summary table
+    drawPanel(12f, 134f, 224f, 44f, p.surface, p.outlineVariant, radius = 10f)
+    scope.drawLine(p.outlineVariant, pt(20f, 156f), pt(228f, 156f), strokeWidth = u(0.9f))
+    listOf(72f, 124f, 176f).forEach { cx ->
+        scope.drawLine(p.outlineVariant, pt(cx, 141f), pt(cx, 173f), strokeWidth = u(0.9f))
+    }
+    drawLabel("词条  |  调值  |  F1   |  F2", 124f, 149f, p.onSurfaceVariant, 7.3f, monospace = true)
+    drawLabel("001_中国| 55/35 | 780Hz | 1240Hz", 124f, 166f, p.tertiary, 7.1f, monospace = true)
+    drawPill(".xlsx/.csv 汇总表", 54f, 134f, p.tertiaryContainer, p.tertiary, fontPx = 6.9f, padH = 5f, padV = 1f)
 
     // Right: Combined .Collection single-file bundle
-    drawQuadArrow(234f, 40f, 254f, 52f, 268f, 68f, p.tertiary, strokeW = 2f, headLen = 6.5f)
-    drawQuadArrow(234f, 94f, 254f, 90f, 268f, 82f, p.tertiary, strokeW = 2f, headLen = 6.5f)
+    drawQuadArrow(240f, 40f, 258f, 52f, 270f, 68f, p.tertiary, strokeW = 2f, headLen = 6.5f)
+    drawQuadArrow(240f, 94f, 258f, 90f, 270f, 82f, p.tertiary, strokeW = 2f, headLen = 6.5f)
 
-    drawPanel(272f, 28f, 114f, 134f, p.tertiaryContainer.copy(alpha = 0.48f), p.tertiary.copy(alpha = 0.5f), radius = 14f)
-    drawFileSheet(306f, 42f, 46f, 54f, p.tertiary, p.surface, ".Col")
-    drawLabel(".Collection", 329f, 112f, p.tertiary, 10.2f, FontWeight.ExtraBold, monospace = true)
-    drawLabel("音标配对合一工程", 329f, 129f, p.onSurface, 8.2f)
-    drawLabel("Praat 单文件直读", 329f, 145f, p.onSurfaceVariant, 7.6f)
+    drawPanel(274f, 24f, 114f, 142f, p.tertiaryContainer.copy(alpha = 0.48f), p.tertiary.copy(alpha = 0.5f), radius = 14f)
+    drawFileSheet(308f, 38f, 46f, 52f, p.tertiary, p.surface, ".Col")
+    drawLabel(".Collection", 331f, 106f, p.tertiary, 10.2f, FontWeight.ExtraBold, monospace = true)
+    drawLabel("音频+双层标注合一", 331f, 124f, p.onSurface, 8f)
+    drawLabel("支持区间层与点层", 331f, 139f, p.onSurfaceVariant, 7.3f)
+    drawLabel("Praat 单文件直读", 331f, 154f, p.onSurfaceVariant, 7.3f)
 }
 
 // -------------------------------------------------------------------------
@@ -664,40 +693,60 @@ private fun EncyclopediaCanvasHelper.draw23CsvUtf8BomEncoding() {
 }
 
 // -------------------------------------------------------------------------
-// #24 音频 .wav 与标注 .TextGrid 的同名配对规范
+// #24 音频 .wav 与标注 .TextGrid 的同名配对机制
 // -------------------------------------------------------------------------
 private fun EncyclopediaCanvasHelper.draw24WavTextGridStemPairing() {
     drawPanel(12f, 12f, 182f, 166f, p.primaryContainer.copy(alpha = 0.4f), p.primary.copy(alpha = 0.4f), radius = 14f)
     drawPanel(206f, 12f, 182f, 166f, p.errorContainer.copy(alpha = 0.35f), p.error.copy(alpha = 0.4f), radius = 14f)
 
     // Left: Identical Filename Stem inside same folder
-    drawLabel("同目录 · 同主文件名", 103f, 28f, p.primary, 9.2f, FontWeight.ExtraBold)
+    drawLabel("同目录 · 同主文件名自动配对", 103f, 26f, p.primary, 8.8f, FontWeight.ExtraBold)
 
-    drawPanel(22f, 44f, 162f, 36f, p.surface, p.primary.copy(alpha = 0.4f), radius = 9f)
-    drawPill("001_巴", 66f, 62f, p.primaryContainer, p.primary, fontPx = 8.8f, monospace = true)
-    drawLabel(".wav", 124f, 62f, p.onSurfaceVariant, 8.8f, monospace = true)
+    // Top .wav card with mini waveform
+    drawPanel(22f, 38f, 162f, 36f, p.surface, p.primary.copy(alpha = 0.4f), radius = 9f)
+    drawPill("001_巴", 56f, 51f, p.primaryContainer, p.primary, fontPx = 8.2f, monospace = true)
+    drawLabel(".wav", 104f, 51f, p.onSurfaceVariant, 8.2f, monospace = true)
+    for (wx in 34..170 step 6) {
+        val h = if (wx in 62..142) 4.2f * sin(((wx - 60f) / 84f) * PI).toFloat() + 1f else 1f
+        scope.drawLine(p.secondary, pt(wx.toFloat(), 65f - h), pt(wx.toFloat(), 65f + h), strokeWidth = u(1.6f), cap = StrokeCap.Round)
+    }
 
-    drawPanel(22f, 92f, 162f, 36f, p.surface, p.primary.copy(alpha = 0.4f), radius = 9f)
-    drawPill("001_巴", 66f, 110f, p.primaryContainer, p.primary, fontPx = 8.8f, monospace = true)
-    drawLabel(".TextGrid", 136f, 110f, p.onSurfaceVariant, 8.8f, monospace = true)
+    // Dual-scale stem connector + time ruler sync ticks
+    scope.drawLine(p.primary, pt(56f, 74f), pt(56f, 88f), strokeWidth = u(2.0f))
+    scope.drawLine(p.primary.copy(alpha = 0.5f), pt(96f, 74f), pt(96f, 88f), strokeWidth = u(1.2f), pathEffect = dashFine)
+    scope.drawLine(p.primary.copy(alpha = 0.5f), pt(142f, 74f), pt(142f, 88f), strokeWidth = u(1.2f), pathEffect = dashFine)
+    drawLabel("0.12s", 96f, 81f, p.primary, 6.2f, monospace = true)
+    drawLabel("0.48s", 142f, 81f, p.primary, 6.2f, monospace = true)
 
-    // Connecting stem link line
-    scope.drawLine(p.primary, pt(66f, 75f), pt(66f, 97f), strokeWidth = u(2.2f))
-    drawPill("✓ 脚本与 Praat 自动配对成功", 103f, 155f, p.primaryContainer, p.onPrimaryContainer, fontPx = 8.2f)
+    // Bottom .TextGrid card with IntervalTier + PointTier mini bars
+    drawPanel(22f, 88f, 162f, 52f, p.surface, p.primary.copy(alpha = 0.45f), radius = 9f)
+    drawPill("001_巴", 56f, 100f, p.primaryContainer, p.primary, fontPx = 8.2f, monospace = true)
+    drawLabel(".TextGrid", 118f, 100f, p.onSurfaceVariant, 8.2f, monospace = true)
+    // Mini IntervalTier bar
+    scope.drawRoundRect(p.primaryContainer.copy(alpha = 0.55f), topLeft = pt(30f, 111f), size = sz(146f, 12f), cornerRadius = cr(3f))
+    scope.drawLine(p.primary, pt(64f, 111f), pt(64f, 123f), strokeWidth = u(1.3f))
+    scope.drawLine(p.primary, pt(142f, 111f), pt(142f, 123f), strokeWidth = u(1.3f))
+    drawLabel("巴 [pa⁵⁵]", 103f, 117f, p.primary, 6.6f, FontWeight.Bold)
+    // Mini TextTier (point) bar
+    scope.drawLine(p.tertiary.copy(alpha = 0.45f), pt(30f, 131f), pt(176f, 131f), strokeWidth = u(0.9f), pathEffect = dashFine)
+    scope.drawCircle(p.tertiary, radius = u(2.3f), center = pt(103f, 131f))
+    drawLabel("T55", 122f, 131f, p.tertiary, 6.3f, FontWeight.Bold)
+
+    drawPill("✓ 自动配对 · 谱面点选即可同步试听", 103f, 158f, p.primaryContainer, p.onPrimaryContainer, fontPx = 7.4f)
 
     // Right: Mismatched stem breaks batch scripts
-    drawLabel("单方重命名导致断链", 297f, 28f, p.error, 9.2f, FontWeight.ExtraBold)
+    drawLabel("单方重命名导致断链", 297f, 26f, p.error, 8.8f, FontWeight.ExtraBold)
 
     drawPanel(216f, 44f, 162f, 36f, p.surface, p.error.copy(alpha = 0.45f), radius = 9f)
     drawPill("001_巴_重录", 268f, 62f, p.errorContainer, p.error, fontPx = 8.4f, monospace = true)
     drawLabel(".wav", 342f, 62f, p.onSurfaceVariant, 8.8f, monospace = true)
 
-    drawPanel(216f, 92f, 162f, 36f, p.surface, p.outlineVariant, radius = 9f)
-    drawPill("001_巴", 256f, 110f, p.secondaryContainer, p.onSecondaryContainer, fontPx = 8.4f, monospace = true)
-    drawLabel(".TextGrid", 328f, 110f, p.onSurfaceVariant, 8.8f, monospace = true)
+    drawPanel(216f, 96f, 162f, 36f, p.surface, p.outlineVariant, radius = 9f)
+    drawPill("001_巴", 256f, 114f, p.secondaryContainer, p.onSecondaryContainer, fontPx = 8.4f, monospace = true)
+    drawLabel(".TextGrid", 328f, 114f, p.onSurfaceVariant, 8.8f, monospace = true)
 
-    drawLabel("≠ 主文件名不一致", 297f, 86f, p.error, 7.8f)
-    drawPill("✕ 批处理脚本找不到对应标注", 297f, 155f, p.errorContainer, p.error, fontPx = 8.2f)
+    drawLabel("≠ 主文件名不一致", 297f, 88f, p.error, 7.8f)
+    drawPill("✕ 批处理与查看器找不到配对音频", 297f, 158f, p.errorContainer, p.error, fontPx = 7.4f)
 }
 
 // -------------------------------------------------------------------------

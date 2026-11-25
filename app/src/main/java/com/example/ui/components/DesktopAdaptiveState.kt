@@ -535,7 +535,10 @@ fun StudioSwitch(
             Box(
                 contentAlignment = Alignment.Center,
                 modifier = Modifier
-                    .offset { IntOffset((progress * maxTravelPx).roundToInt(), 0) }
+                    .offset {
+                        val px = progress * maxTravelPx
+                        IntOffset(if (px.isFinite()) px.roundToInt() else 0, 0)
+                    }
                     .size(thumbWidth, thumbHeight)
                     .background(thumbColor, CircleShape)
             ) {
@@ -1075,7 +1078,8 @@ fun StudioSegmentedControl(
                             dragIndexFloat = (dragIndexFloat + dragAmount / segW).coerceIn(0f, options.lastIndex.toFloat())
                         },
                         onDragEnd = {
-                            val targetIdx = dragIndexFloat.roundToInt().coerceIn(0, options.lastIndex)
+                            val targetIdx = (if (dragIndexFloat.isFinite()) dragIndexFloat.roundToInt() else currentSelected)
+                                .coerceIn(0, options.lastIndex)
                             isDragging = false
                             if (targetIdx != currentSelected) {
                                 currentOnSelected(targetIdx)
@@ -1087,10 +1091,15 @@ fun StudioSegmentedControl(
                     )
                 }
         ) {
-            val innerWidth = this@BoxWithConstraints.maxWidth
-            val segmentWidth = innerWidth / options.size
-            val segmentWidthPx = with(LocalDensity.current) { segmentWidth.toPx() }
-            val clampedIndex = animatedIndex.coerceIn(0f, options.lastIndex.toFloat())
+            val innerWidth = if (this@BoxWithConstraints.maxWidth.value.isFinite()) {
+                this@BoxWithConstraints.maxWidth
+            } else {
+                240.dp
+            }
+            val segmentWidth = innerWidth / options.size.coerceAtLeast(1)
+            val segmentWidthPx = with(LocalDensity.current) { segmentWidth.toPx() }.let { if (it.isFinite()) it else 0f }
+            val clampedIndex = (if (animatedIndex.isFinite()) animatedIndex else selectedIndex.toFloat())
+                .coerceIn(0f, options.lastIndex.toFloat())
 
             // Sliding active pill indicator
             Surface(
@@ -1102,7 +1111,10 @@ fun StudioSegmentedControl(
                 modifier = Modifier
                     .width(segmentWidth)
                     .fillMaxHeight()
-                    .offset { IntOffset((clampedIndex * segmentWidthPx).roundToInt(), 0) }
+                    .offset {
+                        val offsetPx = clampedIndex * segmentWidthPx
+                        IntOffset(if (offsetPx.isFinite()) offsetPx.roundToInt() else 0, 0)
+                    }
             ) {}
 
             Row(modifier = Modifier.fillMaxSize()) {

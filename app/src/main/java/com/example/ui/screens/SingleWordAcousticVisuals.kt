@@ -519,7 +519,7 @@ fun SingleWordWidebandSpectrogramCard(
                             val h = size.height
 
                             // 1. Blit cached Material You wideband spectrogram bitmap in 1 GPU draw call
-                            if (specBitmap != null) {
+                            if (specBitmap != null && w.isFinite() && h.isFinite() && w > 0f && h > 0f) {
                                 drawImage(
                                     image = specBitmap,
                                     dstSize = IntSize(
@@ -1170,12 +1170,19 @@ fun SingleWordDynamicVowelCard(
                         if (cachedRep != null && cachedRep.vowelTokens.size >= 5 && cachedRep.lobanovValid) {
                             val m1 = cachedRep.vowelTokens.map { it.nucleusF1Hz }.average().toFloat()
                             val m2 = cachedRep.vowelTokens.map { it.nucleusF2Hz }.average().toFloat()
-                            val s1 = sqrt(cachedRep.vowelTokens.map { (it.nucleusF1Hz - m1) * (it.nucleusF1Hz - m1) }.average()).toFloat().coerceAtLeast(80f)
-                            val s2 = sqrt(cachedRep.vowelTokens.map { (it.nucleusF2Hz - m2) * (it.nucleusF2Hz - m2) }.average()).toFloat().coerceAtLeast(240f)
-                            val z1 = ((rawF1 - m1) / s1).coerceIn(-2.6f, 2.6f)
-                            val z2 = ((rawF2 - m2) / s2).coerceIn(-2.6f, 2.6f)
-                            return PhoneticScaleUtils.lobanovZ1ToEquivHz(z1).roundToInt() to
-                                PhoneticScaleUtils.lobanovZ2ToEquivHz(z2).roundToInt()
+                            val s1 = sqrt(cachedRep.vowelTokens.map { (it.nucleusF1Hz - m1) * (it.nucleusF1Hz - m1) }.average()).toFloat()
+                            val s2 = sqrt(cachedRep.vowelTokens.map { (it.nucleusF2Hz - m2) * (it.nucleusF2Hz - m2) }.average()).toFloat()
+                            if (m1.isFinite() && m2.isFinite() && s1.isFinite() && s2.isFinite()) {
+                                val safeS1 = s1.coerceAtLeast(80f)
+                                val safeS2 = s2.coerceAtLeast(240f)
+                                val z1 = ((rawF1 - m1) / safeS1).coerceIn(-2.6f, 2.6f)
+                                val z2 = ((rawF2 - m2) / safeS2).coerceIn(-2.6f, 2.6f)
+                                val eq1 = PhoneticScaleUtils.lobanovZ1ToEquivHz(z1)
+                                val eq2 = PhoneticScaleUtils.lobanovZ2ToEquivHz(z2)
+                                if (eq1.isFinite() && eq2.isFinite()) {
+                                    return eq1.roundToInt() to eq2.roundToInt()
+                                }
+                            }
                         }
                         val g = spk?.gender?.trim()?.lowercase(Locale.ROOT).orEmpty()
                         val tractFactor = when {

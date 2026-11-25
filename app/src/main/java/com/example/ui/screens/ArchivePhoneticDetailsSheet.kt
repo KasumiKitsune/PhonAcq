@@ -55,9 +55,15 @@ import com.example.data.SpeakerRecording
 import com.example.data.Word
 import com.example.i18n.S
 import com.example.i18n.withArgs
+import com.example.textgrid.codec.TextGridCodec
+import com.example.textgrid.model.TextGridDocument
+import com.example.textgrid.model.TextGridFormatVariant
+import com.example.textgrid.model.TextGridVisualConfig
+import com.example.textgrid.ui.TextGridPreviewCard
 import com.example.ui.components.DesktopAdaptiveState
 import com.example.ui.components.PlatformVerticalScrollbar
 import com.example.ui.components.StudioAdaptiveSheet
+import com.example.ui.components.StudioAlertDialog
 import com.example.ui.components.StudioFilterChip
 import com.example.ui.components.StudioMotion
 import com.example.ui.components.studioAnimateSize
@@ -65,6 +71,7 @@ import com.example.ui.theme.LocalPhonAcqExtendedColors
 import com.example.utils.PraatCollectionExporter
 import com.example.utils.ZipUtility
 import com.example.viewmodel.RecordingViewModel
+import com.example.viewmodel.WordTextGridLoadResult
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -1767,42 +1774,70 @@ fun PhoneticDetailsContent(
 
                 Spacer(modifier = Modifier.height(20.dp))
 
-                // Section 4: Praat .TextGrid Live Preview & Direct Single-File Share
+                // Section 4: Pure Read-Only Dual-Scale Praat .TextGrid Preview & Export
+                val tgVis = S.textGrid.visual
                 val singleWordTgConfig = viewModel?.textGridFormatConfig?.collectAsState()?.value
                     ?: com.example.utils.TextGridFormatConfig()
-                val praatPreviewPair by produceState<Pair<String, AcousticAnalyzer.AnalysisResult?>>(
-                    initialValue = "" to null,
-                    keys = arrayOf(word.id, word.recordingFile, speaker?.id, singleWordTgConfig)
+                val singleWordVisualConfig = viewModel?.textGridVisualConfig?.collectAsState()?.value
+                    ?: TextGridVisualConfig()
+                val tgRefreshTrigger = viewModel?.textGridRefreshTrigger?.collectAsState()?.value ?: 0
+                val playbackCurrentTimeSec = viewModel?.playbackCurrentTimeSec?.collectAsState()?.value ?: 0.0
+                val isRangePlaybackActive = viewModel?.isRangePlaybackActive?.collectAsState()?.value ?: false
+                val isPreviewAudioPlaying = (playingWordId == word.id) ||
+                    (playingWordId == RecordingViewModel.TEXTGRID_PLAYBACK_TAG_ID && isRangePlaybackActive)
+
+                val loadedWordTextGrid by produceState<WordTextGridLoadResult?>(
+                    initialValue = null,
+                    keys = arrayOf(word.id, word.recordingFile, speaker?.id, singleWordTgConfig, tgRefreshTrigger)
                 ) {
-                    value = withContext(Dispatchers.IO) {
-                        val recFile = word.recordingFile?.let {
-                            File(File(context.getExternalFilesDir(null), "project_${word.projectId}"), it)
-                        }
-                        val exactDur = AcousticAnalyzer.getExactWavDurationSec(recFile)
-                        val spPrefs = context.getSharedPreferences("speaker_prefs", Context.MODE_PRIVATE)
-                        val pMin = spPrefs.getFloat("pitch_min_${speaker?.id ?: -1L}", -1f)
-                        val pMax = spPrefs.getFloat("pitch_max_${speaker?.id ?: -1L}", -1f)
-                        val pRange = if (pMin > 40f && pMax > pMin + 15f) Pair(pMin, pMax) else null
-                        val parts = ZipUtility.extractSyllableLabels(word.text)
-                        val rawResult = if (recFile != null && recFile.exists()) {
-                            AcousticAnalyzer.analyzeByGender(
-                                file = recFile,
-                                speakerGender = speaker?.gender,
-                                segmentCount = parts.size.coerceAtLeast(1),
-                                pitchRange = pRange,
-                                segmentLabels = parts
-                            )
-                        } else null
-                        ZipUtility.buildPraatTextGrid(
+                    value = if (viewModel != null) {
+                        viewModel.loadWordTextGridDocument(
                             word = word,
-                            analysis = rawResult,
-                            exactDurationSec = exactDur,
-                            config = singleWordTgConfig
-                        ) to rawResult
+                            audioFile = activeAudioFile,
+                            speaker = speaker
+                        )
+                    } else {
+                        withContext(Dispatchers.IO) {
+                            val exactDur = AcousticAnalyzer.getExactWavDurationSec(activeAudioFile)
+                            val spPrefs = context.getSharedPreferences("speaker_prefs", Context.MODE_PRIVATE)
+                            val pMin = spPrefs.getFloat("pitch_min_${speaker?.id ?: -1L}", -1f)
+                            val pMax = spPrefs.getFloat("pitch_max_${speaker?.id ?: -1L}", -1f)
+                            val pRange = if (pMin > 40f && pMax > pMin + 15f) Pair(pMin, pMax) else null
+                            val parts = ZipUtility.extractSyllableLabels(word.text)
+                            val rawResult = if (activeAudioFile != null && activeAudioFile.exists()) {
+                                AcousticAnalyzer.analyzeByGender(
+                                    file = activeAudioFile,
+                                    speakerGender = speaker?.gender,
+                                    segmentCount = parts.size.coerceAtLeast(1),
+                                    pitchRange = pRange,
+                                    segmentLabels = parts
+                                )
+                            } else null
+                            val rawText = ZipUtility.buildPraatTextGrid(
+                                word = word,
+                                analysis = rawResult,
+                                exactDurationSec = exactDur,
+                                config = singleWordTgConfig
+                            )
+                            val parsed = TextGridCodec.parseText(rawText, defaultName = word.text)
+                            val doc = parsed.document ?: TextGridDocument.empty(xmax = exactDur.coerceAtLeast(0.5), name = word.text)
+                            val variant = if (singleWordTgConfig.shortTextFormat) {
+                                TextGridFormatVariant.SHORT_TEXT
+                            } else {
+                                TextGridFormatVariant.LONG_TEXT
+                            }
+                            WordTextGridLoadResult(
+                                document = doc,
+                                rawSource = parsed.normalizedSource ?: rawText,
+                                formatVariant = variant,
+                                analysisResult = rawResult
+                            )
+                        }
                     }
                 }
-                val textGridPreview = praatPreviewPair.first
-                val rawAnalysisResult = praatPreviewPair.second
+
+                val textGridPreview = loadedWordTextGrid?.rawSource.orEmpty()
+                val rawAnalysisResult = loadedWordTextGrid?.analysisResult
 
                 val saveSingleWordTextGridLauncher = rememberLauncherForActivityResult(
                     contract = ActivityResultContracts.CreateDocument("text/plain")
@@ -1854,13 +1889,50 @@ fun PhoneticDetailsContent(
                     }
                 }
 
-                Column(
+                fun exportOrShareSingleTextGrid(src: String) {
+                    if (src.isBlank()) return
+                    val spkCode = String.format(java.util.Locale.US, "SPK%02d", speaker?.id ?: 1L)
+                    val idxStr = String.format(java.util.Locale.US, "%03d", word.originalIndex + 1)
+                    val safeWord = word.text.replace(Regex("[/\\\\:*?\"<>|\\s]+"), "_").take(20)
+                    val fileName = "${spkCode}_${idxStr}_${safeWord}.TextGrid"
+                    if (DesktopAdaptiveState.isDesktopPlatform) {
+                        saveSingleWordTextGridLauncher.launch(fileName)
+                    } else {
+                        try {
+                            val cacheDir = File(context.cacheDir, "exports")
+                            cacheDir.mkdirs()
+                            val tgFile = File(cacheDir, fileName)
+                            tgFile.writeText(src, Charsets.UTF_8)
+                            val uri = androidx.core.content.FileProvider.getUriForFile(
+                                context,
+                                "${context.packageName}.fileprovider",
+                                tgFile
+                            )
+                            val shareIntent = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
+                                type = "text/plain"
+                                putExtra(android.content.Intent.EXTRA_STREAM, uri)
+                                addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                            }
+                            context.startActivity(
+                                android.content.Intent.createChooser(shareIntent, S.archive.shareSingleTextGridTitle)
+                            )
+                        } catch (e: Exception) {
+                            Toast.makeText(context, S.archive.exportFailedMsgToast.withArgs("msg" to e.message), Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                }
+
+                Row(
                     modifier = Modifier.fillMaxWidth(),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Column(
+                        modifier = Modifier.weight(1f).padding(end = 8.dp),
+                        verticalArrangement = Arrangement.spacedBy(2.dp)
+                    ) {
                         Text(
-                            text = S.archive.praatExportSectionTitle,
+                            text = tgVis.archiveSectionTitle,
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.primary
@@ -1871,62 +1943,16 @@ fun PhoneticDetailsContent(
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
+
                     Row(
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         OutlinedButton(
-                            onClick = {
-                                if (textGridPreview.isNotBlank()) {
-                                    val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
-                                    cm?.setPrimaryClip(ClipData.newPlainText("Praat TextGrid", textGridPreview))
-                                    Toast.makeText(context, S.archive.copiedTextGridToast, Toast.LENGTH_SHORT).show()
-                                }
-                            },
-                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
-                            modifier = Modifier.height(32.dp)
-                        ) {
-                            Icon(Icons.Default.ContentCopy, contentDescription = null, modifier = Modifier.size(14.dp))
-                            Spacer(Modifier.width(3.dp))
-                            Text(S.common.copy, fontSize = 11.sp, maxLines = 1, softWrap = false)
-                        }
-                        OutlinedButton(
-                            onClick = {
-                                if (textGridPreview.isNotBlank()) {
-                                    val spkCode = String.format(java.util.Locale.US, "SPK%02d", speaker?.id ?: 1L)
-                                    val idxStr = String.format(java.util.Locale.US, "%03d", word.originalIndex + 1)
-                                    val safeWord = word.text.replace(Regex("[/\\\\:*?\"<>|\\s]+"), "_").take(20)
-                                    val fileName = "${spkCode}_${idxStr}_${safeWord}.TextGrid"
-                                    if (DesktopAdaptiveState.isDesktopPlatform) {
-                                        saveSingleWordTextGridLauncher.launch(fileName)
-                                    } else {
-                                        try {
-                                            val cacheDir = File(context.cacheDir, "exports")
-                                            cacheDir.mkdirs()
-                                            val tgFile = File(cacheDir, fileName)
-                                            tgFile.writeText(textGridPreview, Charsets.UTF_8)
-                                            val uri = androidx.core.content.FileProvider.getUriForFile(
-                                                context,
-                                                "${context.packageName}.fileprovider",
-                                                tgFile
-                                            )
-                                            val shareIntent = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
-                                                type = "text/plain"
-                                                putExtra(android.content.Intent.EXTRA_STREAM, uri)
-                                                addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                                            }
-                                            context.startActivity(
-                                                android.content.Intent.createChooser(shareIntent, S.archive.shareSingleTextGridTitle)
-                                            )
-                                        } catch (e: Exception) {
-                                            Toast.makeText(context, S.archive.exportFailedMsgToast.withArgs("msg" to e.message), Toast.LENGTH_SHORT).show()
-                                        }
-                                    }
-                                }
-                            },
-                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
+                            onClick = { exportOrShareSingleTextGrid(textGridPreview) },
+                            contentPadding = PaddingValues(horizontal = 9.dp, vertical = 4.dp),
                             modifier = Modifier
-                                .height(32.dp)
+                                .height(30.dp)
                                 .testTag("export_single_word_textgrid_button")
                         ) {
                             Text(".TextGrid", fontSize = 11.sp, maxLines = 1, softWrap = false)
@@ -1983,12 +2009,12 @@ fun PhoneticDetailsContent(
                                 },
                                 contentPadding = PaddingValues(horizontal = 9.dp, vertical = 4.dp),
                                 modifier = Modifier
-                                    .height(32.dp)
+                                    .height(30.dp)
                                     .testTag("export_single_word_praat_collection_button")
                             ) {
                                 Icon(Icons.Default.Share, contentDescription = null, modifier = Modifier.size(13.dp))
                                 Spacer(Modifier.width(3.dp))
-                                Text(".Collection", fontSize = 11.sp, fontWeight = FontWeight.Bold, maxLines = 1, softWrap = false)
+                                Text(".Collection", fontSize = 11.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, softWrap = false)
                             }
                         }
                     }
@@ -1996,20 +2022,66 @@ fun PhoneticDetailsContent(
 
                 Spacer(modifier = Modifier.height(10.dp))
 
-                Surface(
-                    shape = RoundedCornerShape(12.dp),
-                    color = MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.6f),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Text(
-                        text = textGridPreview.ifBlank { S.archive.generatingTextGridPreview },
-                        fontFamily = FontFamily.Monospace,
-                        fontSize = 11.sp,
-                        lineHeight = 16.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                val loadedPayload = loadedWordTextGrid
+                if (loadedPayload == null) {
+                    Surface(
+                        shape = RoundedCornerShape(12.dp),
+                        color = MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.6f),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(
+                            text = S.archive.generatingTextGridPreview,
+                            fontFamily = FontFamily.Monospace,
+                            fontSize = 11.sp,
+                            lineHeight = 16.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(14.dp)
+                        )
+                    }
+                } else {
+                    val hasAudio = activeAudioFile != null && activeAudioFile.exists()
+                    TextGridPreviewCard(
+                        doc = loadedPayload.document,
+                        visualConfig = singleWordVisualConfig,
+                        title = word.text,
+                        subtitleHint = if (hasAudio) tgVis.archiveSectionSubtitle else tgVis.archiveEmptyAudioHint,
+                        timeDecimals = singleWordTgConfig.effectiveTimeDecimals(),
+                        formatVariant = loadedPayload.formatVariant,
+                        rawSourceOverride = loadedPayload.rawSource,
+                        hasPairedAudio = hasAudio,
+                        isPlaying = isPreviewAudioPlaying,
+                        playheadTimeSec = if (isPreviewAudioPlaying) playbackCurrentTimeSec else null,
+                        enableDemoPlaySweep = !hasAudio,
+                        maxScoreHeight = if (isDockedPane) 280.dp else 320.dp,
+                        onPlayRange = if (viewModel != null && hasAudio) {
+                            { startSec, endSec ->
+                                viewModel.playAudioRange(
+                                    audioFile = activeAudioFile,
+                                    startSec = startSec,
+                                    endSec = endSec,
+                                    loop = false,
+                                    totalDurationSec = loadedPayload.document.duration
+                                )
+                            }
+                        } else null,
+                        onStopPlayback = if (viewModel != null) {
+                            { viewModel.stopPlayback() }
+                        } else null,
+                        onOpenFullViewer = if (viewModel != null) {
+                            {
+                                viewModel.openWordTextGridViewer(
+                                    word = word,
+                                    speakerId = speaker?.id,
+                                    audioFile = activeAudioFile
+                                )
+                            }
+                        } else null,
+                        onCopiedMessage = { msg ->
+                            Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+                        },
                         modifier = Modifier
-                            .padding(14.dp)
-                            .horizontalScroll(rememberScrollState())
+                            .fillMaxWidth()
+                            .testTag("detail_sheet_textgrid_preview_card")
                     )
                 }
             }

@@ -10,6 +10,10 @@ import com.example.data.Speaker
 import com.example.data.Word
 import com.example.i18n.SSmartImport
 import com.example.i18n.withArgs
+import com.example.textgrid.codec.TextGridCodec
+import com.example.textgrid.model.TextGridDocument
+import com.example.textgrid.model.TextGridFormatVariant
+import com.example.textgrid.persistence.WordTextGridStore
 import com.example.viewmodel.parseImportTextToParsedWordsImpl
 import java.io.BufferedInputStream
 import java.io.File
@@ -26,6 +30,8 @@ enum class ImportItemKind {
     WORDLIST_DOC,
     AUDIO_CLIP,
     PROMPT_IMAGE,
+    TEXTGRID,
+    PRAAT_COLLECTION,
     UNSUPPORTED
 }
 
@@ -62,6 +68,20 @@ data class ArchiveQuickInspect(
     val parseErrorHint: String? = null
 )
 
+data class TextGridQuickInspect(
+    val document: TextGridDocument,
+    val formatLabel: String,
+    val tierCount: Int,
+    val intervalTierCount: Int,
+    val textTierCount: Int,
+    val totalIntervals: Int,
+    val totalPoints: Int,
+    val durationSec: Double,
+    val collectionItemCount: Int = 1,
+    val anomalyCount: Int = 0,
+    val rawSourceText: String? = null
+)
+
 data class StagedImportItem(
     val id: String,
     val dedupKey: String,
@@ -72,12 +92,23 @@ data class StagedImportItem(
     val extensionLower: String,
     val kind: ImportItemKind,
     val localTempFile: File?,
+    val sourceLocalFile: File? = null,
     val parsedWords: List<ParsedWord> = emptyList(),
     val wordlistSummary: String = "",
     val archiveInspect: ArchiveQuickInspect? = null,
+    val textGridInspect: TextGridQuickInspect? = null,
+    val pairedAudioFile: File? = null,
     val estimatedDurationMs: Long = 0L,
     val needsAudioTranscode: Boolean = false,
     val errorHint: String? = null
+)
+
+data class TextGridPairingRow(
+    val textGridItem: StagedImportItem,
+    val pairedStagedAudio: StagedImportItem?,
+    val pairedAudioFile: File?,
+    val targetWordKey: String?,
+    val targetWord: CandidateTargetWord?
 )
 
 data class CandidateTargetWord(
@@ -124,11 +155,13 @@ data class SmartImportPlan(
     val wordlistItems: List<StagedImportItem>,
     val audioItems: List<StagedImportItem>,
     val imageItems: List<StagedImportItem>,
+    val textGridItems: List<StagedImportItem> = emptyList(),
     val unsupportedItems: List<StagedImportItem>,
     val suggestedProjectName: String,
     val candidateWords: List<CandidateTargetWord>,
     val matchedImageCount: Int,
     val audioPairings: List<AudioWordPairingRow>,
+    val textGridPairings: List<TextGridPairingRow> = emptyList(),
     val detectedSpeakerNames: List<String>,
     val transcodeRequiredCount: Int,
     val readyAudioCount: Int,
@@ -318,11 +351,16 @@ object SmartImportEngine {
             )
         }
 
+        val sourceLocalFile: File? = if (sourceUri.scheme.equals("file", ignoreCase = true)) {
+            sourceUri.path?.let { File(it) }?.takeIf { it.isFile }
+        } else null
+
         return inspectLocalTempFile(
             sessionDir = sessionDir,
             seqPrefix = "item_$seqNumber",
             dedupKey = dedupKey,
             tempFile = tempFile,
+            sourceLocalFile = sourceLocalFile,
             displayName = displayName,
             relativeFolder = relativeFolder,
             rootOriginName = rootOriginName
@@ -334,6 +372,7 @@ object SmartImportEngine {
         seqPrefix: String,
         dedupKey: String,
         tempFile: File,
+        sourceLocalFile: File? = null,
         displayName: String,
         relativeFolder: String,
         rootOriginName: String
@@ -474,6 +513,77 @@ object SmartImportEngine {
                     localTempFile = tempFile
                 )
             )
+        }
+
+        // 3.5. Praat .TextGrid / .TextGrid.gz / .Collection annotation files
+        val lowerName = displayName.lowercase(Locale.ROOT)
+        val isExplicitPraatExt = extLower == "textgrid" || extLower == "collection" || lowerName.endsWith(".textgrid.gz")
+        val looksLikePraatHeader = !isZipMagic && sniffPraatHeader(magic, magicLen)
+        if (isExplicitPraatExt || looksLikePraatHeader) {
+            val parsed = runCatching { TextGridCodec.parseFile(tempFile) }.getOrNull()
+            val doc = parsed?.document
+            if (parsed != null && parsed.isSuccess && doc != null) {
+                val isCollection = extLower == "collection" || parsed.collectionDocuments.size > 1
+                val kind = if (isCollection) ImportItemKind.PRAAT_COLLECTION else ImportItemKind.TEXTGRID
+                val fmtLabel = when {
+                    isCollection -> "Praat Collection (${parsed.collectionDocuments.size.coerceAtLeast(1)} 份)"
+                    parsed.detectedVariant == TextGridFormatVariant.BINARY -> "Praat 二进制 TextGrid"
+                    parsed.detectedVariant == TextGridFormatVariant.SHORT_TEXT -> "Praat 短文本 TextGrid"
+                    parsed.detectedVariant == TextGridFormatVariant.CHRONOLOGICAL -> "Praat 时序 TextGrid"
+                    else -> "Praat TextGrid"
+                }
+                val pairedLocalAudio = sourceLocalFile?.let {
+                    runCatching { WordTextGridStore.findPairedAudioForTextGrid(it) }.getOrNull()
+                }
+                val rawText = parsed.normalizedSource ?: TextGridCodec.serialize(doc, TextGridFormatVariant.LONG_TEXT)
+                return listOf(
+                    StagedImportItem(
+                        id = seqPrefix,
+                        dedupKey = dedupKey,
+                        displayName = displayName,
+                        relativeFolder = relativeFolder,
+                        rootOriginName = rootOriginName,
+                        sizeBytes = actualSize,
+                        extensionLower = if (lowerName.endsWith(".textgrid.gz")) "textgrid.gz" else extLower.ifEmpty { "textgrid" },
+                        kind = kind,
+                        localTempFile = tempFile,
+                        sourceLocalFile = sourceLocalFile,
+                        textGridInspect = TextGridQuickInspect(
+                            document = doc,
+                            formatLabel = fmtLabel,
+                            tierCount = doc.tierCount,
+                            intervalTierCount = doc.intervalTierCount,
+                            textTierCount = doc.textTierCount,
+                            totalIntervals = doc.totalIntervalCount,
+                            totalPoints = doc.totalPointCount,
+                            durationSec = doc.duration,
+                            collectionItemCount = parsed.collectionDocuments.size.coerceAtLeast(1),
+                            anomalyCount = parsed.anomalies.size,
+                            rawSourceText = rawText
+                        ),
+                        pairedAudioFile = pairedLocalAudio,
+                        estimatedDurationMs = (doc.duration * 1000.0).toLong().coerceAtLeast(0L)
+                    )
+                )
+            } else if (isExplicitPraatExt) {
+                val errDetail = parsed?.fatalDiagnostics?.firstOrNull()?.let { d ->
+                    "第 ${d.line} 行：${d.message}"
+                } ?: "无法解析为有效 Praat TextGrid / Collection"
+                return listOf(
+                    StagedImportItem(
+                        id = seqPrefix,
+                        dedupKey = dedupKey,
+                        displayName = displayName,
+                        relativeFolder = relativeFolder,
+                        rootOriginName = rootOriginName,
+                        sizeBytes = actualSize,
+                        extensionLower = extLower,
+                        kind = ImportItemKind.UNSUPPORTED,
+                        localTempFile = null.also { runCatching { tempFile.delete() } },
+                        errorHint = errDetail
+                    )
+                )
+            }
         }
 
         // 4. Wordlist document (.xlsx, .docx, .csv, .tsv, .txt, .json)
@@ -869,6 +979,21 @@ object SmartImportEngine {
         return extLower in IMAGE_EXTENSIONS
     }
 
+    private fun sniffPraatHeader(magic: ByteArray, len: Int): Boolean {
+        if (len < 12) return false
+        val ascii = String(magic, 0, len, Charsets.ISO_8859_1)
+        return ascii.startsWith("ooBinaryFile") ||
+            ascii.startsWith("File type = ") ||
+            ascii.startsWith("\u00EF\u00BB\u00BFFile type = ") ||
+            ascii.startsWith("Praat chronolog")
+    }
+
+    private fun extractNormalizedTextGridStem(displayName: String): String {
+        val base = displayName.substringAfterLast('/').substringAfterLast('\\').trim()
+        val noGz = if (base.endsWith(".gz", ignoreCase = true)) base.dropLast(3) else base
+        return noGz.substringBeforeLast('.', noGz).trim().lowercase(Locale.ROOT)
+    }
+
     private data class ParsedAudioTokens(
         val speakerHint: String?,
         val indexHint: Int?,
@@ -1029,6 +1154,9 @@ object SmartImportEngine {
         val wordlistItems = stagedItems.filter { it.kind == ImportItemKind.WORDLIST_DOC }
         val audioItems = stagedItems.filter { it.kind == ImportItemKind.AUDIO_CLIP }
         val imageItems = stagedItems.filter { it.kind == ImportItemKind.PROMPT_IMAGE }
+        val textGridItems = stagedItems.filter {
+            it.kind == ImportItemKind.TEXTGRID || it.kind == ImportItemKind.PRAAT_COLLECTION
+        }
         val unsupportedItems = stagedItems.filter { it.kind == ImportItemKind.UNSUPPORTED }
 
         // 1. Build base candidate wordlist
@@ -1332,6 +1460,56 @@ object SmartImportEngine {
                 )
             }
 
+        // 4. Pair staged TextGrid / Collection items with staged audio (same stem) or matching candidate words
+        val audioRowByRelStem = HashMap<Pair<String, String>, AudioWordPairingRow>(finalPairings.size * 2)
+        val audioRowByStem = HashMap<String, AudioWordPairingRow>(finalPairings.size * 2)
+        for (aRow in finalPairings) {
+            val aStem = extractNormalizedTextGridStem(aRow.audioItem.displayName)
+            val aRel = aRow.audioItem.relativeFolder.trim().lowercase(Locale.ROOT)
+            audioRowByRelStem.putIfAbsent(aRel to aStem, aRow)
+            audioRowByStem.putIfAbsent(aStem, aRow)
+        }
+
+        val textGridPairings = textGridItems.map { tgItem ->
+            val tgStem = extractNormalizedTextGridStem(tgItem.displayName)
+            val tgRel = tgItem.relativeFolder.trim().lowercase(Locale.ROOT)
+            val matchedAudioRow = audioRowByRelStem[tgRel to tgStem] ?: audioRowByStem[tgStem]
+            val resolvedAudioFile = matchedAudioRow?.audioItem?.localTempFile ?: tgItem.pairedAudioFile
+
+            var matchedWordKey: String? = matchedAudioRow?.targetWordKey
+            var matchedWord: CandidateTargetWord? = matchedAudioRow?.targetWord
+
+            if (matchedWordKey == null && candidateWords.isNotEmpty()) {
+                val tokens = parseAudioTokens(tgItem, knownSpeakerNameSet)
+                val cleanStem = tokens.cleanedWordStem
+                val idxHint = tokens.indexHint
+                val hit = when {
+                    idxHint != null && cleanStem.isNotEmpty() -> {
+                        wordsByIndex1[idxHint]?.takeIf {
+                            it.text.equals(cleanStem, ignoreCase = true) ||
+                                cleanStem.startsWith(it.text) ||
+                                it.text.startsWith(cleanStem)
+                        }
+                    }
+                    else -> null
+                } ?: (if (cleanStem.isNotEmpty()) wordsByText[cleanStem]?.firstOrNull() else null)
+                    ?: (if (idxHint != null && cleanStem.isEmpty()) wordsByIndex1[idxHint] else null)
+
+                if (hit != null) {
+                    matchedWordKey = hit.key
+                    matchedWord = hit
+                }
+            }
+
+            TextGridPairingRow(
+                textGridItem = tgItem,
+                pairedStagedAudio = matchedAudioRow?.audioItem,
+                pairedAudioFile = resolvedAudioFile,
+                targetWordKey = matchedWordKey,
+                targetWord = matchedWord
+            )
+        }
+
         val suggestedProjectName = deriveSuggestedProjectName(stagedItems, archiveItems, wordlistItems)
         val detectedSpeakers = finalPairings.map { it.resolvedSpeakerName }.distinct()
         val transcodeCount = finalPairings.count { it.targetWordKey != null && it.audioItem.needsAudioTranscode }
@@ -1345,11 +1523,13 @@ object SmartImportEngine {
             wordlistItems = wordlistItems,
             audioItems = audioItems,
             imageItems = imageItems,
+            textGridItems = textGridItems,
             unsupportedItems = unsupportedItems,
             suggestedProjectName = suggestedProjectName,
             candidateWords = candidateWords,
             matchedImageCount = matchedImageCount,
             audioPairings = finalPairings,
+            textGridPairings = textGridPairings,
             detectedSpeakerNames = detectedSpeakers,
             transcodeRequiredCount = transcodeCount,
             readyAudioCount = readyAudioCount,
@@ -1719,7 +1899,7 @@ object SmartImportEngine {
         } else {
             ""
         }
-        val baseMessage = archivePrefix + if (mergeTargetProject != null) {
+        val baseMessage = archivePrefix + (if (mergeTargetProject != null) {
             SSmartImport.resultSuccessMerged.withArgs(
                 "name" to targetProjectName,
                 "words" to newlyCreatedOrAddedWords,
@@ -1731,7 +1911,7 @@ object SmartImportEngine {
                 "words" to newlyCreatedOrAddedWords,
                 "audio" to importedAudioCount
             )
-        }
+        })
         val fullMessage = if (skippedFiles > 0) {
             baseMessage + SSmartImport.resultPartialSkippedSuffix.withArgs("skipped" to skippedFiles)
         } else {

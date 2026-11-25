@@ -1,6 +1,7 @@
 package com.example.ui.filepicker
 
 import android.content.Context
+import android.media.MediaPlayer
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
@@ -73,11 +74,14 @@ import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material.icons.filled.TableChart
 import androidx.compose.material.icons.filled.UploadFile
+import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Button
 import androidx.compose.material3.FilledTonalButton
@@ -133,6 +137,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.DialogProperties
+import com.example.textgrid.ui.TextGridMiniStrip
 import com.example.ui.components.PlatformVerticalScrollbar
 import com.example.ui.components.StudioAlertDialog
 import com.example.ui.components.StudioFilterChip
@@ -145,6 +150,7 @@ import com.example.ui.components.studioAnimateItem
 import com.example.ui.components.studioRotateOn
 import com.example.ui.components.studioTactile
 import com.example.ui.theme.LocalPhonAcqExtendedColors
+import com.example.viewmodel.RecordingViewModel
 import java.awt.datatransfer.DataFlavor
 import java.awt.dnd.DnDConstants
 import java.awt.dnd.DropTarget
@@ -261,7 +267,7 @@ object DesktopFilePickerController {
                         "wav", "mp3", "m4a", "aac", "flac", "ogg", "aiff",
                         "zip", "teproj",
                         "png", "jpg", "jpeg", "webp", "bmp",
-                        "textgrid"
+                        "textgrid", "collection"
                     )
                 ),
                 FileFilterCategory(
@@ -273,6 +279,11 @@ object DesktopFilePickerController {
                     id = "audio",
                     label = "录音 (.wav/.mp3/.m4a/.flac)",
                     extensions = listOf("wav", "mp3", "m4a", "aac", "flac", "ogg", "aiff")
+                ),
+                FileFilterCategory(
+                    id = "textgrid",
+                    label = "Praat 标注 (.TextGrid/.Collection)",
+                    extensions = listOf("textgrid", "collection")
                 ),
                 FileFilterCategory(
                     id = "archives",
@@ -3050,23 +3061,227 @@ private fun FileInspectorRightPane(
             }
         }
 
-        if (!preview.textSnippet.isNullOrBlank()) {
+        val tgDetail = preview.textGridDetail
+        if (tgDetail != null) {
+            var isAuditioningPaired by remember(preview.file.absolutePath) { mutableStateOf(false) }
+            val auditionPlayerHolder = remember(preview.file.absolutePath) {
+                object {
+                    var player: MediaPlayer? = null
+                }
+            }
+
+            fun stopPairedAudition() {
+                runCatching {
+                    auditionPlayerHolder.player?.stop()
+                    auditionPlayerHolder.player?.release()
+                }
+                auditionPlayerHolder.player = null
+                isAuditioningPaired = false
+            }
+
+            fun togglePairedAudition() {
+                val wav = tgDetail.pairedAudioFile ?: return
+                if (isAuditioningPaired) {
+                    stopPairedAudition()
+                    return
+                }
+                stopPairedAudition()
+                runCatching {
+                    val mp = MediaPlayer().apply {
+                        setDataSource(wav.absolutePath)
+                        setOnCompletionListener {
+                            isAuditioningPaired = false
+                        }
+                        prepare()
+                        start()
+                    }
+                    auditionPlayerHolder.player = mp
+                    isAuditioningPaired = true
+                }.onFailure {
+                    stopPairedAudition()
+                }
+            }
+
+            DisposableEffect(preview.file.absolutePath) {
+                onDispose {
+                    stopPairedAudition()
+                }
+            }
+
             Surface(
                 shape = RoundedCornerShape(10.dp),
                 color = cs.surface,
                 border = BorderStroke(1.dp, cs.outlineVariant.copy(alpha = 0.5f)),
                 modifier = Modifier.fillMaxWidth()
             ) {
-                Text(
-                    text = preview.textSnippet,
-                    fontSize = 10.5.sp,
-                    lineHeight = 15.sp,
-                    fontFamily = FontFamily.Monospace,
-                    color = cs.onSurface,
-                    maxLines = 12,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.padding(9.dp)
+                Column(
+                    modifier = Modifier.padding(9.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    InspectorMetaRow("语法变体", tgDetail.variantLabel)
+                    InspectorMetaRow("字符编码", tgDetail.encodingLabel)
+                    InspectorMetaRow(
+                        "轨道分布",
+                        "${tgDetail.intervalTierCount} 区间层 / ${tgDetail.textTierCount} 点层"
+                    )
+                    InspectorMetaRow(
+                        "标注元素",
+                        "${tgDetail.totalIntervals} 区间 · ${tgDetail.totalPoints} 标点"
+                    )
+                    if (tgDetail.pairedAudioFile != null) {
+                        InspectorMetaRow("配对音频", tgDetail.pairedAudioFile.name)
+                    }
+                }
+            }
+
+            if (!tgDetail.anomalySummary.isNullOrBlank()) {
+                Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color = cs.errorContainer.copy(alpha = 0.5f),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Warning,
+                            contentDescription = null,
+                            tint = cs.error,
+                            modifier = Modifier.size(14.dp)
+                        )
+                        Text(
+                            text = tgDetail.anomalySummary,
+                            fontSize = 10.5.sp,
+                            lineHeight = 14.sp,
+                            color = cs.onErrorContainer
+                        )
+                    }
+                }
+            }
+
+            TextGridMiniStrip(
+                doc = tgDetail.document,
+                visualConfig = com.example.textgrid.model.TextGridVisualConfig(),
+                rawSourceOverride = tgDetail.rawSourceText,
+                maxHeight = 190.dp,
+                onOpenFullViewer = {
+                    stopPairedAudition()
+                    DesktopFilePickerController.dismissAndCancel()
+                    RecordingViewModel.requestOpenExternalTextGrid(
+                        textGridFile = preview.file,
+                        pairedAudioFile = tgDetail.pairedAudioFile
+                    )
+                },
+                modifier = Modifier.fillMaxWidth()
+            )
+
+            if (tgDetail.pairedAudioFile != null) {
+                OutlinedButton(
+                    onClick = { togglePairedAudition() },
+                    shape = RoundedCornerShape(10.dp),
+                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .pointerHoverIcon(PointerIcon.Hand)
+                ) {
+                    Icon(
+                        imageVector = if (isAuditioningPaired) Icons.Default.Stop else Icons.Default.PlayArrow,
+                        contentDescription = null,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = if (isAuditioningPaired) "停止试听配对音频" else "试听配对 .wav",
+                        fontSize = 11.5.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+            }
+
+            FilledTonalButton(
+                onClick = {
+                    stopPairedAudition()
+                    DesktopFilePickerController.dismissAndCancel()
+                    RecordingViewModel.requestOpenExternalTextGrid(
+                        textGridFile = preview.file,
+                        pairedAudioFile = tgDetail.pairedAudioFile
+                    )
+                },
+                shape = RoundedCornerShape(10.dp),
+                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 7.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .pointerHoverIcon(PointerIcon.Hand)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Visibility,
+                    contentDescription = null,
+                    modifier = Modifier.size(15.dp)
                 )
+                Spacer(modifier = Modifier.width(6.dp))
+                Text(
+                    text = "全屏查看谱面与源码",
+                    fontSize = 11.5.sp,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+        } else {
+            if (!preview.textGridParseError.isNullOrBlank()) {
+                Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color = cs.errorContainer.copy(alpha = 0.55f),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(
+                        text = preview.textGridParseError,
+                        fontSize = 10.5.sp,
+                        color = cs.onErrorContainer,
+                        modifier = Modifier.padding(8.dp)
+                    )
+                }
+                OutlinedButton(
+                    onClick = {
+                        DesktopFilePickerController.dismissAndCancel()
+                        RecordingViewModel.requestOpenExternalTextGrid(
+                            textGridFile = preview.file,
+                            pairedAudioFile = preview.pairedAudioFile
+                        )
+                    },
+                    shape = RoundedCornerShape(10.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .pointerHoverIcon(PointerIcon.Hand)
+                ) {
+                    Icon(Icons.Default.Visibility, contentDescription = null, modifier = Modifier.size(15.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("在源码视图中查看", fontSize = 11.5.sp, fontWeight = FontWeight.Bold)
+                }
+            }
+
+            if (!preview.textSnippet.isNullOrBlank()) {
+                Surface(
+                    shape = RoundedCornerShape(10.dp),
+                    color = cs.surface,
+                    border = BorderStroke(1.dp, cs.outlineVariant.copy(alpha = 0.5f)),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(
+                        text = preview.textSnippet,
+                        fontSize = 10.5.sp,
+                        lineHeight = 15.sp,
+                        fontFamily = FontFamily.Monospace,
+                        color = cs.onSurface,
+                        maxLines = 12,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.padding(9.dp)
+                    )
+                }
             }
         }
     }

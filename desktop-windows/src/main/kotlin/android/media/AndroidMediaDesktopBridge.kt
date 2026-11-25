@@ -14,6 +14,7 @@ import java.io.File
 import java.io.FileInputStream
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
+import javax.sound.sampled.AudioInputStream
 import javax.sound.sampled.AudioSystem
 import javax.sound.sampled.Clip
 import javax.sound.sampled.DataLine
@@ -471,6 +472,33 @@ class AudioRecord(
     }
 }
 
+class PlaybackParams {
+    private var _speed: Float = 1.0f
+    private var _pitch: Float = 1.0f
+
+    val speed: Float
+        get() = _speed
+
+    val pitch: Float
+        get() = _pitch
+
+    fun setSpeed(speed: Float): PlaybackParams {
+        if (speed.isFinite() && speed > 0f) {
+            _speed = speed.coerceIn(0.25f, 4.0f)
+        }
+        return this
+    }
+
+    fun setPitch(pitch: Float): PlaybackParams {
+        if (pitch.isFinite() && pitch > 0f) {
+            _pitch = pitch.coerceIn(0.25f, 4.0f)
+        }
+        return this
+    }
+
+    fun allowDefaults(): PlaybackParams = this
+}
+
 class MediaPlayer {
     fun interface OnCompletionListener {
         fun onCompletion(mp: MediaPlayer)
@@ -479,10 +507,32 @@ class MediaPlayer {
     private var sourceFile: File? = null
     private var clip: Clip? = null
     private var completionListener: OnCompletionListener? = null
+    private var decodedFormat: JavaAudioFormat? = null
+    private var decodedPcmBytes: ByteArray? = null
+    @Volatile private var originalDurationUs: Long = 0L
+    @Volatile private var activeSpeed: Float = 1.0f
+    @Volatile private var _playbackParams: PlaybackParams = PlaybackParams()
+    @Volatile var isLooping: Boolean = false
     @Volatile private var isStarted: Boolean = false
     @Volatile private var hasObservedRunning: Boolean = false
     @Volatile private var startedAtMs: Long = 0L
     @Volatile private var pendingSeekMicros: Long? = null
+
+    var playbackParams: PlaybackParams
+        get() = PlaybackParams().setSpeed(_playbackParams.speed).setPitch(_playbackParams.pitch)
+        set(value) {
+            val newSpeed = value.speed.coerceIn(0.25f, 4.0f)
+            _playbackParams = PlaybackParams().setSpeed(newSpeed).setPitch(value.pitch)
+            val oldSpeed = activeSpeed
+            if (kotlin.math.abs(newSpeed - oldSpeed) > 0.005f) {
+                val curLogicalMs = currentPosition
+                val wasPlaying = isPlaying
+                activeSpeed = newSpeed
+                if (decodedPcmBytes != null && decodedFormat != null) {
+                    rebuildClipAtCurrentSpeed(seekLogicalMs = curLogicalMs, autoStart = wasPlaying)
+                }
+            }
+        }
 
     fun setDataSource(path: String) {
         sourceFile = File(path)
@@ -492,6 +542,17 @@ class MediaPlayer {
         sourceFile = uri.toFile()
     }
 
+    fun reset() {
+        release()
+        sourceFile = null
+        decodedFormat = null
+        decodedPcmBytes = null
+        originalDurationUs = 0L
+        activeSpeed = 1.0f
+        _playbackParams = PlaybackParams()
+        isLooping = false
+    }
+
     fun prepare() {
         val file = sourceFile ?: return
         if (!file.exists() || file.length() <= 44L) return
@@ -499,47 +560,172 @@ class MediaPlayer {
             isStarted = false
             hasObservedRunning = false
             clip?.close()
+            clip = null
+            decodedFormat = null
+            decodedPcmBytes = null
+            originalDurationUs = 0L
+
             BufferedInputStream(FileInputStream(file)).use { bis ->
-                val audioStream = AudioSystem.getAudioInputStream(bis)
-                val newClip = AudioSystem.getClip()
-                newClip.open(audioStream)
-                newClip.addLineListener { event ->
-                    if (event.type == LineEvent.Type.START) {
-                        hasObservedRunning = true
-                    } else if (event.type == LineEvent.Type.STOP) {
-                        val c = clip
-                        val reachedEnd = c != null && c.microsecondLength > 0L &&
-                            c.microsecondPosition >= c.microsecondLength - 25_000L
-                        if (isStarted && reachedEnd) {
+                val rawStream = AudioSystem.getAudioInputStream(bis)
+                val baseFmt = rawStream.format
+                val targetRate = if (baseFmt.sampleRate > 0f) baseFmt.sampleRate else 44100f
+                val channels = baseFmt.channels.coerceIn(1, 2)
+                val pcmFmt = JavaAudioFormat(
+                    JavaAudioFormat.Encoding.PCM_SIGNED,
+                    targetRate,
+                    16,
+                    channels,
+                    channels * 2,
+                    targetRate,
+                    false
+                )
+                val pcmStream = if (baseFmt.matches(pcmFmt)) {
+                    rawStream
+                } else {
+                    AudioSystem.getAudioInputStream(pcmFmt, rawStream)
+                }
+                val bytes = pcmStream.readBytes()
+                val frameBytes = pcmFmt.frameSize.coerceAtLeast(2)
+                val frameCount = bytes.size / frameBytes
+                originalDurationUs = ((frameCount.toDouble() / targetRate.toDouble()) * 1_000_000.0).toLong().coerceAtLeast(0L)
+                decodedFormat = pcmFmt
+                decodedPcmBytes = bytes
+            }
+
+            activeSpeed = _playbackParams.speed.coerceIn(0.25f, 4.0f)
+            val initSeekMs = ((pendingSeekMicros ?: 0L) / 1000L).toInt()
+            rebuildClipAtCurrentSpeed(seekLogicalMs = initSeekMs, autoStart = false)
+        } catch (e: Exception) {
+            // Fallback to direct Clip open if PCM conversion fails
+            try {
+                BufferedInputStream(FileInputStream(file)).use { bis ->
+                    val audioStream = AudioSystem.getAudioInputStream(bis)
+                    val newClip = AudioSystem.getClip()
+                    newClip.open(audioStream)
+                    originalDurationUs = newClip.microsecondLength
+                    activeSpeed = 1.0f
+                    attachLineListener(newClip)
+                    pendingSeekMicros?.let { targetUs ->
+                        val clamped = targetUs.coerceIn(0L, newClip.microsecondLength.coerceAtLeast(0L))
+                        try {
+                            newClip.microsecondPosition = clamped
+                        } catch (_: Exception) {}
+                    }
+                    clip = newClip
+                }
+            } catch (fallbackEx: Exception) {
+                fallbackEx.printStackTrace()
+            }
+        }
+    }
+
+    private fun attachLineListener(targetClip: Clip) {
+        targetClip.addLineListener { event ->
+            if (event.type == LineEvent.Type.START) {
+                hasObservedRunning = true
+            } else if (event.type == LineEvent.Type.STOP) {
+                val c = clip
+                if (c !== targetClip) return@addLineListener
+                val reachedEnd = c.microsecondLength > 0L &&
+                    c.microsecondPosition >= c.microsecondLength - 25_000L
+                if (isStarted && reachedEnd) {
+                    if (isLooping) {
+                        try {
+                            c.microsecondPosition = 0L
+                            c.start()
+                        } catch (_: Exception) {
                             isStarted = false
-                            completionListener?.onCompletion(this)
                         }
+                    } else {
+                        isStarted = false
+                        completionListener?.onCompletion(this)
                     }
                 }
-                pendingSeekMicros?.let { targetUs ->
-                    val clamped = targetUs.coerceIn(0L, newClip.microsecondLength.coerceAtLeast(0L))
-                    try {
-                        newClip.microsecondPosition = clamped
-                    } catch (_: Exception) {}
-                }
-                clip = newClip
+            }
+        }
+    }
+
+    private fun rebuildClipAtCurrentSpeed(seekLogicalMs: Int, autoStart: Boolean) {
+        val fmt = decodedFormat ?: return
+        val srcBytes = decodedPcmBytes ?: return
+        val speed = activeSpeed.coerceIn(0.25f, 4.0f)
+        try {
+            val prevClip = clip
+            clip = null
+            isStarted = false
+            hasObservedRunning = false
+            try {
+                prevClip?.stop()
+                prevClip?.close()
+            } catch (_: Exception) {}
+
+            val playBytes = if (kotlin.math.abs(speed - 1.0f) < 0.005f) {
+                srcBytes
+            } else {
+                resamplePcm16Le(srcBytes, fmt.channels.coerceIn(1, 2), speed)
+            }
+            val frameSize = fmt.frameSize.coerceAtLeast(2)
+            val frameLen = (playBytes.size / frameSize).toLong()
+            val ais = AudioInputStream(java.io.ByteArrayInputStream(playBytes), fmt, frameLen)
+            val newClip = AudioSystem.getClip()
+            newClip.open(ais)
+            attachLineListener(newClip)
+
+            val clipTargetUs = ((seekLogicalMs.toLong() * 1000.0) / speed.toDouble()).toLong()
+                .coerceIn(0L, newClip.microsecondLength.coerceAtLeast(0L))
+            try {
+                newClip.microsecondPosition = clipTargetUs
+            } catch (_: Exception) {}
+            pendingSeekMicros = (seekLogicalMs.toLong() * 1000L).coerceAtLeast(0L)
+            clip = newClip
+
+            if (autoStart) {
+                hasObservedRunning = false
+                startedAtMs = System.currentTimeMillis()
+                isStarted = true
+                newClip.start()
             }
         } catch (e: Exception) {
             e.printStackTrace()
         }
     }
 
+    private fun resamplePcm16Le(src: ByteArray, channels: Int, speed: Float): ByteArray {
+        val frameBytes = channels * 2
+        val inFrames = src.size / frameBytes
+        if (inFrames <= 1) return src
+        val outFrames = (inFrames.toDouble() / speed.toDouble()).toInt().coerceAtLeast(1)
+        val out = ByteArray(outFrames * frameBytes)
+        val inBuf = ByteBuffer.wrap(src).order(ByteOrder.LITTLE_ENDIAN)
+        val outBuf = ByteBuffer.wrap(out).order(ByteOrder.LITTLE_ENDIAN)
+        for (i in 0 until outFrames) {
+            val srcPos = i.toDouble() * speed.toDouble()
+            val idx0 = srcPos.toInt().coerceIn(0, inFrames - 1)
+            val idx1 = (idx0 + 1).coerceIn(0, inFrames - 1)
+            val frac = (srcPos - idx0.toDouble()).toFloat()
+            for (ch in 0 until channels) {
+                val s0 = inBuf.getShort((idx0 * channels + ch) * 2).toInt()
+                val s1 = inBuf.getShort((idx1 * channels + ch) * 2).toInt()
+                val interp = (s0 + (s1 - s0) * frac).toInt()
+                    .coerceIn(Short.MIN_VALUE.toInt(), Short.MAX_VALUE.toInt()).toShort()
+                outBuf.putShort((i * channels + ch) * 2, interp)
+            }
+        }
+        return out
+    }
+
     fun seekTo(msec: Int) {
-        val targetUs = (msec.toLong() * 1000L).coerceAtLeast(0L)
+        val logicalUs = (msec.toLong() * 1000L).coerceAtLeast(0L)
         val c = clip
         if (c != null) {
-            val clamped = targetUs.coerceIn(0L, c.microsecondLength.coerceAtLeast(0L))
+            val clipTargetUs = (logicalUs.toDouble() / activeSpeed.toDouble()).toLong()
+                .coerceIn(0L, c.microsecondLength.coerceAtLeast(0L))
             try {
-                c.microsecondPosition = clamped
+                c.microsecondPosition = clipTargetUs
             } catch (_: Exception) {}
-            pendingSeekMicros = clamped
+            pendingSeekMicros = logicalUs
         } else {
-            pendingSeekMicros = targetUs
+            pendingSeekMicros = logicalUs
         }
     }
 
@@ -596,10 +782,19 @@ class MediaPlayer {
         }
 
     val duration: Int
-        get() = ((clip?.microsecondLength ?: 0L) / 1000L).toInt()
+        get() {
+            val orig = originalDurationUs
+            if (orig > 0L) return (orig / 1000L).toInt()
+            return ((clip?.microsecondLength ?: 0L) / 1000L).toInt()
+        }
 
     val currentPosition: Int
-        get() = ((clip?.microsecondPosition ?: 0L) / 1000L).toInt()
+        get() {
+            val c = clip ?: return 0
+            val logicalMs = ((c.microsecondPosition.toDouble() * activeSpeed.toDouble()) / 1000.0).toInt()
+            val dur = duration
+            return if (dur > 0) logicalMs.coerceIn(0, dur) else logicalMs.coerceAtLeast(0)
+        }
 
     fun setOnCompletionListener(listener: OnCompletionListener?) {
         completionListener = listener

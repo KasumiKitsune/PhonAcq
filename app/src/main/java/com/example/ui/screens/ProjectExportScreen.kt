@@ -62,12 +62,19 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.i18n.S
 import com.example.i18n.withArgs
+import com.example.textgrid.codec.TextGridCodec
+import com.example.textgrid.model.TextGridFormatVariant
+import com.example.textgrid.model.TextGridVisualConfig
+import com.example.textgrid.ops.TextGridOps
+import com.example.textgrid.ui.TextGridMiniStrip
 import com.example.ui.components.DesktopAdaptiveState
 import com.example.ui.components.PlatformVerticalScrollbar
 import com.example.ui.components.PredictiveBackGestureHandler
 import com.example.ui.components.predictiveBackLayer
 import com.example.ui.components.rememberPredictiveBackVisualState
 import com.example.utils.TextGridFormatConfig
+import com.example.utils.TextGridPreset
+import com.example.viewmodel.RecordingViewModel
 
 /**
  * Dedicated full-screen Export Page replacing the cramped modal AlertDialog.
@@ -118,8 +125,13 @@ fun ProjectExportScreen(
     optIncludeBackupTakes: Boolean = false,
     onIncludeBackupTakesChange: (Boolean) -> Unit = {},
     textGridConfig: TextGridFormatConfig = TextGridFormatConfig(),
+    textGridVisualConfig: TextGridVisualConfig = TextGridVisualConfig(),
+    onOpenTextGridSettings: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
+    val openTextGridSettingsAction: () -> Unit = {
+        onOpenTextGridSettings?.invoke() ?: RecordingViewModel.requestNavigateToTextGridSettings()
+    }
     val backVisualState = rememberPredictiveBackVisualState()
     PredictiveBackGestureHandler(
         enabled = true,
@@ -567,7 +579,9 @@ fun ProjectExportScreen(
                                     optPraatTextGrid = if (isSimpleMode) optSimplePraatTextGrid else optPraatTextGrid,
                                     includeWordImages = hasWordImages && optWordImages,
                                     includeBackupTakes = !isSimpleMode && !usePraatCol && !useTeproj && optIncludeBackupTakes,
-                                    textGridConfig = textGridConfig
+                                    textGridConfig = textGridConfig,
+                                    textGridVisualConfig = textGridVisualConfig,
+                                    onOpenTextGridSettings = openTextGridSettingsAction
                                 )
                             }
 
@@ -602,7 +616,8 @@ fun ProjectExportScreen(
                                     onWordImagesChange = onWordImagesChange,
                                     optIncludeBackupTakes = optIncludeBackupTakes,
                                     onIncludeBackupTakesChange = onIncludeBackupTakesChange,
-                                    textGridConfig = textGridConfig
+                                    textGridConfig = textGridConfig,
+                                    onOpenTextGridSettings = openTextGridSettingsAction
                                 )
                             }
                         }
@@ -646,7 +661,21 @@ fun ProjectExportScreen(
                             onWordImagesChange = onWordImagesChange,
                             optIncludeBackupTakes = optIncludeBackupTakes,
                             onIncludeBackupTakesChange = onIncludeBackupTakesChange,
-                            textGridConfig = textGridConfig
+                            textGridConfig = textGridConfig,
+                            onOpenTextGridSettings = openTextGridSettingsAction
+                        )
+                        ExportStructurePreviewCard(
+                            isSimpleMode = isSimpleMode,
+                            usePraatCol = usePraatCol,
+                            useTeproj = useTeproj,
+                            optPraatCollectionBinary = optPraatCollectionBinary,
+                            optPraatSummaryTable = optPraatSummaryTable,
+                            optPraatTextGrid = if (isSimpleMode) optSimplePraatTextGrid else optPraatTextGrid,
+                            includeWordImages = hasWordImages && optWordImages,
+                            includeBackupTakes = !isSimpleMode && !usePraatCol && !useTeproj && optIncludeBackupTakes,
+                            textGridConfig = textGridConfig,
+                            textGridVisualConfig = textGridVisualConfig,
+                            onOpenTextGridSettings = openTextGridSettingsAction
                         )
                     }
 
@@ -1114,10 +1143,28 @@ private fun ExportStructurePreviewCard(
     optPraatTextGrid: Boolean,
     includeWordImages: Boolean = false,
     includeBackupTakes: Boolean = false,
-    textGridConfig: TextGridFormatConfig
+    textGridConfig: TextGridFormatConfig,
+    textGridVisualConfig: TextGridVisualConfig = TextGridVisualConfig(),
+    onOpenTextGridSettings: () -> Unit = {}
 ) {
     val colorScheme = MaterialTheme.colorScheme
+    val tgVis = S.textGrid.visual
     val tgSummary = textGridConfig.shortSummaryLabel()
+    val showTextGridStrip = usePraatCol || optPraatTextGrid
+    val effectiveStripConfig = remember(useTeproj, textGridConfig) {
+        if (useTeproj) TextGridFormatConfig.fromPreset(TextGridPreset.PHONTRACER_COMPAT) else textGridConfig
+    }
+    val sampleSource = remember(effectiveStripConfig) {
+        TextGridFormatConfig.buildLiveSamplePreview(effectiveStripConfig)
+    }
+    val sampleDoc = remember(effectiveStripConfig, sampleSource) {
+        TextGridCodec.parseText(sampleSource, defaultName = S.textGrid.sampleWordText).document
+            ?: TextGridOps.buildSampleDocumentFromFormatConfig(effectiveStripConfig)
+    }
+    val sampleVariant = remember(effectiveStripConfig.shortTextFormat) {
+        if (effectiveStripConfig.shortTextFormat) TextGridFormatVariant.SHORT_TEXT else TextGridFormatVariant.LONG_TEXT
+    }
+
     val items = when {
         usePraatCol -> buildList {
             add(if (optPraatCollectionBinary) S.export.treePraatBinaryHeader else S.export.treePraatTextHeader)
@@ -1156,14 +1203,44 @@ private fun ExportStructurePreviewCard(
     ) {
         Column(
             modifier = Modifier.padding(14.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp)
+            verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            Text(
-                text = S.export.artifactTreeHeader,
-                fontSize = 12.5.sp,
-                fontWeight = FontWeight.Bold,
-                color = colorScheme.onSurface
-            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = S.export.artifactTreeHeader,
+                    fontSize = 12.5.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = colorScheme.onSurface
+                )
+                if (showTextGridStrip) {
+                    TextButton(
+                        onClick = onOpenTextGridSettings,
+                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                        modifier = Modifier
+                            .height(28.dp)
+                            .pointerHoverIcon(PointerIcon.Hand)
+                            .testTag("export_open_textgrid_settings_button")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Tune,
+                            contentDescription = null,
+                            modifier = Modifier.size(13.dp)
+                        )
+                        Spacer(Modifier.width(4.dp))
+                        Text(
+                            text = tgVis.exportMiniStripConfigureBtn,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1,
+                            softWrap = false
+                        )
+                    }
+                }
+            }
             items.forEach { line ->
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
@@ -1180,6 +1257,25 @@ private fun ExportStructurePreviewCard(
                         color = colorScheme.onSurfaceVariant
                     )
                 }
+            }
+
+            if (showTextGridStrip) {
+                HorizontalDivider(
+                    color = colorScheme.outlineVariant.copy(alpha = 0.35f),
+                    modifier = Modifier.padding(vertical = 2.dp)
+                )
+                TextGridMiniStrip(
+                    doc = sampleDoc,
+                    visualConfig = textGridVisualConfig,
+                    title = tgVis.exportMiniStripTitle,
+                    subtitle = tgVis.exportMiniStripSubtitle,
+                    formatVariant = sampleVariant,
+                    rawSourceOverride = sampleSource,
+                    maxHeight = 165.dp,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("export_textgrid_mini_strip")
+                )
             }
         }
     }
@@ -1228,7 +1324,8 @@ private fun ExportDetailedOptionsCard(
     onWordImagesChange: (Boolean) -> Unit = {},
     optIncludeBackupTakes: Boolean = false,
     onIncludeBackupTakesChange: (Boolean) -> Unit = {},
-    textGridConfig: TextGridFormatConfig
+    textGridConfig: TextGridFormatConfig,
+    onOpenTextGridSettings: () -> Unit = {}
 ) {
     val colorScheme = MaterialTheme.colorScheme
     val tgSummary = textGridConfig.shortSummaryLabel()
@@ -1278,18 +1375,50 @@ private fun ExportDetailedOptionsCard(
                 Surface(
                     shape = RoundedCornerShape(10.dp),
                     color = colorScheme.secondaryContainer.copy(alpha = 0.45f),
-                    modifier = Modifier.fillMaxWidth()
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(10.dp))
+                        .pointerHoverIcon(PointerIcon.Hand)
+                        .clickable(onClick = onOpenTextGridSettings)
+                        .testTag("export_tg_format_summary_link")
                 ) {
-                    Text(
-                        text = S.export.currentTgFormatNote.withArgs(
-                            "preset" to textGridConfig.preset.title,
-                            "summary" to tgSummary
-                        ),
-                        fontSize = 11.5.sp,
-                        lineHeight = 16.sp,
-                        color = colorScheme.onSecondaryContainer,
-                        modifier = Modifier.padding(horizontal = 11.dp, vertical = 7.dp)
-                    )
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 11.dp, vertical = 7.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = S.export.currentTgFormatNote.withArgs(
+                                "preset" to textGridConfig.preset.title,
+                                "summary" to tgSummary
+                            ),
+                            fontSize = 11.5.sp,
+                            lineHeight = 16.sp,
+                            color = colorScheme.onSecondaryContainer,
+                            modifier = Modifier.weight(1f).padding(end = 8.dp)
+                        )
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(3.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Tune,
+                                contentDescription = null,
+                                tint = colorScheme.primary,
+                                modifier = Modifier.size(13.dp)
+                            )
+                            Text(
+                                text = S.textGrid.visual.exportMiniStripConfigureBtn,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = colorScheme.primary,
+                                maxLines = 1,
+                                softWrap = false
+                            )
+                        }
+                    }
                 }
             }
 

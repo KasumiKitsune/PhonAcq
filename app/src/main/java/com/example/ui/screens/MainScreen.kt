@@ -1,5 +1,12 @@
 package com.example.ui.screens
 
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
+import android.content.Intent
+import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.*
 import androidx.compose.animation.core.FastOutLinearInEasing
 import androidx.compose.animation.core.FastOutSlowInEasing
@@ -56,16 +63,27 @@ import com.example.data.Word
 import com.example.i18n.S
 import com.example.i18n.withArgs
 import com.example.link.LinkRole
+import com.example.textgrid.codec.TextGridCodec
+import com.example.textgrid.model.TextGridAnomaly
+import com.example.textgrid.model.TextGridDocument
+import com.example.textgrid.model.TextGridFormatVariant
+import com.example.textgrid.ui.TextGridFullViewerScreen
 import com.example.ui.components.DesktopAdaptiveState
 import com.example.ui.components.LocalAppWindowMetrics
 import com.example.ui.components.PredictiveBackGestureHandler
+import com.example.ui.components.StudioAlertDialog
 import com.example.ui.components.StudioMotion
 import com.example.ui.components.SuspendDesktopShortcutsWhen
 import com.example.ui.components.computeAppWindowMetrics
 import com.example.ui.components.predictiveBackLayer
 import com.example.ui.components.rememberPredictiveBackVisualState
 import com.example.viewmodel.RecordingViewModel
+import com.example.viewmodel.TextGridViewerSession
+import androidx.compose.ui.platform.LocalContext
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.io.File
 
 sealed class AppScreen(val index: Int) {
     object ProjectList : AppScreen(0)
@@ -112,8 +130,12 @@ fun MainScreen(
 
     val activeLinkRole by viewModel.wirelessLink.activeRole.collectAsState()
     val isLinkConnected by viewModel.wirelessLink.isConnected.collectAsState()
+    val textGridViewerSession by viewModel.textGridViewerSession.collectAsState()
+    var pendingSettingsCategoryId by remember { mutableStateOf<String?>(null) }
+    var settingsCategoryJumpSeq by remember { mutableIntStateOf(0) }
 
     fun closePrimaryOverlays() {
+        viewModel.closeTextGridViewer()
         showWordListEditor = false
         showImportWorkspace = false
         showUserManualOverlay = false
@@ -121,7 +143,30 @@ fun MainScreen(
         showRoomNoiseCheck = false
     }
 
+    fun navigateToTextGridSettings() {
+        closePrimaryOverlays()
+        viewModel.showPhoneticWordDetail(null)
+        viewModel.setShowGlobalManagement(false)
+        showQuickRecordingSettingsInSidebar = false
+        pendingSettingsCategoryId = SettingsCategory.PRAAT_TEXTGRID.id
+        settingsCategoryJumpSeq++
+        currentScreen = AppScreen.Settings
+    }
+
+    LaunchedEffect(Unit) {
+        RecordingViewModel.externalTextGridOpenRequests.collect { (tgFile, pairedAudio) ->
+            viewModel.openExternalTextGridViewer(tgFile, pairedAudio)
+        }
+    }
+
+    LaunchedEffect(Unit) {
+        RecordingViewModel.navigateToTextGridSettingsRequests.collect {
+            navigateToTextGridSettings()
+        }
+    }
+
     val canAcceptWindowGlobalDrop = DesktopAdaptiveState.isDesktopPlatform &&
+        textGridViewerSession == null &&
         !showImportWorkspace &&
         !showWordListEditor &&
         !showWirelessPairingDialog &&
@@ -157,13 +202,16 @@ fun MainScreen(
         val canDockRightInspector = maxWidth >= 1120.dp && isExpandedSplit
         val isUltraWide = windowMetrics.isUltraWide
 
-        val isPrimaryOverlayOpen = showWordListEditor ||
+        val hasTextGridViewerOpen = textGridViewerSession != null
+
+        val isPrimaryOverlayOpen = hasTextGridViewerOpen ||
+            showWordListEditor ||
             showImportWorkspace ||
             showUserManualOverlay ||
             showEncyclopediaOverlay ||
             showRoomNoiseCheck
 
-        val hasDockedSideOverlay = canDockRightInspector && (showGlobalManagement || showPhoneticWord != null)
+        val hasDockedSideOverlay = canDockRightInspector && !hasTextGridViewerOpen && (showGlobalManagement || showPhoneticWord != null)
         val showFullGlobalOverlay = showGlobalManagement && !canDockRightInspector
 
         val isInRecordingOrSplitTab = currentScreen == AppScreen.ProjectList || currentScreen == AppScreen.RecordingWorkspace
@@ -618,6 +666,7 @@ fun MainScreen(
 
                                 // Single Unified Main Workspace Router (zero duplicate overlay declarations; state survives breakpoint resizing)
                                 val activeWorkspaceKey = when {
+                                    hasTextGridViewerOpen -> "TEXTGRID_VIEWER"
                                     isFullWindowImmersive -> "IMMERSIVE_RECORDING"
                                     showFullGlobalOverlay -> "GLOBAL_MANAGEMENT"
                                     showImportWorkspace -> "IMPORT_WORKSPACE"
@@ -856,6 +905,20 @@ fun MainScreen(
                                             }
                                         }
 
+                                        "TEXTGRID_VIEWER" -> {
+                                            val activeSession = textGridViewerSession
+                                            if (activeSession != null) {
+                                                TextGridViewerHostOverlay(
+                                                    session = activeSession,
+                                                    viewModel = viewModel,
+                                                    onClose = { viewModel.closeTextGridViewer() },
+                                                    modifier = Modifier
+                                                        .fillMaxSize()
+                                                        .then(androidNavBarInsetModifier)
+                                                )
+                                            }
+                                        }
+
                                         "IMMERSIVE_RECORDING" -> {
                                             RecordingScreen(
                                                 viewModel = viewModel,
@@ -973,8 +1036,13 @@ fun MainScreen(
                                         "SETTINGS" -> {
                                             SettingsScreen(
                                                 viewModel = viewModel,
-                                                onBack = { currentScreen = AppScreen.ProjectList },
+                                                onBack = {
+                                                    pendingSettingsCategoryId = null
+                                                    currentScreen = AppScreen.ProjectList
+                                                },
                                                 onOpenRecordingsCleanup = { viewModel.setShowGlobalManagement(true) },
+                                                initialCategoryId = pendingSettingsCategoryId,
+                                                categoryJumpSeq = settingsCategoryJumpSeq,
                                                 modifier = Modifier.fillMaxSize()
                                             )
                                         }
@@ -1253,7 +1321,7 @@ fun MainScreen(
                         }
 
                     // Non-docked PhoneticDetails modal (Compact / Medium / <1120dp windows)
-                    if (showPhoneticWord != null && !canDockRightInspector) {
+                    if (showPhoneticWord != null && !canDockRightInspector && !hasTextGridViewerOpen) {
                         PhoneticDetailsBottomSheet(
                             word = showPhoneticWord!!,
                             speaker = currentSpeaker,
@@ -1722,6 +1790,285 @@ fun PhoneticDetailsPane(
         onDismiss = onDismiss,
         isDockedPane = true
     )
+}
+
+private data class LoadedViewerDocumentPayload(
+    val doc: TextGridDocument,
+    val collectionDocs: List<TextGridDocument>,
+    val anomalies: List<TextGridAnomaly>,
+    val rawSource: String,
+    val formatVariant: TextGridFormatVariant,
+    val timeDecimals: Int?
+)
+
+@Composable
+private fun TextGridViewerHostOverlay(
+    session: TextGridViewerSession,
+    viewModel: RecordingViewModel,
+    onClose: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val tgVis = S.textGrid.visual
+
+    val visualConfig by viewModel.textGridVisualConfig.collectAsState()
+    val formatConfig by viewModel.textGridFormatConfig.collectAsState()
+    val allSpeakers by viewModel.allSpeakers.collectAsState()
+    val currentSpeaker by viewModel.currentSpeaker.collectAsState()
+    val playingWordId by viewModel.playingWordId.collectAsState()
+    val isRangePlaybackActive by viewModel.isRangePlaybackActive.collectAsState()
+    val playbackCurrentTimeSec by viewModel.playbackCurrentTimeSec.collectAsState()
+
+    val isPlayingViewerAudio = playingWordId == RecordingViewModel.TEXTGRID_PLAYBACK_TAG_ID && isRangePlaybackActive
+
+    val sessionKey = remember(session) {
+        when (session) {
+            is TextGridViewerSession.WordEntry -> "word_${session.word.id}_${session.audioFile?.absolutePath.orEmpty()}"
+            is TextGridViewerSession.ExternalFile -> "ext_${session.textGridFile.absolutePath}_${session.audioFile?.absolutePath.orEmpty()}"
+        }
+    }
+
+    val loadedPayload by produceState<LoadedViewerDocumentPayload?>(
+        initialValue = null,
+        key1 = sessionKey
+    ) {
+        value = when (session) {
+            is TextGridViewerSession.WordEntry -> {
+                val targetSpeaker = session.speakerId?.let { sid -> allSpeakers.firstOrNull { it.id == sid } } ?: currentSpeaker
+                val loaded = viewModel.loadWordTextGridDocument(
+                    word = session.word,
+                    audioFile = session.audioFile,
+                    speaker = targetSpeaker
+                )
+                LoadedViewerDocumentPayload(
+                    doc = loaded.document,
+                    collectionDocs = listOf(loaded.document),
+                    anomalies = emptyList(),
+                    rawSource = loaded.rawSource,
+                    formatVariant = loaded.formatVariant,
+                    timeDecimals = formatConfig.effectiveTimeDecimals()
+                )
+            }
+            is TextGridViewerSession.ExternalFile -> {
+                withContext(Dispatchers.IO) {
+                    val parsed = TextGridCodec.parseFile(session.textGridFile)
+                    val doc = parsed.document
+                    if (doc != null) {
+                        val rawSrc = parsed.normalizedSource ?: TextGridCodec.serialize(doc, parsed.detectedVariant)
+                        LoadedViewerDocumentPayload(
+                            doc = doc,
+                            collectionDocs = parsed.collectionDocuments.ifEmpty { listOf(doc) },
+                            anomalies = parsed.anomalies,
+                            rawSource = rawSrc,
+                            formatVariant = parsed.detectedVariant,
+                            timeDecimals = null
+                        )
+                    } else {
+                        val errMsg = parsed.fatalDiagnostics.firstOrNull()?.message ?: S.common.unknownError
+                        withContext(Dispatchers.Main) {
+                            Toast.makeText(
+                                context,
+                                tgVis.loadTextGridFailedToast.withArgs("msg" to errMsg),
+                                Toast.LENGTH_LONG
+                            ).show()
+                        }
+                        val fallbackDoc = TextGridDocument.empty(xmax = 1.0, name = session.textGridFile.nameWithoutExtension)
+                        LoadedViewerDocumentPayload(
+                            doc = fallbackDoc,
+                            collectionDocs = listOf(fallbackDoc),
+                            anomalies = emptyList(),
+                            rawSource = runCatching { session.textGridFile.readText(Charsets.UTF_8) }
+                                .getOrElse { TextGridCodec.serialize(fallbackDoc, TextGridFormatVariant.LONG_TEXT) },
+                            formatVariant = TextGridFormatVariant.LONG_TEXT,
+                            timeDecimals = null
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    var pendingExportTextGridContent by remember { mutableStateOf<String?>(null) }
+    var pendingExportSvgContent by remember { mutableStateOf<String?>(null) }
+
+    val saveTextGridLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CreateDocument("text/plain")
+    ) { uri ->
+        val content = pendingExportTextGridContent
+        pendingExportTextGridContent = null
+        if (uri != null && !content.isNullOrBlank()) {
+            scope.launch {
+                val ok = withContext(Dispatchers.IO) {
+                    runCatching {
+                        context.contentResolver.openOutputStream(uri)?.use { os ->
+                            os.write(content.toByteArray(Charsets.UTF_8))
+                            os.flush()
+                            true
+                        } ?: false
+                    }.getOrDefault(false)
+                }
+                Toast.makeText(
+                    context,
+                    if (ok) S.archive.savedSingleTextGridToast else S.archive.exportFailedShortToast,
+                    Toast.LENGTH_SHORT
+                ).show()
+            }
+        }
+    }
+
+    val saveSvgLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CreateDocument("image/svg+xml")
+    ) { uri ->
+        val svgContent = pendingExportSvgContent
+        pendingExportSvgContent = null
+        if (uri != null && !svgContent.isNullOrBlank()) {
+            scope.launch {
+                val ok = withContext(Dispatchers.IO) {
+                    runCatching {
+                        context.contentResolver.openOutputStream(uri)?.use { os ->
+                            os.write(svgContent.toByteArray(Charsets.UTF_8))
+                            os.flush()
+                            true
+                        } ?: false
+                    }.getOrDefault(false)
+                }
+                Toast.makeText(
+                    context,
+                    if (ok) tgVis.exportSvgSuccess(".svg") else S.archive.exportFailedShortToast,
+                    Toast.LENGTH_SHORT
+                ).show()
+            }
+        }
+    }
+
+    val backVisualState = rememberPredictiveBackVisualState()
+    PredictiveBackGestureHandler(
+        enabled = true,
+        state = backVisualState
+    ) {
+        viewModel.stopPlayback()
+        onClose()
+    }
+
+    val payload = loadedPayload
+    if (payload == null) {
+        Surface(
+            color = MaterialTheme.colorScheme.background,
+            modifier = modifier.fillMaxSize()
+        ) {
+            Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    CircularProgressIndicator()
+                    Text(
+                        text = S.common.loading,
+                        fontSize = 13.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+        }
+        return
+    }
+
+    fun exportTextGridSource(src: String) {
+        val safeStem = session.title.replace(Regex("[/\\\\:*?\"<>|\\s]+"), "_").ifBlank { "annotation" }.take(32)
+        val fileName = if (safeStem.endsWith(".TextGrid", ignoreCase = true)) safeStem else "$safeStem.TextGrid"
+        if (DesktopAdaptiveState.isDesktopPlatform) {
+            pendingExportTextGridContent = src
+            saveTextGridLauncher.launch(fileName)
+        } else {
+            try {
+                val cacheDir = File(context.cacheDir, "exports").apply { mkdirs() }
+                val tgFile = File(cacheDir, fileName)
+                tgFile.writeText(src, Charsets.UTF_8)
+                val uri = androidx.core.content.FileProvider.getUriForFile(
+                    context,
+                    "${context.packageName}.fileprovider",
+                    tgFile
+                )
+                val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                    type = "text/plain"
+                    putExtra(Intent.EXTRA_STREAM, uri)
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                }
+                context.startActivity(Intent.createChooser(shareIntent, S.archive.shareSingleTextGridTitle))
+            } catch (e: Exception) {
+                Toast.makeText(context, S.archive.exportFailedMsgToast.withArgs("msg" to e.message), Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+    fun exportSvgFigure(svg: String) {
+        val safeStem = session.title.replace(Regex("[/\\\\:*?\"<>|\\s]+"), "_").ifBlank { "textgrid_score" }.take(32)
+        val fileName = "$safeStem.svg"
+        if (DesktopAdaptiveState.isDesktopPlatform) {
+            pendingExportSvgContent = svg
+            saveSvgLauncher.launch(fileName)
+        } else {
+            try {
+                val cacheDir = File(context.cacheDir, "exports").apply { mkdirs() }
+                val svgFile = File(cacheDir, fileName)
+                svgFile.writeText(svg, Charsets.UTF_8)
+                val uri = androidx.core.content.FileProvider.getUriForFile(
+                    context,
+                    "${context.packageName}.fileprovider",
+                    svgFile
+                )
+                val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                    type = "image/svg+xml"
+                    putExtra(Intent.EXTRA_STREAM, uri)
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                }
+                context.startActivity(Intent.createChooser(shareIntent, tgVis.exportSvg))
+            } catch (e: Exception) {
+                Toast.makeText(context, S.archive.exportFailedMsgToast.withArgs("msg" to e.message), Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+    Box(
+        modifier = modifier
+            .fillMaxSize()
+            .predictiveBackLayer(backVisualState)
+    ) {
+        TextGridFullViewerScreen(
+            title = session.title,
+            document = payload.doc,
+            collectionDocuments = payload.collectionDocs,
+            anomalies = payload.anomalies,
+            pairedAudioFile = session.audioFile,
+            visualConfig = visualConfig,
+            timeDecimals = payload.timeDecimals,
+            formatVariant = payload.formatVariant,
+            rawSourceOverride = payload.rawSource,
+            isPlaying = isPlayingViewerAudio,
+            playheadTimeSec = if (isPlayingViewerAudio) playbackCurrentTimeSec else null,
+            onVisualConfigChange = { viewModel.setTextGridVisualConfig(it) },
+            onPlayRange = { startSec, endSec, speed, loop ->
+                viewModel.playAudioRange(
+                    audioFile = session.audioFile,
+                    startSec = startSec,
+                    endSec = endSec,
+                    loop = loop,
+                    rate = speed,
+                    totalDurationSec = payload.doc.duration
+                )
+            },
+            onStopPlayback = { viewModel.stopPlayback() },
+            onExportTextGrid = { _, src -> exportTextGridSource(src) },
+            onExportSvg = { _, svg -> exportSvgFigure(svg) },
+            onNotify = { msg -> Toast.makeText(context, msg, Toast.LENGTH_SHORT).show() },
+            onClose = {
+                viewModel.stopPlayback()
+                onClose()
+            },
+            modifier = Modifier.fillMaxSize()
+        )
+    }
 }
 
 private object CachedPhonAcqLogoPaths {

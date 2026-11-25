@@ -8,6 +8,16 @@ class Uri private constructor(
     private val fileRef: File?,
     private val rawUriString: String
 ) {
+    val scheme: String?
+        get() = when {
+            fileRef != null -> "file"
+            rawUriString.contains("://") -> rawUriString.substringBefore("://")
+            else -> null
+        }
+
+    val path: String?
+        get() = fileRef?.absolutePath ?: rawUriString.removePrefix("file://").takeIf { it.isNotBlank() }
+
     fun toFile(): File? = fileRef ?: if (rawUriString.isNotBlank()) File(rawUriString) else null
 
     override fun toString(): String = fileRef?.absolutePath ?: rawUriString

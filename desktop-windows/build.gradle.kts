@@ -42,7 +42,7 @@ val rawAppVersion: String = (project.findProperty("appVersion") as? String)
     ?.removePrefix("v")
     ?.removePrefix("V")
     ?.takeIf { it.isNotEmpty() }
-    ?: "2.0.2"
+    ?: "2.0.3"
 
 // WiX (.msi) and macOS jpackage (.dmg) strictly require X.Y.Z numeric format with X >= 1
 val nativePkgVersion: String = run {

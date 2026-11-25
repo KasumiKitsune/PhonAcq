@@ -29,11 +29,11 @@ android {
         val patch = nums.getOrElse(2) { 0 }.coerceIn(0, 99)
         (major * 10000 + minor * 100 + patch).coerceAtLeast(2)
       } else {
-        20002
+        20003
       }
-    } ?: 20002
+    } ?: 20003
     versionCode = computedVersionCode
-    versionName = rawPropVersion ?: "2.0.2"
+    versionName = rawPropVersion ?: "2.0.3"
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
   }

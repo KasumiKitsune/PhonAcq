@@ -2666,7 +2666,8 @@ object AcousticAnalyzer {
             val f1DftStep = 10
             val f1DftBins = (f1DftMax - f1DftMin) / f1DftStep + 1
             val rawDftPower = DoubleArray(f1DftBins)
-            val f0VoiceBarLimit = (syllableMeanF0 * 1.18f).roundToInt().coerceIn(190, 290)
+            val rawVoiceBar = syllableMeanF0 * 1.18f
+            val f0VoiceBarLimit = (if (rawVoiceBar.isFinite()) rawVoiceBar.roundToInt() else 220).coerceIn(190, 290)
 
             var closeBandEnergy = 1e-12
             var closeCount = 0
@@ -2799,8 +2800,12 @@ object AcousticAnalyzer {
                 val y2 = envPowerDb[b]
                 val y3 = envPowerDb[b + 1]
                 val denom = 2.0 * (2.0 * y2 - y1 - y3)
-                val delta = if (abs(denom) > 1e-6) ((y1 - y3) / denom).coerceIn(-0.5, 0.5) else 0.0
-                val exactFreq = (minFreq + (b + delta) * freqStep).roundToInt()
+                val delta = if (denom.isFinite() && abs(denom) > 1e-6) {
+                    val rawD = (y1 - y3) / denom
+                    if (rawD.isFinite()) rawD.coerceIn(-0.5, 0.5) else 0.0
+                } else 0.0
+                val rawExactFreq = minFreq + (b + delta) * freqStep
+                val exactFreq = if (rawExactFreq.isFinite()) rawExactFreq.roundToInt() else (minFreq + b * freqStep)
 
                 // Walk left and right to find -3 dB points and local valleys
                 var leftBin = b

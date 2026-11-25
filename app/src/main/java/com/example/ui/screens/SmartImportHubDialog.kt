@@ -171,6 +171,7 @@ fun SmartImportWorkspaceScreen(
     val speakers by viewModel.allSpeakers.collectAsState()
     val currentSpeaker by viewModel.currentSpeaker.collectAsState()
     val currentProject by viewModel.currentProject.collectAsState()
+    val textGridVisualConfig by viewModel.textGridVisualConfig.collectAsState()
 
     val sessionStagingDir = remember { SmartImportEngine.createSessionStagingDir(context) }
     val stagingCleanupGuard = remember {
@@ -357,7 +358,9 @@ fun SmartImportWorkspaceScreen(
         plan.archiveItems.isNotEmpty() ||
             (targetMode == ImportTargetMode.CREATE_NEW_PROJECT && (plan.candidateWords.isNotEmpty() || plan.readyAudioCount > 0)) ||
             (targetMode == ImportTargetMode.MERGE_EXISTING_PROJECT && selectedMergeProjectId != null && (
-                plan.candidateWords.any { it.existingWordId == null || it.stagedImageFile != null } || plan.readyAudioCount > 0
+                plan.candidateWords.any { it.existingWordId == null || it.stagedImageFile != null } ||
+                    plan.readyAudioCount > 0 ||
+                    plan.textGridPairings.any { it.targetWord?.existingWordId != null }
                 ))
         )
 
@@ -407,7 +410,8 @@ fun SmartImportWorkspaceScreen(
             val totalWords = corpusWordCount + archiveWordCount
             val totalAudio = plan.readyAudioCount + archiveAudioCount
             val projPart = if (plan.archiveItems.isNotEmpty()) "${plan.archiveItems.size} 个项目包 · " else ""
-            "就绪：${projPart}${totalWords} 个词条 · ${totalAudio} 条录音"
+            val tgPart = if (plan.textGridItems.isNotEmpty()) " · ${plan.textGridItems.size} 份标注" else ""
+            "就绪：${projPart}${totalWords} 个词条 · ${totalAudio} 条录音$tgPart"
         }
     }
 
@@ -666,6 +670,7 @@ fun SmartImportWorkspaceScreen(
                                 totalParsedWords = plan.wordlistItems.sumOf { it.parsedWords.size },
                                 audioCount = plan.audioItems.size,
                                 imageCount = plan.imageItems.size,
+                                textGridCount = plan.textGridItems.size,
                                 onClearAll = if (stagedItems.isNotEmpty() && !isExecutingImport) {
                                     {
                                         stagedItems = emptyList()
@@ -763,12 +768,27 @@ fun SmartImportWorkspaceScreen(
                                 val onlyStandaloneArchives = plan.archiveItems.isNotEmpty() &&
                                     plan.wordlistItems.isEmpty() &&
                                     plan.audioItems.isEmpty() &&
-                                    plan.imageItems.isEmpty()
+                                    plan.imageItems.isEmpty() &&
+                                    plan.textGridItems.isEmpty()
 
                                 if (plan.archiveItems.isNotEmpty()) {
                                     item(key = "archive_queue_card") {
                                         ArchiveQueuePreviewCard(
                                             archiveItems = plan.archiveItems,
+                                            modifier = studioAnimateItem()
+                                        )
+                                    }
+                                }
+
+                                if (plan.textGridPairings.isNotEmpty()) {
+                                    item(key = "textgrid_queue_card") {
+                                        TextGridQueuePreviewCard(
+                                            textGridPairings = plan.textGridPairings,
+                                            visualConfig = textGridVisualConfig,
+                                            enabled = !isExecutingImport,
+                                            onOpenVisualViewer = { tgFile, pairedAudio ->
+                                                viewModel.openExternalTextGridViewer(tgFile, pairedAudio)
+                                            },
                                             modifier = studioAnimateItem()
                                         )
                                     }
@@ -933,6 +953,7 @@ fun SmartImportWorkspaceScreen(
                             totalParsedWords = plan.wordlistItems.sumOf { it.parsedWords.size },
                             audioCount = plan.audioItems.size,
                             imageCount = plan.imageItems.size,
+                            textGridCount = plan.textGridItems.size,
                             onClearAll = if (!isExecutingImport) {
                                 {
                                     stagedItems = emptyList()
@@ -976,10 +997,22 @@ fun SmartImportWorkspaceScreen(
                         ArchiveQueuePreviewCard(archiveItems = plan.archiveItems)
                     }
 
+                    if (plan.textGridPairings.isNotEmpty()) {
+                        TextGridQueuePreviewCard(
+                            textGridPairings = plan.textGridPairings,
+                            visualConfig = textGridVisualConfig,
+                            enabled = !isExecutingImport,
+                            onOpenVisualViewer = { tgFile, pairedAudio ->
+                                viewModel.openExternalTextGridViewer(tgFile, pairedAudio)
+                            }
+                        )
+                    }
+
                     val onlyStandaloneArchives = plan.archiveItems.isNotEmpty() &&
                         plan.wordlistItems.isEmpty() &&
                         plan.audioItems.isEmpty() &&
-                        plan.imageItems.isEmpty()
+                        plan.imageItems.isEmpty() &&
+                        plan.textGridItems.isEmpty()
 
                     if (!onlyStandaloneArchives) {
                         TargetDestinationSection(
@@ -1325,6 +1358,7 @@ private fun StagedCategorySummaryRow(
     totalParsedWords: Int,
     audioCount: Int,
     imageCount: Int,
+    textGridCount: Int = 0,
     onClearAll: (() -> Unit)?
 ) {
     val cs = MaterialTheme.colorScheme
@@ -1380,6 +1414,13 @@ private fun StagedCategorySummaryRow(
                         text = SSmartImport.badgeImageCount.withArgs("count" to imageCount),
                         bg = cs.surfaceContainerHighest,
                         fg = cs.onSurfaceVariant
+                    )
+                }
+                if (textGridCount > 0) {
+                    SummaryCountPill(
+                        text = SSmartImport.badgeTextGridCount.withArgs("count" to textGridCount),
+                        bg = cs.primaryContainer.copy(alpha = 0.85f),
+                        fg = cs.onPrimaryContainer
                     )
                 }
             }

@@ -1508,7 +1508,8 @@ data class TextGridStrings(
     val sampleSyllable1: String,
     val sampleSyllable2: String,
     val sampleToneCode: String,
-    val sampleToneDesc: String
+    val sampleToneDesc: String,
+    val visual: TextGridVisualStrings = ZhCnTextGridVisualStrings
 )
 
 @Immutable
@@ -4187,7 +4188,8 @@ private fun buildZhCnTextGrid(): TextGridStrings = TextGridStrings(
         sampleSyllable1 = "中",
         sampleSyllable2 = "国",
         sampleToneCode = "双音节调式 (55-35)",
-        sampleToneDesc = "高平 + 中升"
+        sampleToneDesc = "高平 + 中升",
+        visual = ZhCnTextGridVisualStrings
     )
 
 private fun buildZhCnWireless(): WirelessStrings = WirelessStrings(

@@ -3,8 +3,10 @@ package com.example.viewmodel
 import android.app.Application
 import android.content.Context
 import android.media.MediaPlayer
+import android.media.PlaybackParams
 import android.net.Uri
 import android.util.Log
+import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.Stable
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.ViewModel
@@ -27,6 +29,11 @@ import com.example.link.WirelessLinkCoordinator
 import com.example.link.WirelessLinkHostBridge
 import com.example.link.WirelessSessionArchiveManager
 import com.example.link.WirelessSessionCapsuleSummary
+import com.example.textgrid.codec.TextGridCodec
+import com.example.textgrid.model.TextGridDocument
+import com.example.textgrid.model.TextGridFormatVariant
+import com.example.textgrid.model.TextGridVisualConfig
+import com.example.textgrid.persistence.WordTextGridStore
 import com.example.utils.ExportOptions
 import com.example.utils.ExportSummary
 import com.example.utils.ImportArchiveSummary
@@ -198,6 +205,17 @@ class RecordingViewModel(
         TextGridFormatConfig.fromJsonString(sharedPrefs.getString("textgrid_format_config_v1", null))
     )
     val textGridFormatConfig = _textGridFormatConfig.asStateFlow()
+
+    private val _textGridVisualConfig = MutableStateFlow(
+        TextGridVisualConfig.fromJsonString(sharedPrefs.getString(TextGridVisualConfig.PREFS_KEY, null))
+    )
+    val textGridVisualConfig = _textGridVisualConfig.asStateFlow()
+
+    private val _textGridViewerSession = MutableStateFlow<TextGridViewerSession?>(null)
+    val textGridViewerSession = _textGridViewerSession.asStateFlow()
+
+    private val _textGridRefreshTrigger = MutableStateFlow(0)
+    val textGridRefreshTrigger = _textGridRefreshTrigger.asStateFlow()
 
     // Advanced Settings
     private val _sampleRateHz = MutableStateFlow(
@@ -401,6 +419,15 @@ class RecordingViewModel(
         setTextGridFormatConfig(next)
     }
 
+    fun setTextGridVisualConfig(config: TextGridVisualConfig) {
+        _textGridVisualConfig.value = config
+        sharedPrefs.edit().putString(TextGridVisualConfig.PREFS_KEY, config.toJsonString()).apply()
+    }
+
+    fun updateTextGridVisualConfig(transform: (TextGridVisualConfig) -> TextGridVisualConfig) {
+        setTextGridVisualConfig(transform(_textGridVisualConfig.value))
+    }
+
     fun setSampleRateHz(rate: Int) {
         _sampleRateHz.value = rate
         sharedPrefs.edit().putInt("sample_rate_hz", rate).apply()
@@ -561,6 +588,7 @@ class RecordingViewModel(
         setExportFolderPerSpeaker(false)
         setExportAppendNoteToFileName(false)
         setTextGridFormatConfig(TextGridFormatConfig())
+        setTextGridVisualConfig(TextGridVisualConfig())
         setVadThreshold(1200f)
         setSilenceDelayMs(1000L)
         setLowVolumeThreshold(250f)
@@ -666,6 +694,18 @@ class RecordingViewModel(
 
     private val _playbackProgress = MutableStateFlow(0f)
     val playbackProgress = _playbackProgress.asStateFlow()
+
+    private val _playbackRate = MutableStateFlow(1.0f)
+    val playbackRate = _playbackRate.asStateFlow()
+
+    private val _isRangeLooping = MutableStateFlow(false)
+    val isRangeLooping = _isRangeLooping.asStateFlow()
+
+    private val _playbackCurrentTimeSec = MutableStateFlow(0.0)
+    val playbackCurrentTimeSec = _playbackCurrentTimeSec.asStateFlow()
+
+    private val _isRangePlaybackActive = MutableStateFlow(false)
+    val isRangePlaybackActive = _isRangePlaybackActive.asStateFlow()
 
     init {
         viewModelScope.launch {
@@ -1408,6 +1448,27 @@ class RecordingViewModel(
                         projActiveBytes += len
                         activeBytesBySpeaker[activeEntry.speakerId] =
                             (activeBytesBySpeaker[activeEntry.speakerId] ?: 0L) + len
+                    } else if (file.extension.equals("textgrid", ignoreCase = true)) {
+                        val pairedWavName = "${file.nameWithoutExtension}.wav"
+                        val pairedActive = activeFileToEntry[pairedWavName]
+                        val pairedWavFile = File(projDir, pairedWavName)
+                        val pairedPair = parseWordAndSpeakerFromWavName(pairedWavName)
+                        when {
+                            pairedActive != null && pairedWavFile.isFile -> {
+                                projActiveBytes += len
+                                activeBytesBySpeaker[pairedActive.speakerId] =
+                                    (activeBytesBySpeaker[pairedActive.speakerId] ?: 0L) + len
+                            }
+                            pairedPair != null && pairedPair in activePairSet && pairedWavFile.isFile && pairedWavFile.length() > 44L -> {
+                                projBackupBytes += len
+                                val sid = pairedPair.second
+                                backupBytesBySpeaker[sid] = (backupBytesBySpeaker[sid] ?: 0L) + len
+                            }
+                            else -> {
+                                projOrphanBytes += len
+                                projOrphanCount++
+                            }
+                        }
                     } else {
                         val parsedPair = parseWordAndSpeakerFromWavName(file.name)
                         if (parsedPair != null && parsedPair in activePairSet && len > 44L) {
@@ -1573,9 +1634,18 @@ class RecordingViewModel(
                     dir.listFiles()?.forEach { file ->
                         if (!file.isFile) return@forEach
                         if (file.name !in activeNames) {
+                            val isValidSidecar = if (file.extension.equals("textgrid", ignoreCase = true)) {
+                                val pairedWavName = "${file.nameWithoutExtension}.wav"
+                                val pairedWavFile = File(dir, pairedWavName)
+                                val pairedPair = parseWordAndSpeakerFromWavName(pairedWavName)
+                                pairedWavFile.isFile && pairedWavFile.length() > 44L &&
+                                    (pairedWavName in activeNames || (pairedPair != null && pairedPair in activePairs))
+                            } else {
+                                false
+                            }
                             val pair = parseWordAndSpeakerFromWavName(file.name)
                             val isValidBackup = pair != null && pair in activePairs && file.length() > 44L
-                            if (!isValidBackup) {
+                            if (!isValidBackup && !isValidSidecar) {
                                 val len = file.length()
                                 if (file.delete()) {
                                     freedBytes += len
@@ -1996,7 +2066,9 @@ class RecordingViewModel(
         sortedNewestFirst.drop(maxTakes).forEach { file ->
             if (file.name != newestFile.name && file.name != protectedOriginalName) {
                 try {
-                    if (file.delete()) deletedAny = true
+                    if (file.delete()) {
+                        deletedAny = true
+                    }
                 } catch (ignored: Exception) {}
             }
         }
@@ -2548,6 +2620,7 @@ class RecordingViewModel(
                     val posMs = try { mp.currentPosition } catch (_: Exception) { playStartMs }
                     val progress = ((posMs - playStartMs) / playSpanMs).coerceIn(0f, 1f)
                     _playbackProgress.value = progress
+                    _playbackCurrentTimeSec.value = (posMs / 1000.0).coerceAtLeast(0.0)
                     if (trimTailActive && posMs >= playEndMs && elapsed >= 60L) {
                         _playbackProgress.value = 1f
                         break
@@ -2662,6 +2735,7 @@ class RecordingViewModel(
                     val posMs = try { mp.currentPosition } catch (_: Exception) { playStartMs }
                     val progress = ((posMs - playStartMs) / playSpanMs).coerceIn(0f, 1f)
                     _playbackProgress.value = progress
+                    _playbackCurrentTimeSec.value = (posMs / 1000.0).coerceAtLeast(0.0)
                     if (trimTailActive && posMs >= playEndMs && elapsed >= 60L) {
                         _playbackProgress.value = 1f
                         break
@@ -2700,6 +2774,211 @@ class RecordingViewModel(
         }
     }
 
+    fun setPlaybackRate(rate: Float) {
+        val clamped = rate.coerceIn(0.5f, 1.5f)
+        _playbackRate.value = clamped
+        val mp = mediaPlayer
+        if (mp != null) {
+            runCatching {
+                val params = try {
+                    mp.playbackParams
+                } catch (_: Exception) {
+                    PlaybackParams()
+                }
+                mp.playbackParams = params.setSpeed(clamped)
+            }
+        }
+    }
+
+    fun setRangeLooping(enabled: Boolean) {
+        _isRangeLooping.value = enabled
+    }
+
+    fun toggleRangeLooping() {
+        _isRangeLooping.value = !_isRangeLooping.value
+    }
+
+    fun seekPlaybackTime(timeSec: Double) {
+        val safeSec = timeSec.coerceAtLeast(0.0)
+        _playbackCurrentTimeSec.value = safeSec
+        val mp = mediaPlayer
+        if (mp != null) {
+            runCatching {
+                mp.seekTo((safeSec * 1000.0).toInt().coerceAtLeast(0))
+            }
+        }
+    }
+
+    /**
+     * Plays an arbitrary time window `[startSec, endSec]` from [audioFile] with variable speed
+     * (`0.5x..1.5x`) and optional looping. When [audioFile] is null or missing (e.g. Settings live
+     * demo or annotation-only external `.TextGrid`), drives a smooth 60fps wall-clock playhead sweep.
+     */
+    fun playAudioRange(
+        audioFile: File?,
+        startSec: Double,
+        endSec: Double,
+        loop: Boolean = _isRangeLooping.value,
+        rate: Float = _playbackRate.value,
+        totalDurationSec: Double? = null,
+        tagId: Long = TEXTGRID_PLAYBACK_TAG_ID
+    ) {
+        stopPlayback()
+        val safeRate = rate.coerceIn(0.5f, 1.5f)
+        _playbackRate.value = safeRate
+        _isRangeLooping.value = loop
+        _playingWordId.value = tagId
+        _isRangePlaybackActive.value = true
+        _playbackProgress.value = 0f
+
+        val hasRealAudio = audioFile != null && audioFile.exists() && audioFile.length() > 44L
+        if (!hasRealAudio) {
+            val safeStart = startSec.coerceAtLeast(0.0)
+            val fallbackEnd = totalDurationSec?.takeIf { it.isFinite() && it > safeStart + 0.02 } ?: (safeStart + 1.0)
+            val safeEnd = if (endSec.isFinite() && endSec > safeStart + 0.02) endSec else fallbackEnd
+            val spanSec = (safeEnd - safeStart).coerceAtLeast(0.05)
+            _playbackCurrentTimeSec.value = safeStart
+
+            playbackJob = viewModelScope.launch(Dispatchers.Default) {
+                try {
+                    var cursorSec = safeStart
+                    var lastNanos = System.nanoTime()
+                    while (_playingWordId.value == tagId && _isRangePlaybackActive.value) {
+                        val now = System.nanoTime()
+                        val dtSec = ((now - lastNanos) / 1_000_000_000.0).coerceIn(0.0, 0.1)
+                        lastNanos = now
+                        cursorSec += dtSec * _playbackRate.value.toDouble()
+                        if (cursorSec >= safeEnd) {
+                            if (_isRangeLooping.value) {
+                                cursorSec = safeStart
+                            } else {
+                                _playbackCurrentTimeSec.value = safeEnd
+                                _playbackProgress.value = 1f
+                                break
+                            }
+                        } else {
+                            _playbackCurrentTimeSec.value = cursorSec
+                            _playbackProgress.value = ((cursorSec - safeStart) / spanSec).toFloat().coerceIn(0f, 1f)
+                        }
+                        delay(16L)
+                    }
+                } finally {
+                    if (_playingWordId.value == tagId) {
+                        _playingWordId.value = null
+                        _isRangePlaybackActive.value = false
+                        _playbackProgress.value = 0f
+                    }
+                }
+            }
+            return
+        }
+
+        val targetAudio = audioFile!!
+        playbackJob = viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val completed = java.util.concurrent.atomic.AtomicBoolean(false)
+                val mp = MediaPlayer().apply {
+                    setDataSource(context, Uri.fromFile(targetAudio))
+                    prepare()
+                }
+                val exactWavSec = AcousticAnalyzer.getExactWavDurationSec(targetAudio)
+                val realDurSec = maxOf(
+                    mp.duration / 1000.0,
+                    exactWavSec,
+                    totalDurationSec?.takeIf { it.isFinite() } ?: 0.0
+                ).coerceAtLeast(0.05)
+
+                val playStartSec = startSec.coerceIn(0.0, (realDurSec - 0.01).coerceAtLeast(0.0))
+                val playEndSec = if (endSec.isFinite() && endSec > playStartSec + 0.01) {
+                    endSec.coerceAtMost(realDurSec)
+                } else {
+                    realDurSec
+                }
+                val playStartMs = (playStartSec * 1000.0).toInt().coerceAtLeast(0)
+                val playEndMs = (playEndSec * 1000.0).toInt().coerceAtLeast(playStartMs + 10)
+                val spanMs = (playEndMs - playStartMs).coerceAtLeast(1).toFloat()
+
+                val finished = java.util.concurrent.atomic.AtomicBoolean(false)
+                fun finishOnce() {
+                    if (!finished.compareAndSet(false, true)) return
+                    if (_playingWordId.value == tagId) {
+                        _playingWordId.value = null
+                        _isRangePlaybackActive.value = false
+                        _playbackProgress.value = 0f
+                    }
+                    if (mediaPlayer === mp) {
+                        mediaPlayer = null
+                    }
+                    viewModelScope.launch(Dispatchers.IO) {
+                        try { mp.stop() } catch (_: Exception) {}
+                        try { mp.release() } catch (_: Exception) {}
+                    }
+                }
+
+                mp.setOnCompletionListener {
+                    completed.set(true)
+                }
+                runCatching {
+                    val params = try { mp.playbackParams } catch (_: Exception) { PlaybackParams() }
+                    mp.playbackParams = params.setSpeed(_playbackRate.value)
+                }
+                if (playStartMs > 0) {
+                    runCatching { mp.seekTo(playStartMs) }
+                }
+                _playbackCurrentTimeSec.value = playStartSec
+                mediaPlayer = mp
+                mp.start()
+
+                var loopAnchorWallMs = System.currentTimeMillis()
+                while (!finished.get() && _playingWordId.value == tagId && _isRangePlaybackActive.value) {
+                    val wallElapsedMs = System.currentTimeMillis() - loopAnchorWallMs
+                    val playingNow = try { mp.isPlaying } catch (_: Exception) { false }
+                    val posMs = try { mp.currentPosition } catch (_: Exception) { playStartMs }
+                    val posSec = (posMs / 1000.0).coerceIn(playStartSec, playEndSec)
+                    _playbackCurrentTimeSec.value = posSec
+                    _playbackProgress.value = ((posMs - playStartMs) / spanMs).coerceIn(0f, 1f)
+
+                    val expectedSpanWallMs = (spanMs / _playbackRate.value.coerceAtLeast(0.5f)).toLong()
+                    val reachedRangeEnd = (posMs >= playEndMs - 12 && wallElapsedMs >= 35L) ||
+                        completed.get() ||
+                        (!playingNow && wallElapsedMs > 250L) ||
+                        (wallElapsedMs > expectedSpanWallMs + 1200L)
+
+                    if (reachedRangeEnd) {
+                        if (_isRangeLooping.value && _playingWordId.value == tagId && _isRangePlaybackActive.value) {
+                            completed.set(false)
+                            runCatching {
+                                if (mp.isPlaying) mp.pause()
+                                mp.seekTo(playStartMs)
+                                val params = try { mp.playbackParams } catch (_: Exception) { PlaybackParams() }
+                                mp.playbackParams = params.setSpeed(_playbackRate.value)
+                                mp.start()
+                            }
+                            _playbackCurrentTimeSec.value = playStartSec
+                            _playbackProgress.value = 0f
+                            loopAnchorWallMs = System.currentTimeMillis()
+                        } else {
+                            _playbackCurrentTimeSec.value = playEndSec
+                            _playbackProgress.value = 1f
+                            break
+                        }
+                    }
+                    delay(16L)
+                }
+                finishOnce()
+            } catch (e: Exception) {
+                if (e !is CancellationException) {
+                    Log.e(tag, "playAudioRange error: ${e.message}")
+                }
+                if (_playingWordId.value == tagId) {
+                    _playingWordId.value = null
+                    _isRangePlaybackActive.value = false
+                    _playbackProgress.value = 0f
+                }
+            }
+        }
+    }
+
     fun stopPlayback(preserveContinuousState: Boolean = false) {
         if (!preserveContinuousState) {
             _isContinuousPlaying.value = false
@@ -2711,6 +2990,7 @@ class RecordingViewModel(
         val oldPlayer = mediaPlayer
         mediaPlayer = null
         _playingWordId.value = null
+        _isRangePlaybackActive.value = false
         _playbackProgress.value = 0f
         if (oldPlayer != null) {
             viewModelScope.launch(Dispatchers.IO) {
@@ -2738,6 +3018,7 @@ class RecordingViewModel(
             invalidateProjectTakesIndex(project.id)
             repository.deleteSpeakerRecording(word.id, speaker.id)
             _takesRefreshTrigger.value++
+            _textGridRefreshTrigger.value++
             forceRefreshCounts()
         }
     }
@@ -2762,8 +3043,96 @@ class RecordingViewModel(
         viewModelScope.launch(Dispatchers.IO) {
             repository.deleteWordFromProject(word, context)
             invalidateProjectTakesIndex(word.projectId)
+            _textGridRefreshTrigger.value++
             forceRefreshCounts()
         }
+    }
+
+    // =========================================================================
+    // Pure Read-Only TextGrid Document Loading & Full-Screen Viewer Session
+    // =========================================================================
+
+    fun openWordTextGridViewer(
+        word: Word,
+        speakerId: Long?,
+        audioFile: File?
+    ) {
+        stopPlayback()
+        _textGridViewerSession.value = TextGridViewerSession.WordEntry(
+            word = word,
+            speakerId = speakerId,
+            audioFile = audioFile,
+            title = word.text,
+            subtitle = word.speakerNote.ifBlank { word.remark }
+        )
+    }
+
+    fun openExternalTextGridViewer(
+        textGridFile: File,
+        pairedAudioFile: File? = null
+    ) {
+        stopPlayback()
+        val resolvedAudio = pairedAudioFile?.takeIf { it.exists() }
+            ?: WordTextGridStore.findPairedAudioForTextGrid(textGridFile)
+        _textGridViewerSession.value = TextGridViewerSession.ExternalFile(
+            textGridFile = textGridFile,
+            audioFile = resolvedAudio,
+            title = textGridFile.name,
+            subtitle = textGridFile.parentFile?.name.orEmpty()
+        )
+    }
+
+    fun closeTextGridViewer() {
+        stopPlayback()
+        _textGridViewerSession.value = null
+    }
+
+    suspend fun loadWordTextGridDocument(
+        word: Word,
+        audioFile: File?,
+        speaker: Speaker? = _currentSpeaker.value
+    ): WordTextGridLoadResult = withContext(Dispatchers.IO) {
+        val formatConfig = _textGridFormatConfig.value
+        val spPrefs = context.getSharedPreferences("speaker_prefs", Context.MODE_PRIVATE)
+        val pMin = spPrefs.getFloat("pitch_min_${speaker?.id ?: -1L}", -1f)
+        val pMax = spPrefs.getFloat("pitch_max_${speaker?.id ?: -1L}", -1f)
+        val pRange = if (pMin > 40f && pMax > pMin + 15f) Pair(pMin, pMax) else null
+
+        val exactDur = AcousticAnalyzer.getExactWavDurationSec(audioFile)
+        val parts = ZipUtility.extractSyllableLabels(word.text)
+        val rawResult = if (audioFile != null && audioFile.exists() && audioFile.length() > 44L) {
+            AcousticAnalyzer.analyzeByGender(
+                file = audioFile,
+                speakerGender = speaker?.gender,
+                segmentCount = parts.size.coerceAtLeast(1),
+                pitchRange = pRange,
+                segmentLabels = parts
+            )
+        } else {
+            null
+        }
+        val generatedText = ZipUtility.buildPraatTextGrid(
+            word = word,
+            analysis = rawResult,
+            exactDurationSec = exactDur,
+            config = formatConfig
+        )
+        val parsedGenerated = TextGridCodec.parseText(generatedText, defaultName = word.text)
+        val safeDoc = parsedGenerated.document ?: TextGridDocument.empty(
+            xmax = exactDur.coerceAtLeast(0.5),
+            name = word.text
+        )
+        val variant = if (formatConfig.shortTextFormat) {
+            TextGridFormatVariant.SHORT_TEXT
+        } else {
+            TextGridFormatVariant.LONG_TEXT
+        }
+        WordTextGridLoadResult(
+            document = safeDoc,
+            rawSource = parsedGenerated.normalizedSource ?: generatedText,
+            formatVariant = variant,
+            analysisResult = rawResult
+        )
     }
 
     /**
@@ -3356,6 +3725,30 @@ class RecordingViewModel(
     }
 
     companion object {
+        const val TEXTGRID_PLAYBACK_TAG_ID: Long = -9401L
+
+        private val _externalTextGridOpenRequests = MutableSharedFlow<Pair<File, File?>>(extraBufferCapacity = 4)
+        val externalTextGridOpenRequests: SharedFlow<Pair<File, File?>> = _externalTextGridOpenRequests.asSharedFlow()
+
+        private val _navigateToTextGridSettingsRequests = MutableSharedFlow<Unit>(extraBufferCapacity = 4)
+        val navigateToTextGridSettingsRequests: SharedFlow<Unit> = _navigateToTextGridSettingsRequests.asSharedFlow()
+
+        /**
+         * Global bridge allowing components without a direct [RecordingViewModel] reference
+         * (such as DesktopStudioFilePicker) to launch the full-screen TextGrid editor.
+         */
+        fun requestOpenExternalTextGrid(textGridFile: File, pairedAudioFile: File? = null) {
+            _externalTextGridOpenRequests.tryEmit(textGridFile to pairedAudioFile)
+        }
+
+        /**
+         * Global bridge allowing screens (such as ProjectExportScreen or QuickSettingsSheet)
+         * to jump straight to `SettingsCategory.PRAAT_TEXTGRID`.
+         */
+        fun requestNavigateToTextGridSettings() {
+            _navigateToTextGridSettingsRequests.tryEmit(Unit)
+        }
+
         val DEFAULT_DIALECT_IPA_INITIALS = listOf(
             "p", "pʰ", "b", "m", "f", "ʋ",
             "t", "tʰ", "d", "n", "l",
@@ -3377,4 +3770,39 @@ class RecordingViewModel(
         )
     }
 }
+
+/**
+ * Active full-screen read-only TextGrid viewer session managed by [RecordingViewModel].
+ */
+@Immutable
+sealed interface TextGridViewerSession {
+    val title: String
+    val subtitle: String
+    val audioFile: File?
+
+    data class WordEntry(
+        val word: Word,
+        val speakerId: Long?,
+        override val audioFile: File?,
+        override val title: String = word.text,
+        override val subtitle: String = word.speakerNote.ifBlank { word.remark }
+    ) : TextGridViewerSession
+
+    data class ExternalFile(
+        val textGridFile: File,
+        override val audioFile: File? = null,
+        override val title: String = textGridFile.name,
+        override val subtitle: String = textGridFile.parentFile?.name.orEmpty()
+    ) : TextGridViewerSession
+}
+
+/**
+ * Loaded read-only word TextGrid payload built from auto-segmentation and template settings.
+ */
+data class WordTextGridLoadResult(
+    val document: TextGridDocument,
+    val rawSource: String,
+    val formatVariant: TextGridFormatVariant = TextGridFormatVariant.LONG_TEXT,
+    val analysisResult: AcousticAnalyzer.AnalysisResult? = null
+)
 

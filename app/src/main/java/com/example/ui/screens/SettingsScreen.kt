@@ -65,6 +65,8 @@ fun SettingsScreen(
     viewModel: RecordingViewModel,
     onBack: () -> Unit,
     onOpenRecordingsCleanup: () -> Unit,
+    initialCategoryId: String? = null,
+    categoryJumpSeq: Int = 0,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -89,6 +91,7 @@ fun SettingsScreen(
     val exportNamingStyle by viewModel.exportNamingStyle.collectAsState()
     val exportFolderPerSpeaker by viewModel.exportFolderPerSpeaker.collectAsState()
     val textGridConfig by viewModel.textGridFormatConfig.collectAsState()
+    val textGridVisualConfig by viewModel.textGridVisualConfig.collectAsState()
 
     val themeMode by viewModel.themeMode.collectAsState()
     val themePaletteId by viewModel.themePaletteId.collectAsState()
@@ -117,8 +120,17 @@ fun SettingsScreen(
     // Hierarchical navigation state:
     // - Mobile: null = Main Menu (主菜单), non-null = Secondary Page (二级页面)
     // - Desktop / Wide: Sidebar selection (侧栏) + Right Main Pane (主栏)
-    var mobileActiveCategoryId by rememberSaveable { mutableStateOf<String?>(null) }
-    var desktopSelectedCategoryId by rememberSaveable { mutableStateOf(SettingsCategory.INTERFACE_MODE.id) }
+    var mobileActiveCategoryId by rememberSaveable { mutableStateOf<String?>(initialCategoryId) }
+    var desktopSelectedCategoryId by rememberSaveable {
+        mutableStateOf(initialCategoryId ?: SettingsCategory.INTERFACE_MODE.id)
+    }
+
+    LaunchedEffect(initialCategoryId, categoryJumpSeq) {
+        if (!initialCategoryId.isNullOrBlank()) {
+            mobileActiveCategoryId = initialCategoryId
+            desktopSelectedCategoryId = initialCategoryId
+        }
+    }
 
     val visibleCategories = remember(isSimpleMode) {
         SettingsCategory.visibleCategories(isSimpleMode)
@@ -357,8 +369,10 @@ fun SettingsScreen(
                 PraatTextGridCategoryContent(
                     isSimpleMode = isSimpleMode,
                     textGridConfig = textGridConfig,
+                    visualConfig = textGridVisualConfig,
                     onSelectPreset = { preset -> viewModel.selectTextGridPreset(preset) },
                     onUpdateConfig = { updated -> viewModel.setTextGridFormatConfig(updated) },
+                    onUpdateVisualConfig = { updated -> viewModel.setTextGridVisualConfig(updated) },
                     onSwitchToAdvancedMode = { viewModel.setSimpleMode(false) },
                     onCustomInputActiveChange = { active -> isTextGridCustomInputActive = active }
                 )

@@ -40,10 +40,13 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.material.icons.filled.GraphicEq
 import androidx.compose.material.icons.filled.Image
+import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.TableChart
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.HorizontalDivider
@@ -86,12 +89,16 @@ import com.example.ui.components.StudioHorizontalScrollStrip
 import com.example.ui.components.StudioModalDialog
 import com.example.ui.components.rememberStudioInteraction
 import com.example.ui.components.studioAnimateItem
+import com.example.textgrid.model.TextGridVisualConfig
+import com.example.textgrid.ui.TextGridMiniStrip
 import com.example.utils.AudioWordPairingRow
 import com.example.utils.CandidateTargetWord
 import com.example.utils.ImportItemKind
 import com.example.utils.PairingMatchKind
 import com.example.utils.SmartImportEngine
 import com.example.utils.StagedImportItem
+import com.example.utils.TextGridPairingRow
+import java.io.File
 import java.util.Locale
 
 internal data class KindVisualStyle(
@@ -126,6 +133,18 @@ internal fun resolveKindVisualStyle(kind: ImportItemKind, cs: ColorScheme): Kind
             contentColor = cs.onSurfaceVariant,
             icon = Icons.Default.Image,
             badgeLabel = SSmartImport.kindImageLabel
+        )
+        ImportItemKind.TEXTGRID -> KindVisualStyle(
+            containerColor = cs.primaryContainer,
+            contentColor = cs.onPrimaryContainer,
+            icon = Icons.Default.GraphicEq,
+            badgeLabel = SSmartImport.kindTextGridLabel
+        )
+        ImportItemKind.PRAAT_COLLECTION -> KindVisualStyle(
+            containerColor = cs.tertiaryContainer,
+            contentColor = cs.onTertiaryContainer,
+            icon = Icons.Default.GraphicEq,
+            badgeLabel = SSmartImport.kindPraatCollectionLabel
         )
         ImportItemKind.UNSUPPORTED -> KindVisualStyle(
             containerColor = cs.errorContainer,
@@ -201,6 +220,18 @@ internal fun StagedImportFileRow(
                 ImportItemKind.PROMPT_IMAGE -> {
                     val sz = formatCompactSize(item.sizeBytes)
                     if (sz.isNotEmpty()) add(sz)
+                }
+                ImportItemKind.TEXTGRID, ImportItemKind.PRAAT_COLLECTION -> {
+                    val tg = item.textGridInspect
+                    if (tg != null) {
+                        add("${tg.tierCount} 层")
+                        if (tg.totalIntervals > 0) add("${tg.totalIntervals} 区间")
+                        if (tg.totalPoints > 0) add("${tg.totalPoints} 点")
+                        if (tg.durationSec > 0.0) add(String.format(Locale.US, "%.2fs", tg.durationSec))
+                    }
+                    if (item.pairedAudioFile != null) {
+                        add("已配对音频")
+                    }
                 }
                 ImportItemKind.UNSUPPORTED -> {
                     if (!item.errorHint.isNullOrBlank()) add(item.errorHint)
@@ -300,6 +331,187 @@ internal fun StagedImportFileRow(
                     tint = cs.onSurfaceVariant,
                     modifier = Modifier.size(16.dp)
                 )
+            }
+        }
+    }
+}
+
+@Composable
+internal fun TextGridQueuePreviewCard(
+    textGridPairings: List<TextGridPairingRow>,
+    visualConfig: TextGridVisualConfig,
+    enabled: Boolean,
+    onOpenVisualViewer: (File, File?) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    if (textGridPairings.isEmpty()) return
+    val cs = MaterialTheme.colorScheme
+    Column(
+        modifier = modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        textGridPairings.forEach { pair ->
+            val item = pair.textGridItem
+            val inspect = item.textGridInspect ?: return@forEach
+            val openTargetFile = item.sourceLocalFile ?: item.localTempFile
+            val pairedAudio = pair.pairedAudioFile
+
+            Surface(
+                shape = RoundedCornerShape(16.dp),
+                color = cs.surface,
+                border = BorderStroke(1.dp, cs.outlineVariant.copy(alpha = 0.6f)),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(14.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = cs.primaryContainer
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.GraphicEq,
+                                    contentDescription = null,
+                                    tint = cs.onPrimaryContainer,
+                                    modifier = Modifier.size(14.dp)
+                                )
+                                Text(
+                                    text = inspect.formatLabel,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = cs.onPrimaryContainer
+                                )
+                            }
+                        }
+
+                        if (pairedAudio != null) {
+                            Surface(
+                                shape = RoundedCornerShape(8.dp),
+                                color = cs.secondaryContainer
+                            ) {
+                                Text(
+                                    text = "配对音频：${pairedAudio.name}",
+                                    fontSize = 10.5.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = cs.onSecondaryContainer,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier
+                                        .widthIn(max = 180.dp)
+                                        .padding(horizontal = 7.dp, vertical = 3.dp)
+                                )
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.weight(1f))
+
+                        if (openTargetFile != null) {
+                            FilledTonalButton(
+                                onClick = { onOpenVisualViewer(openTargetFile, pairedAudio) },
+                                enabled = enabled,
+                                shape = RoundedCornerShape(10.dp),
+                                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                                modifier = Modifier
+                                    .defaultMinSize(minHeight = 36.dp)
+                                    .pointerHoverIcon(PointerIcon.Hand)
+                                    .testTag("smart_import_view_tg_${item.id}")
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Visibility,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(15.dp)
+                                )
+                                Spacer(modifier = Modifier.width(5.dp))
+                                Text(
+                                    text = "全屏查看",
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    maxLines = 1,
+                                    softWrap = false
+                                )
+                            }
+                        }
+                    }
+
+                    Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                        Text(
+                            text = item.displayName,
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = cs.onSurface,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        val metaLine = buildString {
+                            append("${inspect.tierCount} 层")
+                            if (inspect.intervalTierCount > 0) append("（区间层 ${inspect.intervalTierCount}）")
+                            if (inspect.textTierCount > 0) append("（点层 ${inspect.textTierCount}）")
+                            append(" · ${inspect.totalIntervals} 区间")
+                            if (inspect.totalPoints > 0) append(" / ${inspect.totalPoints} 标点")
+                            append(String.format(Locale.US, " · %.2fs", inspect.durationSec))
+                            if (pair.targetWord != null) {
+                                append(" · 已匹配词条「${pair.targetWord.text}」")
+                            }
+                        }
+                        Text(
+                            text = metaLine,
+                            fontSize = 11.5.sp,
+                            color = cs.onSurfaceVariant,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+
+                    if (inspect.anomalyCount > 0) {
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = cs.errorContainer.copy(alpha = 0.5f),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Warning,
+                                    contentDescription = null,
+                                    tint = cs.error,
+                                    modifier = Modifier.size(15.dp)
+                                )
+                                Text(
+                                    text = "检测到 ${inspect.anomalyCount} 处间隙/重叠提示（谱面已如实标注）。",
+                                    fontSize = 11.sp,
+                                    color = cs.onErrorContainer
+                                )
+                            }
+                        }
+                    }
+
+                    TextGridMiniStrip(
+                        doc = inspect.document,
+                        visualConfig = visualConfig,
+                        rawSourceOverride = inspect.rawSourceText,
+                        maxHeight = 164.dp,
+                        onOpenFullViewer = if (openTargetFile != null && enabled) {
+                            { onOpenVisualViewer(openTargetFile, pairedAudio) }
+                        } else null,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
             }
         }
     }

@@ -680,7 +680,8 @@ object CorpusPhonologyAnalyzer {
 
         val avgClusterSd = sdContour.average().toFloat().coerceAtLeast(0.075f)
         val meanF0 = feats.map { it.res.pitchMean }.average().toFloat()
-        val meanDurMs = feats.map { it.res.voicedDurationMs }.average().roundToInt().coerceAtLeast(40)
+        val avgDurRaw = feats.map { it.res.voicedDurationMs }.average()
+        val meanDurMs = (if (avgDurRaw.isFinite()) avgDurRaw.roundToInt() else 180).coerceAtLeast(40)
         val relDurRatio = if (isCheckedCategory) {
             (meanDurMs.toFloat() / medianSmoothDurationMs.coerceAtLeast(180).toFloat()).coerceIn(0.36f, 0.62f)
         } else {

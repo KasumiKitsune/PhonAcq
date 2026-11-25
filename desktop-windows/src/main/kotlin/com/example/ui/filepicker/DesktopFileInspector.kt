@@ -2,6 +2,10 @@ package com.example.ui.filepicker
 
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.toComposeImageBitmap
+import com.example.textgrid.codec.TextGridCodec
+import com.example.textgrid.model.TextGridDocument
+import com.example.textgrid.model.TextGridFormatVariant
+import com.example.textgrid.persistence.WordTextGridStore
 import java.awt.RenderingHints
 import java.awt.image.BufferedImage
 import java.io.File
@@ -34,6 +38,22 @@ enum class StudioFileSemanticKind(
     OTHER("FILE", "通用文件")
 }
 
+data class TextGridInspectorDetail(
+    val document: TextGridDocument,
+    val rawSourceText: String,
+    val variantLabel: String,
+    val encodingLabel: String,
+    val durationSec: Double,
+    val tierCount: Int,
+    val intervalTierCount: Int,
+    val textTierCount: Int,
+    val totalIntervals: Int,
+    val totalPoints: Int,
+    val collectionDocCount: Int = 1,
+    val anomalySummary: String? = null,
+    val pairedAudioFile: File? = null
+)
+
 data class FileInspectorPreview(
     val file: File,
     val kind: StudioFileSemanticKind,
@@ -42,13 +62,17 @@ data class FileInspectorPreview(
     val summaryHighlight: String? = null,
     val imageDimensions: String? = null,
     val textSnippet: String? = null,
-    val archiveDetails: List<String> = emptyList()
+    val archiveDetails: List<String> = emptyList(),
+    val textGridDetail: TextGridInspectorDetail? = null,
+    val textGridParseError: String? = null,
+    val pairedAudioFile: File? = null
 )
 
 object DesktopFileInspector {
 
     private val IMAGE_EXTENSIONS = setOf("png", "jpg", "jpeg", "webp", "bmp", "gif")
-    private val TEXT_PREVIEW_EXTENSIONS = setOf("txt", "csv", "tsv", "textgrid", "json", "md", "collection")
+    private val TEXTGRID_EXTENSIONS = setOf("textgrid", "collection")
+    private val TEXT_PREVIEW_EXTENSIONS = setOf("txt", "csv", "tsv", "json", "md")
 
     private val thumbnailCache: MutableMap<String, ImageBitmap> = Collections.synchronizedMap(
         object : LinkedHashMap<String, ImageBitmap>(96, 0.75f, true) {
@@ -159,6 +183,72 @@ object DesktopFileInspector {
                     imageDimensions = dims?.let { "${it.first} × ${it.second} px" },
                     summaryHighlight = dims?.let { "像素尺寸 ${it.first} × ${it.second}" }
                 )
+            }
+
+            ext in TEXTGRID_EXTENSIONS || file.name.lowercase(Locale.ROOT).endsWith(".textgrid.gz") -> {
+                val parsed = runCatching { TextGridCodec.parseFile(file) }.getOrNull()
+                val pairedAudio = runCatching { WordTextGridStore.findPairedAudioForTextGrid(file) }.getOrNull()
+                val doc = parsed?.document
+                if (parsed != null && parsed.isSuccess && doc != null) {
+                    val variantLabel = when (parsed.detectedVariant) {
+                        TextGridFormatVariant.LONG_TEXT -> "长文本 (ooTextFile)"
+                        TextGridFormatVariant.SHORT_TEXT -> "短文本 (short)"
+                        TextGridFormatVariant.BINARY -> "二进制 (ooBinaryFile)"
+                        TextGridFormatVariant.CHRONOLOGICAL -> "时序格式 (Chronological)"
+                    }
+                    val rawSrc = parsed.normalizedSource ?: TextGridCodec.serialize(doc, TextGridFormatVariant.LONG_TEXT)
+                    val anomalyHint = if (parsed.anomalies.isNotEmpty()) {
+                        "检测到 ${parsed.anomalies.size} 处间隙/重叠提示（已如实标注）"
+                    } else null
+                    val statsBadge = buildString {
+                        append("${doc.tierCount} 层")
+                        if (doc.totalIntervalCount > 0) append(" · ${doc.totalIntervalCount} 区间")
+                        if (doc.totalPointCount > 0) append(" · ${doc.totalPointCount} 标点")
+                        append(String.format(Locale.US, " · %.2fs", doc.duration))
+                        if (parsed.collectionDocuments.size > 1) {
+                            append("（集合共 ${parsed.collectionDocuments.size} 份）")
+                        }
+                    }
+                    FileInspectorPreview(
+                        file = file,
+                        kind = StudioFileSemanticKind.TEXTGRID,
+                        formattedSize = sizeText,
+                        formattedModified = modifiedText,
+                        summaryHighlight = statsBadge,
+                        textSnippet = rawSrc.lines().take(16).joinToString("\n"),
+                        textGridDetail = TextGridInspectorDetail(
+                            document = doc,
+                            rawSourceText = rawSrc,
+                            variantLabel = variantLabel,
+                            encodingLabel = parsed.detectedEncoding,
+                            durationSec = doc.duration,
+                            tierCount = doc.tierCount,
+                            intervalTierCount = doc.intervalTierCount,
+                            textTierCount = doc.textTierCount,
+                            totalIntervals = doc.totalIntervalCount,
+                            totalPoints = doc.totalPointCount,
+                            collectionDocCount = parsed.collectionDocuments.size.coerceAtLeast(1),
+                            anomalySummary = anomalyHint,
+                            pairedAudioFile = pairedAudio
+                        ),
+                        pairedAudioFile = pairedAudio
+                    )
+                } else {
+                    val fatalMsg = parsed?.fatalDiagnostics?.firstOrNull()?.let { d ->
+                        "第 ${d.line} 行：${d.message}"
+                    } ?: "无法解析为有效 Praat TextGrid"
+                    val snippetPair = readSmartTextSnippet(file, maxLines = 14)
+                    FileInspectorPreview(
+                        file = file,
+                        kind = StudioFileSemanticKind.TEXTGRID,
+                        formattedSize = sizeText,
+                        formattedModified = modifiedText,
+                        summaryHighlight = "语法异常 · $fatalMsg",
+                        textSnippet = snippetPair?.second,
+                        textGridParseError = fatalMsg,
+                        pairedAudioFile = pairedAudio
+                    )
+                }
             }
 
             ext in TEXT_PREVIEW_EXTENSIONS -> {

@@ -67,6 +67,7 @@ import com.example.ui.components.rememberPredictiveBackVisualState
 import com.example.ui.components.rememberStudioInteraction
 import com.example.ui.components.studioRotateOn
 import com.example.ui.components.studioTactile
+import com.example.textgrid.model.TextGridVisualConfig
 import com.example.ui.theme.PhonAcqThemePalette
 import com.example.utils.TextGridFormatConfig
 import com.example.utils.TextGridPreset
@@ -127,7 +128,7 @@ enum class SettingsCategory(
         id = "praat_textgrid",
         group = SettingsMenuGroup.ACOUSTICS_AND_FORMAT,
         icon = Icons.Default.AccountTree,
-        availableInSimpleMode = false
+        availableInSimpleMode = true
     ),
     AUDIO_HARDWARE(
         id = "audio_hardware",
@@ -1037,94 +1038,23 @@ internal fun QuickNotesCategoryContent(
 internal fun PraatTextGridCategoryContent(
     isSimpleMode: Boolean,
     textGridConfig: TextGridFormatConfig,
+    visualConfig: TextGridVisualConfig = TextGridVisualConfig(),
     onSelectPreset: (TextGridPreset) -> Unit,
     onUpdateConfig: (TextGridFormatConfig) -> Unit,
+    onUpdateVisualConfig: (TextGridVisualConfig) -> Unit = {},
     onSwitchToAdvancedMode: () -> Unit,
     onCustomInputActiveChange: (Boolean) -> Unit
 ) {
-    if (isSimpleMode) {
-        SettingsGroupCard(title = S.settings.cardPraatPresetsTitle) {
-            Text(
-                text = S.settings.praatPresetsGuide,
-                fontSize = 12.5.sp,
-                lineHeight = 18.sp,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-            FlowRow(
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                listOf(
-                    TextGridPreset.UNIVERSAL_STANDARD to S.settings.presetOptionUniversal,
-                    TextGridPreset.MFA_WORDS_PHONES to S.settings.presetOptionMfa,
-                    TextGridPreset.CHINESE_DIALECT to S.settings.presetOptionDialect,
-                    TextGridPreset.PROSODY_SYLLABLES to S.settings.presetOptionProsody,
-                    TextGridPreset.PHONTRACER_COMPAT to S.settings.presetOptionPhonTracer
-                ).forEach { (preset, label) ->
-                    StudioFilterChip(
-                        selected = textGridConfig.preset == preset,
-                        onClick = { onSelectPreset(preset) },
-                        labelText = label
-                    )
-                }
-            }
-            Surface(
-                shape = RoundedCornerShape(12.dp),
-                color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Column(
-                    modifier = Modifier.padding(12.dp),
-                    verticalArrangement = Arrangement.spacedBy(4.dp)
-                ) {
-                    Text(
-                        text = S.settings.currentActivePresetLine.withArgs(
-                            "preset" to textGridConfig.preset.title,
-                            "summary" to textGridConfig.shortSummaryLabel()
-                        ),
-                        fontSize = 12.5.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.primary
-                    )
-                    Text(
-                        text = textGridConfig.preset.description,
-                        fontSize = 12.sp,
-                        lineHeight = 17.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-            }
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = S.settings.switchToAdvForCustomTgNote,
-                    fontSize = 12.sp,
-                    lineHeight = 17.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.weight(1f).padding(end = 10.dp)
-                )
-                FilledTonalButton(
-                    onClick = onSwitchToAdvancedMode,
-                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
-                ) {
-                    Text(S.settings.switchToAdvCustomButton, fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                }
-            }
-        }
-    } else {
-        SettingsGroupCard(title = S.settings.cardAdvTextGridTitle) {
-            TextGridSettingsSection(
-                config = textGridConfig,
-                onSelectPreset = onSelectPreset,
-                onUpdateConfig = onUpdateConfig,
-                onCustomInputActiveChange = onCustomInputActiveChange
-            )
-        }
-    }
+    TextGridSettingsSection(
+        config = textGridConfig,
+        visualConfig = visualConfig,
+        isSimpleMode = isSimpleMode,
+        onSelectPreset = onSelectPreset,
+        onUpdateConfig = onUpdateConfig,
+        onUpdateVisualConfig = onUpdateVisualConfig,
+        onSwitchToAdvancedMode = onSwitchToAdvancedMode,
+        onCustomInputActiveChange = onCustomInputActiveChange
+    )
 }
 
 @OptIn(ExperimentalLayoutApi::class)
@@ -1699,7 +1629,7 @@ private fun ThemePaletteSwatchCard(
 }
 
 @Composable
-internal fun SettingsGroupCard(
+fun SettingsGroupCard(
     title: String,
     content: @Composable ColumnScope.() -> Unit
 ) {
